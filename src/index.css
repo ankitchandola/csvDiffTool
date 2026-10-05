@@ -76,3 +76,4 @@ button.tab.active { color: var(--accent); border-bottom-color: var(--accent); fo
 .change-column { font-weight: 600; }
 .before { color: var(--error); text-decoration: line-through; white-space: pre-wrap; }
 .after { color: var(--accent); white-space: pre-wrap; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

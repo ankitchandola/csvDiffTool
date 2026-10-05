@@ -285,7 +285,6 @@ export function App() {
           <ResultsTabs
             client={client}
             result={currentComparison.value}
-            resultKey={currentComparison.inputs}
             oldHeaders={oldInfo.headers}
             newHeaders={newInfo.headers}
           />

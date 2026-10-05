@@ -8,3 +8,8 @@ export const RECORD_NUMBER_NOTE = 'Record numbers count data records only: the h
 export function formatKey(parts: string[]): string {
   return parts.map((p) => (p === '' || p.trim() !== p ? JSON.stringify(p) : p)).join(' · ')
 }
+
+// Field values as typed; empty values and edge spaces are quoted so they don't read as missing.
+export function formatValue(value: string): string {
+  return value === '' || value.trim() !== value ? JSON.stringify(value) : value
+}

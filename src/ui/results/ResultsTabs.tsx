@@ -2,14 +2,14 @@ import { type CSSProperties, useState } from 'react'
 import type { CompareClient } from '../../worker/client'
 import type { CompareWarning, EmptyKeyRecord } from '../../engine/types'
 import type {
-  AmbiguousKeyPreview,
+  AmbiguousRecord,
   ChangedEntry,
   CompareResult,
   PageItems,
   RecordEntry,
   ResultTab,
 } from '../../worker/protocol'
-import { count, formatKey, RECORD_NUMBER_NOTE } from '../format'
+import { count, formatKey, formatValue, RECORD_NUMBER_NOTE } from '../format'
 import type { Page } from './page-loader'
 import { VirtualList } from './VirtualList'
 
@@ -22,9 +22,9 @@ const PROBLEM_LABELS: Record<Problem, string> = {
   warnings: 'Numeric warnings',
 }
 
-function pager<K extends ResultTab>(client: CompareClient, tab: K, column?: string) {
+function pager<K extends ResultTab>(client: CompareClient, resultId: number, tab: K, column?: string) {
   return async (offset: number, limit: number): Promise<Page<PageItems[K]>> => {
-    const page = await client.call('getRows', { tab, offset, limit, column })
+    const page = await client.call('getRows', { resultId, tab, offset, limit, column })
     return { total: page.total, items: page.items as PageItems[K][] }
   }
 }
@@ -37,11 +37,21 @@ function grid(columns: string): CSSProperties {
   return { display: 'grid', gridTemplateColumns: columns }
 }
 
-function RecordTable({ client, tab, headers }: { client: CompareClient; tab: 'added' | 'removed'; headers: string[] }) {
+function RecordTable({
+  client,
+  resultId,
+  tab,
+  headers,
+}: {
+  client: CompareClient
+  resultId: number
+  tab: 'added' | 'removed'
+  headers: string[]
+}) {
   const template = `7rem 12rem repeat(${headers.length}, 12rem)`
   return (
     <VirtualList<RecordEntry>
-      fetchPage={pager(client, tab)}
+      fetchPage={pager(client, resultId, tab)}
       estimateSize={34}
       minWidth={`${19 + 12 * headers.length}rem`}
       empty={tab === 'added' ? 'No records were added.' : 'No records were removed.'}
@@ -65,7 +75,7 @@ function RecordTable({ client, tab, headers }: { client: CompareClient; tab: 'ad
             <div className="cell">{formatKey(entry.key.parts)}</div>
             {headers.map((h) => (
               <div key={h} className="cell">
-                {entry.row[h]}
+                {formatValue(entry.row[h])}
               </div>
             ))}
           </div>
@@ -77,11 +87,19 @@ function RecordTable({ client, tab, headers }: { client: CompareClient; tab: 'ad
   )
 }
 
-function ChangedTable({ client, column }: { client: CompareClient; column: string | undefined }) {
+function ChangedTable({
+  client,
+  resultId,
+  column,
+}: {
+  client: CompareClient
+  resultId: number
+  column: string | undefined
+}) {
   const template = '9rem 12rem minmax(24rem, 1fr)'
   return (
     <VirtualList<ChangedEntry>
-      fetchPage={pager(client, 'changed', column)}
+      fetchPage={pager(client, resultId, 'changed', column)}
       estimateSize={34}
       minWidth="45rem"
       empty={column ? `No record changed in ${column}.` : 'No records changed.'}
@@ -100,14 +118,25 @@ function ChangedTable({ client, column }: { client: CompareClient; column: strin
             <div className="cell">
               {entry.oldRecordNumber} → {entry.newRecordNumber}
             </div>
-            <div className="cell">{formatKey(entry.key.parts)}</div>
+            <div className="cell">
+              {formatKey(entry.key.parts)}
+              {formatKey(entry.oldKeyParts) !== formatKey(entry.key.parts) && (
+                <div className="muted">old: {formatKey(entry.oldKeyParts)}</div>
+              )}
+            </div>
             <div className="cell changes">
               {entry.changes.map((change) => (
                 <div key={change.column} className={change.column === column ? 'change focus' : 'change'}>
                   <span className="change-column">{change.column}</span>
-                  <span className="before">{change.before}</span>
+                  <span className="before">
+                    <span className="visually-hidden">before: </span>
+                    {formatValue(change.before)}
+                  </span>
                   <span aria-hidden="true">→</span>
-                  <span className="after">{change.after}</span>
+                  <span className="after">
+                    <span className="visually-hidden">after: </span>
+                    {formatValue(change.after)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -120,27 +149,33 @@ function ChangedTable({ client, column }: { client: CompareClient; column: strin
   )
 }
 
-function ProblemTable({ client, problem }: { client: CompareClient; problem: Problem }) {
+function ProblemTable({ client, resultId, problem }: { client: CompareClient; resultId: number; problem: Problem }) {
   const empty = `No ${PROBLEM_LABELS[problem].toLowerCase()}.`
   if (problem === 'ambiguous') {
     return (
-      <VirtualList<AmbiguousKeyPreview>
-        fetchPage={pager(client, 'ambiguous')}
+      <VirtualList<AmbiguousRecord>
+        fetchPage={pager(client, resultId, 'ambiguous')}
         estimateSize={34}
         empty={empty}
-        renderRow={(group) =>
-          group ? (
-            <div className="cell">
-              <strong>{formatKey(group.old[0]?.parts ?? group.new[0]?.parts ?? [])}</strong>{' '}
-              <span className="muted">
-                — {count(group.oldCount)} in old, {count(group.newCount)} in new:{' '}
-                {group.old
-                  .map((r) => `old ${r.recordNumber} (${formatKey(r.parts)})`)
-                  .concat(group.new.map((r) => `new ${r.recordNumber} (${formatKey(r.parts)})`))
-                  .join(', ')}
-                {group.oldCount + group.newCount > group.old.length + group.new.length &&
-                  `, and ${count(group.oldCount + group.newCount - group.old.length - group.new.length)} more`}
-              </span>
+        header={
+          <div style={grid('14rem 7rem 9rem 1fr')}>
+            <div className="cell">Key</div>
+            <div className="cell">File</div>
+            <div className="cell" title={RECORD_NUMBER_NOTE}>
+              Data record
+            </div>
+            <div className="cell">Records sharing this key</div>
+          </div>
+        }
+        renderRow={(r) =>
+          r ? (
+            <div style={grid('14rem 7rem 9rem 1fr')}>
+              <div className="cell">{formatKey(r.parts)}</div>
+              <div className="cell">{r.side}</div>
+              <div className="cell">{r.recordNumber}</div>
+              <div className="cell muted">
+                {count(r.oldCount)} in old, {count(r.newCount)} in new
+              </div>
             </div>
           ) : (
             <Pending />
@@ -152,7 +187,7 @@ function ProblemTable({ client, problem }: { client: CompareClient; problem: Pro
   if (problem === 'emptyKey') {
     return (
       <VirtualList<EmptyKeyRecord>
-        fetchPage={pager(client, 'emptyKey')}
+        fetchPage={pager(client, resultId, 'emptyKey')}
         estimateSize={34}
         empty={empty}
         renderRow={(r) =>
@@ -169,7 +204,7 @@ function ProblemTable({ client, problem }: { client: CompareClient; problem: Pro
   }
   return (
     <VirtualList<CompareWarning>
-      fetchPage={pager(client, 'warnings')}
+      fetchPage={pager(client, resultId, 'warnings')}
       estimateSize={34}
       empty={empty}
       renderRow={(w) =>
@@ -188,22 +223,22 @@ function ProblemTable({ client, problem }: { client: CompareClient; problem: Pro
 export function ResultsTabs({
   client,
   result,
-  resultKey,
   oldHeaders,
   newHeaders,
 }: {
   client: CompareClient
   result: CompareResult
-  resultKey: string
   oldHeaders: string[]
   newHeaders: string[]
 }) {
+  const { resultId } = result
   const { counts, changesByColumn } = result.summary
   const problemCounts: Record<Problem, number> = {
-    ambiguous: result.ambiguous.total,
+    ambiguous: counts.ambiguous,
     emptyKey: result.emptyKey.total,
     warnings: result.warnings.total,
   }
+  const ambiguousRecordCount = result.ambiguousRecordCount
   const problemTotal = problemCounts.ambiguous + problemCounts.emptyKey + problemCounts.warnings
   const [tab, setTab] = useState<Tab>('changed')
   const [column, setColumn] = useState('')
@@ -234,8 +269,12 @@ export function ResultsTabs({
         ))}
       </div>
 
-      {tab === 'added' && <RecordTable key={`${resultKey}-added`} client={client} tab="added" headers={newHeaders} />}
-      {tab === 'removed' && <RecordTable key={`${resultKey}-removed`} client={client} tab="removed" headers={oldHeaders} />}
+      {tab === 'added' && (
+        <RecordTable key={`${resultId}-added`} client={client} resultId={resultId} tab="added" headers={newHeaders} />
+      )}
+      {tab === 'removed' && (
+        <RecordTable key={`${resultId}-removed`} client={client} resultId={resultId} tab="removed" headers={oldHeaders} />
+      )}
       {tab === 'changed' && (
         <>
           <label className="row">
@@ -251,7 +290,12 @@ export function ResultsTabs({
                 ))}
             </select>
           </label>
-          <ChangedTable key={`${resultKey}-changed-${filterColumn ?? ''}`} client={client} column={filterColumn} />
+          <ChangedTable
+            key={`${resultId}-changed-${filterColumn ?? ''}`}
+            client={client}
+            resultId={resultId}
+            column={filterColumn}
+          />
         </>
       )}
       {tab === 'problems' && (
@@ -264,11 +308,12 @@ export function ResultsTabs({
                 className={problem === p ? 'tab active' : 'tab'}
                 onClick={() => setProblem(p)}
               >
-                {PROBLEM_LABELS[p]} ({count(problemCounts[p])})
+                {PROBLEM_LABELS[p]} ({count(problemCounts[p])}
+                {p === 'ambiguous' && problemCounts.ambiguous > 0 && ` keys, ${count(ambiguousRecordCount)} records`})
               </button>
             ))}
           </div>
-          <ProblemTable key={`${resultKey}-${problem}`} client={client} problem={problem} />
+          <ProblemTable key={`${resultId}-${problem}`} client={client} resultId={resultId} problem={problem} />
         </>
       )}
       <p className="note">{RECORD_NUMBER_NOTE}</p>

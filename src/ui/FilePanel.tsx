@@ -93,6 +93,8 @@ export function FilePanel({
         accept=".csv,.tsv,.txt,text/csv"
         onChange={(e) => {
           const file = e.target.files?.[0]
+          // Cleared so picking the same file again (e.g. after a worker crash) still fires change.
+          e.target.value = ''
           if (file) onPick(file)
         }}
       />
