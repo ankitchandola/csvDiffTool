@@ -51,8 +51,14 @@ export function createCompareClient(onFailure: (message: string) => void): Compa
   return {
     call(type, payload) {
       const id = nextId++
-      worker ??= start()
-      const target = worker
+      let target: Worker
+      try {
+        target = worker ??= start()
+      } catch (error) {
+        const message = `The comparison worker could not start: ${error instanceof Error ? error.message : String(error)}`
+        fail(message)
+        return Promise.reject(new Error(message))
+      }
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve: resolve as (value: never) => void, reject })
         try {

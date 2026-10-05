@@ -73,3 +73,26 @@ describe('createCompareClient', () => {
     await expect(second).resolves.toBe('done')
   })
 })
+
+describe('createCompareClient startup failure', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('rejects the call and reports the failure when the worker cannot be constructed', async () => {
+    vi.stubGlobal(
+      'Worker',
+      class {
+        constructor() {
+          throw new Error('SecurityError')
+        }
+      },
+    )
+    const onFailure = vi.fn()
+    const client = createCompareClient(onFailure)
+    let call: Promise<unknown> | undefined
+    expect(() => {
+      call = client.call('checkKeys', { rules: RULES })
+    }).not.toThrow()
+    await expect(call).rejects.toThrow('could not start: SecurityError')
+    expect(onFailure).toHaveBeenCalledWith('The comparison worker could not start: SecurityError')
+  })
+})
