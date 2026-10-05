@@ -40,7 +40,10 @@ npm run typecheck  # tsc -b
 - **Changes CSV** (UTF-8 with BOM, for Excel): `change_type, key, column, before, after`,
   one line per field. Added and removed records list every column of their file;
   changed records list only the fields that changed. A composite key is written as a
-  JSON array of its parts. Values are written exactly as read — nothing is escaped
-  for spreadsheet formulas, so a value starting with `=` is still that text.
+  JSON array of its parts. By default, values that a spreadsheet could run as a
+  formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) gain a
+  leading `'`; plain signed numbers such as `-12` are left alone. This can be turned
+  off per export. The comparison itself and the JSON report always keep the
+  original values.
 - **JSON report**: starts with the rules used, then the file names, the summary, and
   every added, removed and changed record, ambiguous key, empty key and warning.

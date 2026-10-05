@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { formatSummary } from '../engine/diff'
 import type { CompareResult, ExportFormat } from '../worker/protocol'
 import { count } from './format'
@@ -11,8 +12,9 @@ export function SummaryView({
   result: CompareResult
   exporting: boolean
   exportError: string | null
-  onExport: (format: ExportFormat) => void
+  onExport: (format: ExportFormat, escapeFormulae: boolean) => void
 }) {
+  const [escapeFormulae, setEscapeFormulae] = useState(true)
   const { summary } = result
   const { counts } = summary
   return (
@@ -36,13 +38,22 @@ export function SummaryView({
         </p>
       )}
       <div className="row">
-        <button type="button" disabled={exporting} onClick={() => onExport('csv')}>
+        <button type="button" disabled={exporting} onClick={() => onExport('csv', escapeFormulae)}>
           Download changes (CSV)
         </button>
-        <button type="button" className="secondary" disabled={exporting} onClick={() => onExport('json')}>
+        <button type="button" className="secondary" disabled={exporting} onClick={() => onExport('json', escapeFormulae)}>
           Download full report (JSON)
         </button>
       </div>
+      <label className="row">
+        <input type="checkbox" checked={escapeFormulae} onChange={(e) => setEscapeFormulae(e.target.checked)} />
+        Protect the CSV against spreadsheet formulas
+      </label>
+      <p className="note">
+        {escapeFormulae
+          ? "Values starting with =, +, -, @, a tab or a line break (other than plain numbers such as -12) gain a leading ' in the CSV so a spreadsheet shows them as text instead of running them. The comparison and the JSON report keep the original values."
+          : 'CSV values are written exactly as read. A value starting with = may run as a formula when the file is opened in a spreadsheet.'}
+      </p>
       <p className="note">
         The CSV has one line per changed field (change_type, key, column, before, after); a composite key is written as a
         JSON array. The JSON report starts with the rules used and includes ambiguous keys, empty keys and warnings.

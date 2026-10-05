@@ -222,13 +222,13 @@ export function App() {
       .finally(task.end)
   }
 
-  function exportResult(result: CompareResult, format: ExportFormat) {
+  function exportResult(result: CompareResult, format: ExportFormat, escapeFormulae: boolean) {
     const task = track('export')
     task.show()
     setExportError(null)
     const base = currentProfile.name ? profileFileName(currentProfile.name).replace('.csv-diff-profile.json', '') : 'csv-diff'
     client
-      .call('export', { resultId: result.resultId, format }, task.progress)
+      .call('export', { resultId: result.resultId, format, escapeFormulae }, task.progress)
       .then((blob) => download(blob, format === 'csv' ? `${base}-changes.csv` : `${base}-report.json`))
       .catch((error: unknown) => {
         if (!(error instanceof CancelledError)) setExportError(message(error))
@@ -361,7 +361,7 @@ export function App() {
             result={currentComparison.value}
             exporting={'export' in activity}
             exportError={exportError}
-            onExport={(format) => exportResult(currentComparison.value, format)}
+            onExport={(format, escape) => exportResult(currentComparison.value, format, escape)}
           />
           <ResultsTabs
             client={client}
