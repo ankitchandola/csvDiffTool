@@ -163,7 +163,7 @@ Ten milestones, in order. The worker exists from milestone 1 so parsing never ru
 - [x] **6. Results paging.** Worker serves pages via `getRows`; Added / Removed / Changed / Problems tabs with virtualised tables; filter changed records by column.
 - [x] **7. Progress and cancellation.** Progress bar per phase; Cancel terminates the worker; UI stays responsive on a large test file.
 - [x] **8. Export.** Built in the worker: long-format changes CSV (`change_type, key, column, before, after`) and a JSON report whose header lists the rules used.
-- [ ] **9. Benchmarks and limits.** Measure mostly-unchanged and mostly-changed inputs at several row counts and column widths, then set a documented size limit with a clear failure message.
+- [x] **9. Benchmarks and limits.** Measure mostly-unchanged and mostly-changed inputs at several row counts and column widths, then set a documented size limit with a clear failure message.
 
 ## Deferred export improvements
 

@@ -47,3 +47,8 @@ npm run typecheck  # tsc -b
   original values.
 - **JSON report**: starts with the rules used, then the file names, the summary, and
   every added, removed and changed record, ambiguous key, empty key and warning.
+
+## Size limits
+
+Each file can be up to **200 MB** and **6,000,000 fields** (records × columns). Both
+come from measurements — see [`docs/benchmarks.md`](docs/benchmarks.md).
