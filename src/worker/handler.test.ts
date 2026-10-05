@@ -152,3 +152,22 @@ describe('worker handler file diagnostics', () => {
     })
   })
 })
+
+describe('worker handler changed-record filter', () => {
+  it('pages only records where the chosen column changed, with a matching total', async () => {
+    const handle = createHandler()
+    const oldText = 'id,price,stock\n1,1,1\n2,1,1\n3,1,1\n'
+    const newText = 'id,price,stock\n1,2,1\n2,1,2\n3,2,2\n'
+    await handle({ id: 1, type: 'parse', side: 'old', file: new File([oldText], 'o.csv'), rules: RULES })
+    await handle({ id: 2, type: 'parse', side: 'new', file: new File([newText], 'n.csv'), rules: RULES })
+    await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+
+    const page = await handle({ id: 4, type: 'getRows', tab: 'changed', offset: 0, limit: 10, column: 'price' })
+    expect(page).toMatchObject({ total: 2, items: [{ key: { parts: ['1'] } }, { key: { parts: ['3'] } }] })
+    expect(await handle({ id: 5, type: 'getRows', tab: 'changed', offset: 0, limit: 10 })).toMatchObject({ total: 3 })
+    expect(await handle({ id: 6, type: 'getRows', tab: 'changed', offset: 0, limit: 10, column: 'nope' })).toMatchObject({
+      total: 0,
+      items: [],
+    })
+  })
+})

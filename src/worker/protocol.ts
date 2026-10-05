@@ -96,7 +96,8 @@ export interface Requests {
   getIssues: { side: Side; offset: number; limit: number }
   checkKeys: { rules: KeyRules }
   compare: { profile: CompareProfile }
-  getRows: { tab: ResultTab; offset: number; limit: number }
+  // column narrows the changed tab to records where that column changed.
+  getRows: { tab: ResultTab; offset: number; limit: number; column?: string }
 }
 
 export interface Results {

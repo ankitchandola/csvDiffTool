@@ -1,4 +1,4 @@
-import { checkKeyColumns, diffFiles, type DiffResult, schemaDiff } from '../engine/diff'
+import { type ChangedRecord, checkKeyColumns, diffFiles, type DiffResult, schemaDiff } from '../engine/diff'
 import { classifyKeys, encodeKey, type KeyClassification, keyParts, normaliseKeyPart } from '../engine/keys'
 import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, parseCsv } from '../engine/parse'
 import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, Row, Side } from '../engine/types'
@@ -55,7 +55,12 @@ export function createHandler() {
   const files: Partial<Record<Side, ParsedFile>> = {}
   const issues: Partial<Record<Side, ParseIssue[]>> = {}
   const generations: Record<Side, number> = { old: 0, new: 0 }
-  let latest: { diff: DiffResult; oldFile: ParsedFile; newFile: ParsedFile } | null = null
+  let latest: {
+    diff: DiffResult
+    oldFile: ParsedFile
+    newFile: ParsedFile
+    changedByColumn: Map<string, ChangedRecord[]>
+  } | null = null
 
   function bothFiles(): [ParsedFile, ParsedFile] {
     if (!files.old || !files.new) throw new Error('Load both files first')
@@ -101,29 +106,42 @@ export function createHandler() {
     const [oldFile, newFile] = bothFiles()
     latest = null
     const diff = diffFiles(oldFile, newFile, profile)
-    latest = { diff, oldFile, newFile }
+    latest = { diff, oldFile, newFile, changedByColumn: new Map() }
     return { summary: diff.summary, warnings: preview(diff.warnings, PREVIEW_WARNINGS), ...keyProblems(diff.keys) }
   }
 
-  function getRows({ tab, offset, limit }: Requests['getRows']): Results['getRows'] {
+  function changedRecords(column: string | undefined): ChangedRecord[] {
+    if (!latest) throw new Error('Compare the files first')
+    if (column === undefined) return latest.diff.changed
+    let filtered = latest.changedByColumn.get(column)
+    if (!filtered) {
+      filtered = latest.diff.changed.filter((c) => c.changes.some((change) => change.column === column))
+      latest.changedByColumn.set(column, filtered)
+    }
+    return filtered
+  }
+
+  function getRows({ tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {
     if (!latest) throw new Error('Compare the files first')
     const { diff, oldFile, newFile } = latest
     const [start, end] = pageBounds(offset, limit)
     const rules = diff.summary.rulesUsed.key
 
     switch (tab) {
-      case 'changed':
+      case 'changed': {
+        const changed = changedRecords(column)
         return {
           tab,
-          total: diff.changed.length,
+          total: changed.length,
           offset: start,
-          items: diff.changed.slice(start, end).map((c) => ({
+          items: changed.slice(start, end).map((c) => ({
             key: c.key,
             oldRecordNumber: c.oldIndex + 1,
             newRecordNumber: c.newIndex + 1,
             changes: c.changes,
           })),
         }
+      }
       case 'added':
       case 'removed': {
         const indices = tab === 'added' ? diff.keys.added : diff.keys.removed
