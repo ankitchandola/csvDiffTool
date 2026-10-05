@@ -1,0 +1,4 @@
+warehouse,sku,qty
+w1,00123,5
+w1,,2
+w2,00123,1
