@@ -101,7 +101,14 @@ export function FilePanel({
       {state.status === 'loading' && <p className="muted">Reading {state.file.name}…</p>}
       {state.status === 'ready' && <RecordPreview info={state.info} />}
       {state.status === 'invalid' && <Issues issues={state.issues} />}
-      {state.status === 'failed' && <p className="error">{state.message}</p>}
+      {state.status === 'failed' && (
+        <p className="error">
+          {state.message}{' '}
+          <button type="button" className="secondary" onClick={() => onPick(state.file)}>
+            Read {state.file.name} again
+          </button>
+        </p>
+      )}
     </section>
   )
 }

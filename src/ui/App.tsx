@@ -237,23 +237,18 @@ export function App() {
       .finally(task.end)
   }
 
-  // The worker is stopped, so everything it held is gone: files mid-read must be picked
-  // again, files already read are read again, and a running comparison is abandoned.
+  // The worker is stopped, so everything it held is gone. Nothing restarts on its own:
+  // re-reading straight away would make Cancel look like it did nothing.
   function cancel() {
     client.cancel()
     activityTokens.current = {}
     setActivity({})
     for (const side of ['old', 'new'] as const) {
       const state = files[side]
-      if (state.status === 'loading') {
-        loadTokens.current[side]++
-        setFiles((prev) => ({
-          ...prev,
-          [side]: { status: 'failed', file: state.file, message: 'Reading cancelled. Pick the file again.' },
-        }))
-      } else if (state.status === 'ready') {
-        load(side, state.file, delimiter)
-      }
+      if (state.status !== 'loading' && state.status !== 'ready') continue
+      loadTokens.current[side]++
+      const text = state.status === 'loading' ? 'Reading cancelled.' : 'Cancelled, so this file needs reading again.'
+      setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file: state.file, message: text } }))
     }
     setComparison((c) => (c?.status === 'pending' ? { inputs: c.inputs, status: 'error', message: 'Comparison cancelled.' } : c))
   }
@@ -266,7 +261,7 @@ export function App() {
       <header>
         <h1>CSV Diff</h1>
         <p className="muted">
-          Files are read in your browser and never uploaded. Each file can be up to {MAX_FILE_BYTES / 2 ** 20} MB and{' '}
+          Files are read in your browser and never uploaded. Each file can be up to {MAX_FILE_BYTES / 2 ** 20} MiB and{' '}
           {MAX_FIELDS.toLocaleString('en-US')} fields (records × columns).
         </p>
         <label>
