@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
+import { exportProfile, importProfile, missingColumns, ProfileError, profileFileName, readProfile, sameRules } from '../profiles/profile'
+import { browserStorage, createProfileStore } from '../profiles/store'
 import { createCompareClient } from '../worker/client'
 import type { CompareResult, KeyReport } from '../worker/protocol'
 import { FilePanel, type FileState } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
+import { ProfileBar, type ProfileMessage } from './ProfileBar'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
 import { SummaryView } from './SummaryView'
 
@@ -12,6 +15,15 @@ type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function download(text: string, fileName: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function failIfLoaded(state: FileState, reason: string): FileState {
@@ -27,6 +39,10 @@ export function App() {
   const [valueRules, setValueRules] = useState<ValueRules>({ ignoredColumns: [], trim: false, caseInsensitive: [], numeric: {} })
   const [keyCheck, setKeyCheck] = useState<Outcome<KeyReport> | null>(null)
   const [comparison, setComparison] = useState<Outcome<CompareResult> | null>(null)
+  const [profileStore] = useState(() => createProfileStore(browserStorage()))
+  const [savedProfiles, setSavedProfiles] = useState(() => profileStore.list())
+  const [profileName, setProfileName] = useState('')
+  const [profileMessage, setProfileMessage] = useState<ProfileMessage | null>(null)
   const [client] = useState(() =>
     createCompareClient((reason) => {
       setFiles((prev) => ({ old: failIfLoaded(prev.old, reason), new: failIfLoaded(prev.new, reason) }))
@@ -66,6 +82,64 @@ export function App() {
     }
   }
 
+  const currentProfile: CompareProfile = {
+    name: profileName.trim(),
+    parse: { delimiter, trimHeaders: true },
+    key: keyRules,
+    value: valueRules,
+  }
+  const savedVersion = savedProfiles.find((p) => p.name === currentProfile.name)
+  const modified = savedVersion !== undefined && !sameRules(savedVersion, currentProfile)
+
+  function validProfile(): CompareProfile | null {
+    try {
+      return readProfile(currentProfile)
+    } catch (error) {
+      if (!(error instanceof ProfileError)) throw error
+      setProfileMessage({ kind: 'error', text: error.message })
+      return null
+    }
+  }
+
+  function applyProfile(profile: CompareProfile) {
+    setProfileName(profile.name)
+    setKeyRules(profile.key)
+    setValueRules(profile.value)
+    if (profile.parse.delimiter !== delimiter) changeDelimiter(profile.parse.delimiter)
+  }
+
+  function saveProfile() {
+    const profile = validProfile()
+    if (!profile) return
+    setSavedProfiles(profileStore.save(profile))
+    setProfileMessage({ kind: 'info', text: `Saved “${profile.name}”.` })
+  }
+
+  function exportCurrentProfile() {
+    const profile = validProfile()
+    if (!profile) return
+    download(exportProfile(profile), profileFileName(profile.name))
+    setProfileMessage(null)
+  }
+
+  function importProfileFile(file: File) {
+    file
+      .text()
+      .then((text) => {
+        const profile = importProfile(text)
+        applyProfile(profile)
+        const clash = savedProfiles.find((p) => p.name === profile.name)
+        setProfileMessage({
+          kind: 'info',
+          text:
+            clash && !sameRules(clash, profile)
+              ? `Applied “${profile.name}”. A different saved profile has this name; saving will replace it.`
+              : `Applied “${profile.name}”. Save it to keep it in this browser.`,
+        })
+      })
+      .catch((error: unknown) => setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${message(error)}` }))
+  }
+
   const oldInfo = files.old.status === 'ready' ? files.old.info : null
   const newInfo = files.new.status === 'ready' ? files.new.info : null
   const schema = useMemo(
@@ -73,7 +147,8 @@ export function App() {
     [oldInfo, newInfo],
   )
   // Never drop a missing key column silently: (warehouse, sku) reduced to (sku) matches different records.
-  const missingKeyColumns = schema ? keyRules.columns.filter((c) => !schema.shared.includes(c)) : []
+  const missing = schema ? missingColumns(currentProfile, schema.shared) : { key: [], rules: [] }
+  const missingKeyColumns = missing.key
   const keyInputs = JSON.stringify([dataVersion, keyRules])
   const compareInputs = JSON.stringify([dataVersion, keyRules, valueRules])
   const canCheckKeys = schema !== null && keyRules.columns.length > 0 && missingKeyColumns.length === 0
@@ -96,12 +171,7 @@ export function App() {
     const inputs = compareInputs
     latestCompareInputs.current = inputs
     setComparison({ inputs, status: 'pending' })
-    const profile: CompareProfile = {
-      name: 'Unsaved',
-      parse: { delimiter, trimHeaders: true },
-      key: keyRules,
-      value: valueRules,
-    }
+    const profile = { ...currentProfile, name: currentProfile.name || 'Unsaved' }
     client
       .call('compare', { profile })
       .then((value) => {
@@ -131,6 +201,27 @@ export function App() {
         </label>{' '}
         <span className="muted">Headers are trimmed; a leading byte-order mark is ignored.</span>
       </header>
+
+      <ProfileBar
+        name={profileName}
+        onNameChange={setProfileName}
+        saved={savedProfiles}
+        modified={modified}
+        canSave={currentProfile.name !== '' && keyRules.columns.length > 0}
+        message={profileMessage}
+        storeProblem={profileStore.problem}
+        onSave={saveProfile}
+        onApply={(profile) => {
+          applyProfile(profile)
+          setProfileMessage({ kind: 'info', text: `Applied “${profile.name}”.` })
+        }}
+        onDelete={(name) => {
+          setSavedProfiles(profileStore.remove(name))
+          setProfileMessage({ kind: 'info', text: `Deleted “${name}”.` })
+        }}
+        onExport={exportCurrentProfile}
+        onImport={importProfileFile}
+      />
 
       <div className="files">
         <FilePanel title="Old file" state={files.old} onPick={(file) => load('old', file, delimiter)} />
@@ -172,6 +263,12 @@ export function App() {
           )}
 
           <ValueRulesForm columns={schema.shared} rules={valueRules} onChange={setValueRules} />
+          {missing.rules.length > 0 && (
+            <p className="warning">
+              Value rules name column{missing.rules.length === 1 ? '' : 's'} not in these files, so{' '}
+              {missing.rules.length === 1 ? 'it has' : 'they have'} no effect: {missing.rules.join(', ')}.
+            </p>
+          )}
 
           <button type="button" disabled={!canCheckKeys || currentComparison?.status === 'pending'} onClick={compare}>
             {currentComparison?.status === 'pending' ? 'Comparing…' : 'Compare'}

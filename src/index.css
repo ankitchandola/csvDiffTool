@@ -58,3 +58,7 @@ fieldset > label { display: block; margin: 4px 0; }
 button { font: inherit; padding: 6px 16px; border-radius: 6px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 .note { font-size: 0.85rem; color: var(--muted); margin: 4px 0; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 8px 0; }
+button.secondary, .secondary-file { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.secondary-file { display: inline-block; padding: 6px 16px; border-radius: 6px; cursor: pointer; }
+.secondary-file input { display: none; }
