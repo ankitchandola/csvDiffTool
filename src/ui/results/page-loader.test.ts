@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createPageLoader, PAGE_SIZE } from './page-loader'
+import { createPageLoader, MAX_CACHED_PAGES, PAGE_SIZE } from './page-loader'
 
 function source(total: number) {
   const calls: number[] = []
@@ -52,5 +52,26 @@ describe('createPageLoader', () => {
     expect(loader.error).toBe('Compare the files first')
     loader.ensure(0, 500)
     expect(fetchPage).toHaveBeenCalledOnce()
+  })
+
+  it('keeps at most MAX_CACHED_PAGES pages, dropping those farthest from view', async () => {
+    const pageCount = MAX_CACHED_PAGES * 3
+    const { fetchPage, calls } = source(pageCount * PAGE_SIZE)
+    const loader = createPageLoader(fetchPage, () => {})
+    for (let page = 0; page < pageCount; page++) {
+      loader.ensure(page * PAGE_SIZE, page * PAGE_SIZE)
+      await settle()
+    }
+    const last = (pageCount - 1) * PAGE_SIZE
+    expect(loader.get(last)).toBe(last)
+    expect(loader.get(0)).toBeUndefined()
+    const cached = Array.from({ length: pageCount }, (_, page) => loader.get(page * PAGE_SIZE)).filter((v) => v !== undefined)
+    expect(cached).toHaveLength(MAX_CACHED_PAGES)
+
+    calls.length = 0
+    loader.ensure(0, 0)
+    await settle()
+    expect(calls).toEqual([0])
+    expect(loader.get(0)).toBe(0)
   })
 })
