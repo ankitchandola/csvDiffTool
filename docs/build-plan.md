@@ -185,7 +185,7 @@ Ten milestones, in order. The worker exists from milestone 1 so parsing never ru
 
 Decisions made while building, documented where they live:
 
-- **Size limits:** 200 MB and 6,000,000 fields (records × columns) per file, set from
+- **Size limits:** 200 MiB and 6,000,000 fields (records × columns) per file, set from
   measurements. See [`benchmarks.md`](benchmarks.md).
 - **Strict UTF-8:** files that aren't valid UTF-8 are rejected with a re-export hint;
   there is no encoding detection.
@@ -246,7 +246,7 @@ No size estimate goes into the docs or the UI until it comes from these measurem
 | Memory across the pipeline | Results stay in the worker, paged to UI; exports built in chunks; limits set from benchmarks |
 | Over-normalising hides real changes | Value rules default off; every rule used is printed in the report header |
 | Silently repairing bad input | Duplicate/empty headers rejected; structural errors block comparison with actionable record numbers |
-| Profile drift (column meaning changes) | Profiles validated against new files; rules shown with every result |
+| Profile drift (column meaning changes) | Validation catches missing columns only, not a renamed meaning; rules shown with every result and in the JSON report |
 | Scope creep into cleaning | No editing or transformation features |
 | Assuming Electron fixes memory | It only raises the ceiling; real relief needs a different storage strategy (disk-backed or DuckDB-WASM) |
 

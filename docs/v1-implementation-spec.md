@@ -24,8 +24,9 @@ results are identified separately from measurements made for this document.
 | Save/apply/delete profiles; import/export profile JSON. | Browser storage with a warned session-memory fallback. | Profile validation, round trips and storage doubles. | Real persistence, private mode and file-download/import UX. |
 | Download changes CSV or a JSON report; observe progress and Cancel. | Export builders, download controls and worker termination. | Report/handler tests and mocked worker lifecycle tests. | Browser downloads, spreadsheet import and mid-task cancellation UX. |
 
-**Incomplete:** parse diagnostics beyond the first 20 are retained and accessible
-through `getIssues`, but there is no UI for paging them. Split CSV exports and
+**Deferred:** parse diagnostics beyond the first 20 are retained and accessible
+through `getIssues`, but the UI does not page them; it shows the first 20 and states
+the total ("showing 20 of N"), which is enough to fix the export and reload. Split CSV exports and
 separate exported key columns are **not implemented**; the existing combined
 long-format CSV is usable without them.
 
@@ -33,7 +34,7 @@ long-format CSV is usable without them.
 
 ### Record identity and exclusions
 
-**Implemented:** at least one selected key column must exist in both files.
+**Implemented:** every selected key column must exist in both files.
 Missing keys block comparison; the UI never silently reduces `(warehouse, sku)`
 to `(sku)`. Key trim defaults ON; case-insensitivity defaults OFF. Normalisation
 uses optional `trim()` followed by optional `toLowerCase()`, not fuzzy matching.
@@ -121,24 +122,24 @@ updates the result total. It selects records, not just individual fields: the
 matching record still carries all its field changes. Ambiguous groups are
 flattened so every member can be paged, not just the preview's first ten.
 
-The UI caches every visited page until its table remounts. There is no eviction;
-scrolling through an entire result can eventually cache the entire visited tab.
-Virtualisation bounds rendered elements, not total cached data.
+The UI keeps at most 10 pages (2,000 rows) per table, evicting the pages farthest
+from the visible range; scrolling back fetches them again. The worker holds the full
+result, so a long scroll never copies a whole tab into the page.
 
 **Tested:** stable page ordering, full-member coverage, filtering before paging,
-page caps, stale-result rejection and loader request deduplication/errors.
+page caps, stale-result rejection, loader request deduplication/errors and cache eviction.
 **Not yet verified:** long-scroll browser memory, row sizing and visual layout.
 
 ### Progress and cancellation
 
 **Implemented:** parse/index/compare/export send phase progress. Cancel terminates
 the worker and rejects pending calls with `CancelledError`; it is not a pause or
-rollback. Parsed files, results and worker diagnostics are lost. The UI rereads
-already-ready files automatically; interrupted reads require repicking. Profiles
-stored outside the worker are unaffected.
+rollback. Parsed files, results and worker diagnostics are lost. Nothing restarts
+automatically: each file that was reading or read shows "Read <file> again", so
+Cancel visibly stops work. Profiles stored outside the worker are unaffected.
 
 **Tested:** progress routing and termination/rejection with a fake worker.
-**Not yet verified:** real mid-task responsiveness, automatic reread, repeated
+**Not yet verified:** real mid-task responsiveness, the explicit re-read, repeated
 cancellation and recovery while multiple UI tasks are active.
 
 ### Profile storage
@@ -150,7 +151,10 @@ replaces that profile. Blocked/failed storage warns and falls back to session
 memory. Import applies a profile but does not save it automatically.
 
 Missing value-rule columns warn and have no effect; missing key columns block
-comparison. Profiles do not store CSV contents or comparison results.
+comparison. Profiles do not store CSV contents or comparison results. Validation
+only catches columns that are missing: it cannot detect a column whose meaning
+changed while its name stayed the same. The rules used are shown with every result
+and written into the JSON report so a reviewer can check them.
 
 **Tested:** validation, JSON round trips, equivalent comparisons after applying
 profiles, same-name replacement, persistence via storage doubles and fallback.
@@ -235,7 +239,9 @@ real-world exports across browser engines and export tools.
 **Implemented guardrails:** reject files above **209,715,200 bytes (200 MiB)** before
 reading; abort parsing above **6,000,000 data records × header columns per file**.
 Both constraints apply independently to each file. Field limits count data
-records, not the header; byte limits are binary MiB despite the UI's "MB" label.
+records, not the header; byte limits are binary MiB and the UI labels them MiB.
+Both caps are **provisional** until measured in a browser across the whole pipeline
+(parse, compare, scroll, export).
 
 **Tested:** enforcement at small injected thresholds, including acceptance exactly
 at the field boundary. These are not tests of a full-sized browser comparison.
@@ -302,9 +308,10 @@ long values, diagnostics-heavy inputs and exports before setting supported limit
 - **Implemented limitation, source-observed:** the full benchmark matrix includes 1M rows
   with 11 total columns, exceeding today's 6M-field guardrail; it cannot reproduce
   that historical scenario with the default handler limits. **Not yet verified:** full rerun.
-- **Implemented limitations:** visited-page caches have no eviction; parse diagnostics
-  lack a paging UI; formula-protection copy says "line break" although the regex
-  covers CR, not LF. **Not yet verified:** UI memory bounds and spreadsheet safety.
+- **Deferred:** parse diagnostics lack a paging UI (the first 20 and the total are
+  shown). **Not yet verified:** UI memory in a real long scroll, and how spreadsheets
+  treat the escaped CSV. Formula protection covers `=`, `+`, `-`, `@`, tab and carriage
+  return; the UI copy says the same.
 - **Tested:** earlier prototype-header, ignored-rule and worker-startup regressions
   have tests. **Implemented:** same-file selection clears the input. **Not yet verified:** browser regression
   checks; there is no claim that all bugs are resolved.

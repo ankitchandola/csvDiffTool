@@ -53,7 +53,7 @@ Measured on an Apple M4 with 16 GB RAM, Node 24.15 (V8, 4,288 MB heap limit).
 
 Two limits per file, in `src/engine/limits.ts`:
 
-- **200 MB**, checked from the file's size before it is read.
+- **200 MiB**, checked from the file's size before it is read.
 - **6,000,000 fields** (data records × columns), checked while parsing; parsing stops
   as soon as it is exceeded.
 
@@ -61,6 +61,11 @@ At the field limit, two files come to about 12 million fields, or roughly 1.1 GB
 at the measured rate — about a quarter of V8's heap, leaving room for the page itself
 and for machines with less memory. The base 1,000,000-row case (11 million fields per
 file, 1.9 GB peak) completed here, but is over the limit on purpose.
+
+These limits are provisional. The runs above call the worker handler directly in Node:
+no message cloning, rendering or download. Two files each under the caps can still
+exceed what a browser tab holds once export runs, so the caps stay provisional until
+the whole pipeline is measured in a browser.
 
 ## Not measured
 
