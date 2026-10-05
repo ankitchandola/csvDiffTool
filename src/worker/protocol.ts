@@ -52,8 +52,22 @@ export interface KeyReport extends KeyProblems {
 }
 
 export interface CompareResult extends KeyProblems {
+  // Pages are only served for this id, so a view of an older comparison can't receive newer data.
+  resultId: number
   summary: CompareSummary
+  // summary.counts.ambiguous counts keys; this counts the records sharing them.
+  ambiguousRecordCount: number
   warnings: Preview<CompareWarning>
+}
+
+// One row per record sharing a duplicated key, so every member of a large group can be paged.
+export interface AmbiguousRecord {
+  encoded: string
+  side: Side
+  recordNumber: number
+  parts: string[]
+  oldCount: number
+  newCount: number
 }
 
 export interface RecordEntry {
@@ -64,6 +78,8 @@ export interface RecordEntry {
 
 export interface ChangedEntry {
   key: KeyRef
+  // The old record's key as typed; differs from key.parts when key trimming or case folding matched them.
+  oldKeyParts: string[]
   oldRecordNumber: number
   newRecordNumber: number
   changes: FieldChange[]
@@ -73,7 +89,7 @@ export interface PageItems {
   added: RecordEntry
   removed: RecordEntry
   changed: ChangedEntry
-  ambiguous: AmbiguousKeyPreview
+  ambiguous: AmbiguousRecord
   emptyKey: EmptyKeyRecord
   warnings: CompareWarning
 }
@@ -97,7 +113,7 @@ export interface Requests {
   checkKeys: { rules: KeyRules }
   compare: { profile: CompareProfile }
   // column narrows the changed tab to records where that column changed.
-  getRows: { tab: ResultTab; offset: number; limit: number; column?: string }
+  getRows: { resultId: number; tab: ResultTab; offset: number; limit: number; column?: string }
 }
 
 export interface Results {

@@ -4,6 +4,7 @@ import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, parseCsv } from '../engi
 import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, Row, Side } from '../engine/types'
 import {
   type AmbiguousKeyPreview,
+  type AmbiguousRecord,
   type KeyProblems,
   MAX_GROUP_MEMBERS,
   MAX_PAGE_SIZE,
@@ -59,8 +60,11 @@ export function createHandler() {
     diff: DiffResult
     oldFile: ParsedFile
     newFile: ParsedFile
+    resultId: number
     changedByColumn: Map<string, ChangedRecord[]>
+    ambiguousRecords: AmbiguousRecord[] | null
   } | null = null
+  let nextResultId = 1
 
   function bothFiles(): [ParsedFile, ParsedFile] {
     if (!files.old || !files.new) throw new Error('Load both files first')
@@ -106,8 +110,10 @@ export function createHandler() {
     const [oldFile, newFile] = bothFiles()
     latest = null
     const diff = diffFiles(oldFile, newFile, profile)
-    latest = { diff, oldFile, newFile, changedByColumn: new Map() }
-    return { summary: diff.summary, warnings: preview(diff.warnings, PREVIEW_WARNINGS), ...keyProblems(diff.keys) }
+    const resultId = nextResultId++
+    latest = { diff, oldFile, newFile, resultId, changedByColumn: new Map(), ambiguousRecords: null }
+    const ambiguousRecordCount = diff.keys.ambiguous.reduce((n, g) => n + g.old.length + g.new.length, 0)
+    return { resultId, ambiguousRecordCount, summary: diff.summary, warnings: preview(diff.warnings, PREVIEW_WARNINGS), ...keyProblems(diff.keys) }
   }
 
   function changedRecords(column: string | undefined): ChangedRecord[] {
@@ -121,8 +127,21 @@ export function createHandler() {
     return filtered
   }
 
-  function getRows({ tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {
+  function ambiguousRecords(): AmbiguousRecord[] {
     if (!latest) throw new Error('Compare the files first')
+    latest.ambiguousRecords ??= latest.diff.keys.ambiguous.flatMap((group) => {
+      const counts = { oldCount: group.old.length, newCount: group.new.length }
+      return [
+        ...group.old.map((r) => ({ encoded: group.encoded, side: 'old' as const, ...r, ...counts })),
+        ...group.new.map((r) => ({ encoded: group.encoded, side: 'new' as const, ...r, ...counts })),
+      ]
+    })
+    return latest.ambiguousRecords
+  }
+
+  function getRows({ resultId, tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {
+    if (!latest) throw new Error('Compare the files first')
+    if (resultId !== latest.resultId) throw new Error('These results were replaced by a newer comparison')
     const { diff, oldFile, newFile } = latest
     const [start, end] = pageBounds(offset, limit)
     const rules = diff.summary.rulesUsed.key
@@ -136,6 +155,7 @@ export function createHandler() {
           offset: start,
           items: changed.slice(start, end).map((c) => ({
             key: c.key,
+            oldKeyParts: keyParts(oldFile.rows[c.oldIndex], rules),
             oldRecordNumber: c.oldIndex + 1,
             newRecordNumber: c.newIndex + 1,
             changes: c.changes,
@@ -151,8 +171,10 @@ export function createHandler() {
           .map((index): RecordEntry => ({ key: keyRef(rows[index], rules), recordNumber: index + 1, row: rows[index] }))
         return { tab, total: indices.length, offset: start, items }
       }
-      case 'ambiguous':
-        return { tab, total: diff.keys.ambiguous.length, offset: start, items: diff.keys.ambiguous.slice(start, end).map(capMembers) }
+      case 'ambiguous': {
+        const records = ambiguousRecords()
+        return { tab, total: records.length, offset: start, items: records.slice(start, end) }
+      }
       case 'emptyKey':
         return { tab, total: diff.keys.emptyKey.length, offset: start, items: diff.keys.emptyKey.slice(start, end) }
       case 'warnings':
