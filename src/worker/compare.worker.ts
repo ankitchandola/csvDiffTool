@@ -4,6 +4,7 @@ import type { WorkerRequest, WorkerResponse } from './protocol'
 // The app tsconfig uses the DOM lib, whose `self` is a Window; type just what the worker needs.
 const scope = self as unknown as {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null
+  onmessageerror: (() => void) | null
   postMessage(message: WorkerResponse): void
 }
 
@@ -16,4 +17,8 @@ scope.onmessage = async (event) => {
   } catch (error) {
     scope.postMessage({ id, ok: false, message: error instanceof Error ? error.message : String(error) })
   }
+}
+
+scope.onmessageerror = () => {
+  scope.postMessage({ id: null, ok: false, message: 'The comparison worker could not read a request' })
 }
