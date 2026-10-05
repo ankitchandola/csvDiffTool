@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureText, profile } from '../engine/fixtures.test-helper'
 import { createHandler } from './handler'
-import { MAX_GROUP_MEMBERS, MAX_PAGE_SIZE, PREVIEW_RECORDS } from './protocol'
+import { NOT_UTF8_MESSAGE } from '../engine/parse'
+import {
+  MAX_GROUP_MEMBERS,
+  MAX_PAGE_SIZE,
+  PREVIEW_ISSUES,
+  PREVIEW_PROBLEMS,
+  PREVIEW_RECORDS,
+  PREVIEW_WARNINGS,
+} from './protocol'
 
 const RULES = { delimiter: 'auto', trimHeaders: true } as const
 
@@ -24,7 +32,7 @@ describe('worker handler', () => {
     await handle({ id: 2, type: 'parse', side: 'new', file: file('dup-in-new', 'new'), rules: RULES })
 
     const report = await handle({ id: 3, type: 'checkKeys', rules: { columns: ['id'], trim: true, caseInsensitive: false } })
-    expect(report).toMatchObject({ counts: { matched: 1, added: 0, removed: 0, ambiguous: 1, emptyKey: 0 } })
+    expect(report).toMatchObject({ counts: { matched: 1, added: 0, removed: 0 }, ambiguous: { total: 1 }, emptyKey: { total: 0 } })
 
     const compared = await handle({ id: 4, type: 'compare', profile: profile({ columns: ['id'] }) })
     expect(compared).toMatchObject({ summary: { counts: { ambiguous: 1, unchanged: 1 } } })
@@ -52,8 +60,9 @@ describe('worker handler limits and paging', () => {
     const handle = await loaded(`id,v\n${dupes}\n`, 'id,v\n1,a\n')
     const report = await handle({ id: 3, type: 'checkKeys', rules: { columns: ['id'], trim: true, caseInsensitive: false } })
     if (!('counts' in report)) throw new Error('expected a key report')
-    expect(report.ambiguous[0]).toMatchObject({ oldCount: 2000, newCount: 1 })
-    expect(report.ambiguous[0].old).toHaveLength(MAX_GROUP_MEMBERS)
+    expect(report.ambiguous.total).toBe(1)
+    expect(report.ambiguous.items[0]).toMatchObject({ oldCount: 2000, newCount: 1 })
+    expect(report.ambiguous.items[0].old).toHaveLength(MAX_GROUP_MEMBERS)
   })
 
   it('pages added, removed and changed records from the latest comparison', async () => {
@@ -92,5 +101,54 @@ describe('worker handler limits and paging', () => {
     await expect(handle({ id: 5, type: 'getRows', tab: 'changed', offset: 0, limit: 10 })).rejects.toThrow(
       'Compare the files first',
     )
+  })
+
+  it('previews problem lists with their full totals and pages the rest', async () => {
+    const empties = Array.from({ length: 120 }, () => ',x').join('\n')
+    const handle = await loaded(`id,v\n${empties}\n`, 'id,v\n1,a\n')
+    const compared = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+    if (!('summary' in compared)) throw new Error('expected a comparison')
+    expect(compared.emptyKey.total).toBe(120)
+    expect(compared.emptyKey.items).toHaveLength(PREVIEW_PROBLEMS)
+
+    const page = await handle({ id: 4, type: 'getRows', tab: 'emptyKey', offset: 100, limit: 50 })
+    expect(page).toMatchObject({ total: 120, offset: 100 })
+    if ('items' in page) expect(page.items).toHaveLength(20)
+  })
+
+  it('keeps every numeric warning and pages them', async () => {
+    const oldRows = Array.from({ length: 150 }, (_, i) => `${i},N/A`).join('\n')
+    const handle = await loaded(`id,price\n${oldRows}\n`, `id,price\n${oldRows}\n`)
+    const numeric = { price: { tolerance: '0', stripThousandsSeparator: false } }
+    const compared = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }, { numeric }) })
+    if (!('warnings' in compared)) throw new Error('expected a comparison')
+    expect(compared.warnings).toMatchObject({ total: 300 })
+    expect(compared.warnings.items).toHaveLength(PREVIEW_WARNINGS)
+    expect(await handle({ id: 4, type: 'getRows', tab: 'warnings', offset: 299, limit: 10 })).toMatchObject({
+      total: 300,
+      items: [{ side: 'new', recordNumber: 150 }],
+    })
+  })
+})
+
+describe('worker handler file diagnostics', () => {
+  it('rejects a file that is not UTF-8 with an actionable message', async () => {
+    const handle = createHandler()
+    const latin1 = new File([new Uint8Array([0x69, 0x64, 0x0a, 0x63, 0x61, 0x66, 0xe9, 0x0a])], 'export.csv')
+    const result = await handle({ id: 1, type: 'parse', side: 'old', file: latin1, rules: RULES })
+    expect(result).toEqual({ ok: false, issues: { total: 1, items: [{ kind: 'file', message: NOT_UTF8_MESSAGE }] } })
+  })
+
+  it('previews parse issues and keeps all of them for paging', async () => {
+    const handle = createHandler()
+    const bad = new File(['a,b\n' + '1\n'.repeat(2340)], 'bad.csv')
+    const result = await handle({ id: 1, type: 'parse', side: 'new', file: bad, rules: RULES })
+    if (!('ok' in result) || result.ok) throw new Error('expected parse issues')
+    expect(result.issues.total).toBe(2340)
+    expect(result.issues.items).toHaveLength(PREVIEW_ISSUES)
+    expect(await handle({ id: 2, type: 'getIssues', side: 'new', offset: 2339, limit: 5 })).toMatchObject({
+      total: 2340,
+      items: [{ kind: 'record', recordNumber: 2340 }],
+    })
   })
 })

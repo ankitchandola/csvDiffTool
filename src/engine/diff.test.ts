@@ -16,11 +16,20 @@ describe('diffFiles', () => {
     expect(formatSummary(summary)).toBe('0 added, 0 removed, 0 changed.')
   })
 
-  it('compares leading zeros as text', () => {
+  it('reports 0007 → 7 in a non-key column as a field change', () => {
     const { changed } = diff('leading-zeros', profile({ columns: ['sku'] }))
     expect(changed).toEqual([
       { key: { encoded: '["00123"]', parts: ['00123'] }, oldIndex: 0, newIndex: 0, changes: [{ column: 'code', before: '0007', after: '7' }] },
     ])
+  })
+
+  it('reports a key that changes from 0007 to 7 as a removal plus an addition', () => {
+    const oldFile = { headers: ['sku', 'qty'], rows: [{ sku: '0007', qty: '1' }], delimiter: ',' as const }
+    const newFile = { headers: ['sku', 'qty'], rows: [{ sku: '7', qty: '1' }], delimiter: ',' as const }
+    const { summary, keys } = diffFiles(oldFile, newFile, profile({ columns: ['sku'] }))
+    expect(summary.counts).toMatchObject({ added: 1, removed: 1, changed: 0, unchanged: 0 })
+    expect(keys.removed).toEqual([0])
+    expect(keys.added).toEqual([0])
   })
 
   it('treats numeric formatting differences as changes unless the column is numeric', () => {
@@ -30,7 +39,7 @@ describe('diffFiles', () => {
   })
 
   it('compares numeric columns as decimals and warns on unparseable values', () => {
-    const { summary, changed } = diff(
+    const { summary, changed, warnings } = diff(
       'numeric',
       profile(
         { columns: ['id'] },
@@ -44,7 +53,8 @@ describe('diffFiles', () => {
     )
     expect(changed.map((c) => c.key.parts)).toEqual([['3']])
     expect(formatSummary(summary)).toBe('0 added, 0 removed, 1 changed (stock: 1).')
-    expect(summary.warnings).toEqual([
+    expect(summary.warningCount).toBe(2)
+    expect(warnings).toEqual([
       { column: 'stock', side: 'old', recordNumber: 2, message: '"N/A" is not a number; compared as text' },
       { column: 'stock', side: 'new', recordNumber: 2, message: '"N/A" is not a number; compared as text' },
     ])

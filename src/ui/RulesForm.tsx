@@ -67,6 +67,11 @@ export function ValueRulesForm({
         <input type="checkbox" checked={rules.trim} onChange={(e) => onChange({ ...rules, trim: e.target.checked })} />
         Trim spaces around values in every column
       </label>
+      <p className="note">
+        Numeric columns accept plain decimals such as 1234.5, -0.25 or .5, optionally with comma thousands separators
+        (1,234.5). Decimal commas, exponents (1e5) and surrounding spaces are not numbers; those values are compared as
+        text and reported as warnings. Turn on trimming to ignore surrounding spaces.
+      </p>
       <div className="table-scroll">
         <table>
           <thead>

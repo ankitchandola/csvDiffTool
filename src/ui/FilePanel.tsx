@@ -1,50 +1,57 @@
 import type { ParseIssue } from '../engine/parse'
-import type { FileInfo } from '../worker/protocol'
+import type { FileInfo, Preview } from '../worker/protocol'
+import { count, RECORD_NUMBER_NOTE } from './format'
+import { ShowingNote } from './ShowingNote'
 
 export type FileState =
   | { status: 'empty' }
   | { status: 'loading'; file: File }
   | { status: 'ready'; file: File; info: FileInfo }
-  | { status: 'invalid'; file: File; issues: ParseIssue[]; issueCount: number }
+  | { status: 'invalid'; file: File; issues: Preview<ParseIssue> }
   | { status: 'failed'; file: File; message: string }
 
 const DELIMITER_NAMES: Record<FileInfo['delimiter'], string> = { ',': 'comma', ';': 'semicolon', '\t': 'tab' }
 
-function Issues({ issues, issueCount }: { issues: ParseIssue[]; issueCount: number }) {
+function Issues({ issues }: { issues: Preview<ParseIssue> }) {
+  const hasRecords = issues.items.some((issue) => issue.kind === 'record')
   return (
     <div className="error">
       <p>
-        {issueCount} problem{issueCount === 1 ? '' : 's'} found. Fix the export and load it again; nothing is compared
-        until the file is clean.
+        {count(issues.total)} problem{issues.total === 1 ? '' : 's'} found. Fix the export and load it again; nothing is
+        compared until the file is clean.
       </p>
       <ul>
-        {issues.map((issue, i) =>
-          issue.kind === 'header' ? (
-            <li key={i}>Header: {issue.message}</li>
+        {issues.items.map((issue, i) =>
+          issue.kind === 'record' ? (
+            <li key={i}>
+              Data record {issue.recordNumber}: {issue.message}
+              <pre>{issue.raw}</pre>
+            </li>
           ) : (
             <li key={i}>
-              Record {issue.recordNumber}: {issue.message}
-              <pre>{issue.raw}</pre>
+              {issue.kind === 'header' ? 'Header: ' : ''}
+              {issue.message}
             </li>
           ),
         )}
       </ul>
-      {issueCount > issues.length && <p>Showing the first {issues.length}.</p>}
+      <ShowingNote shown={issues.items.length} total={issues.total} />
+      {hasRecords && <p className="note">{RECORD_NUMBER_NOTE}</p>}
     </div>
   )
 }
 
-function Preview({ info }: { info: FileInfo }) {
+function RecordPreview({ info }: { info: FileInfo }) {
   return (
     <>
       <p>
-        {info.recordCount} records · {info.headers.length} columns · {DELIMITER_NAMES[info.delimiter]}-delimited
+        {count(info.recordCount)} data records · {info.headers.length} columns · {DELIMITER_NAMES[info.delimiter]}-delimited
       </p>
       <div className="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>#</th>
+              <th title={RECORD_NUMBER_NOTE}>Record</th>
               {info.headers.map((h) => (
                 <th key={h}>{h}</th>
               ))}
@@ -62,7 +69,9 @@ function Preview({ info }: { info: FileInfo }) {
           </tbody>
         </table>
       </div>
-      {info.recordCount > info.preview.length && <p className="muted">First {info.preview.length} records shown.</p>}
+      <div className="muted">
+        <ShowingNote shown={info.preview.length} total={info.recordCount} />
+      </div>
     </>
   )
 }
@@ -88,8 +97,8 @@ export function FilePanel({
         }}
       />
       {state.status === 'loading' && <p className="muted">Reading {state.file.name}…</p>}
-      {state.status === 'ready' && <Preview info={state.info} />}
-      {state.status === 'invalid' && <Issues issues={state.issues} issueCount={state.issueCount} />}
+      {state.status === 'ready' && <RecordPreview info={state.info} />}
+      {state.status === 'invalid' && <Issues issues={state.issues} />}
       {state.status === 'failed' && <p className="error">{state.message}</p>}
     </section>
   )

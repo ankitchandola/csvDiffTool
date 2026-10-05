@@ -49,7 +49,7 @@ export function App() {
         if (!isCurrent()) return
         const next: FileState = result.ok
           ? { status: 'ready', file, info: result.info }
-          : { status: 'invalid', file, issues: result.issues, issueCount: result.issueCount }
+          : { status: 'invalid', file, issues: result.issues }
         setFiles((prev) => ({ ...prev, [side]: next }))
         setDataVersion((v) => v + 1)
       })
@@ -167,11 +167,7 @@ export function App() {
                 {report.value.counts.matched} matched · {report.value.counts.added} only in new ·{' '}
                 {report.value.counts.removed} only in old
               </p>
-              <KeyProblemsList
-                problems={report.value}
-                ambiguousCount={report.value.counts.ambiguous}
-                emptyKeyCount={report.value.counts.emptyKey}
-              />
+              <KeyProblemsList problems={report.value} />
             </>
           )}
 

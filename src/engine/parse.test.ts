@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureText, parsedFixture } from './fixtures.test-helper'
-import { MAX_REPORTED_ISSUES, parseCsv } from './parse'
+import { decodeUtf8, parseCsv } from './parse'
 
 const AUTO = { delimiter: 'auto', trimHeaders: true } as const
 
@@ -56,7 +56,6 @@ describe('parseCsv', () => {
     const outcome = parseCsv(fixtureText('field-mismatch', 'new'), AUTO)
     expect(outcome).toEqual({
       ok: false,
-      issueCount: 2,
       issues: [
         { kind: 'record', recordNumber: 2, message: 'Expected 2 fields, found 3', raw: '2,b,extra' },
         { kind: 'record', recordNumber: 3, message: 'Expected 2 fields, found 1', raw: '3' },
@@ -69,17 +68,25 @@ describe('parseCsv', () => {
     expect(outcome).toMatchObject({ ok: false, issues: [{ recordNumber: 2, raw: '2,x,y' }] })
   })
 
-  it('caps reported issues but counts them all', () => {
-    const text = 'a,b\n' + '1\n'.repeat(MAX_REPORTED_ISSUES + 5)
-    const outcome = parseCsv(text, AUTO)
+  it('keeps every record issue, not just the first few', () => {
+    const outcome = parseCsv('a,b\n' + '1\n'.repeat(2340), AUTO)
     expect(outcome.ok).toBe(false)
-    if (!outcome.ok) {
-      expect(outcome.issues).toHaveLength(MAX_REPORTED_ISSUES)
-      expect(outcome.issueCount).toBe(MAX_REPORTED_ISSUES + 5)
-    }
+    if (!outcome.ok) expect(outcome.issues).toHaveLength(2340)
   })
 
   it('rejects an empty file', () => {
     expect(parseCsv('', AUTO)).toMatchObject({ ok: false, issues: [{ message: 'The file is empty' }] })
+  })
+})
+
+describe('decodeUtf8', () => {
+  it('decodes valid UTF-8 and drops a BOM', () => {
+    const bytes = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('id,naïve\n')])
+    expect(decodeUtf8(bytes.buffer)).toBe('id,naïve\n')
+  })
+
+  it('rejects bytes that are not UTF-8, such as a Windows-1252 export', () => {
+    // "café" in Windows-1252: é is the single byte 0xE9.
+    expect(decodeUtf8(new Uint8Array([0x63, 0x61, 0x66, 0xe9]).buffer)).toBeNull()
   })
 })

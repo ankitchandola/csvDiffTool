@@ -92,7 +92,6 @@ export interface CompareSummary {
     emptyKey: number
   }
   changesByColumn: Record<string, number>
-  warnings: CompareWarning[]
   warningCount: number
   rulesUsed: CompareProfile
 }

@@ -13,8 +13,6 @@ import type {
 } from './types'
 import { compileValueRules, RulesError } from './values'
 
-export const MAX_SUMMARY_WARNINGS = 100
-
 export interface ChangedRecord {
   key: KeyRef
   oldIndex: number
@@ -26,6 +24,7 @@ export interface DiffResult {
   summary: CompareSummary
   keys: KeyClassification
   changed: ChangedRecord[]
+  warnings: CompareWarning[]
 }
 
 export function schemaDiff(oldHeaders: string[], newHeaders: string[]): SchemaDiff {
@@ -56,23 +55,14 @@ export function diffFiles(oldFile: ParsedFile, newFile: ParsedFile, profile: Com
   const changed: ChangedRecord[] = []
   const changesByColumn = emptyDict<number>()
   const warnings: CompareWarning[] = []
-  let warningCount = 0
 
   for (const pair of keys.matched) {
     const newRow = newFile.rows[pair.newIndex]
     const { changes, unparseable } = compareRecords(oldFile.rows[pair.oldIndex], newRow, columns, valueRules)
     for (const { column, side } of unparseable) {
-      warningCount++
-      if (warnings.length < MAX_SUMMARY_WARNINGS) {
-        const index = side === 'old' ? pair.oldIndex : pair.newIndex
-        const value = side === 'old' ? oldFile.rows[index][column] : newRow[column]
-        warnings.push({
-          column,
-          side,
-          recordNumber: index + 1,
-          message: `"${value}" is not a number; compared as text`,
-        })
-      }
+      const index = side === 'old' ? pair.oldIndex : pair.newIndex
+      const value = side === 'old' ? oldFile.rows[index][column] : newRow[column]
+      warnings.push({ column, side, recordNumber: index + 1, message: `"${value}" is not a number; compared as text` })
     }
     if (changes.length === 0) continue
     for (const { column } of changes) changesByColumn[column] = (changesByColumn[column] ?? 0) + 1
@@ -87,6 +77,7 @@ export function diffFiles(oldFile: ParsedFile, newFile: ParsedFile, profile: Com
   return {
     keys,
     changed,
+    warnings,
     summary: {
       schema,
       counts: {
@@ -98,8 +89,7 @@ export function diffFiles(oldFile: ParsedFile, newFile: ParsedFile, profile: Com
         emptyKey: keys.emptyKey.length,
       },
       changesByColumn,
-      warnings,
-      warningCount,
+      warningCount: warnings.length,
       rulesUsed: profile,
     },
   }

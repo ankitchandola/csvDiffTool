@@ -57,3 +57,4 @@ fieldset > label { display: block; margin: 4px 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-bottom: 8px; }
 button { font: inherit; padding: 6px 16px; border-radius: 6px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
+.note { font-size: 0.85rem; color: var(--muted); margin: 4px 0; }

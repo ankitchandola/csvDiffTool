@@ -3,14 +3,27 @@ import { emptyDict } from './dict'
 import type { Delimiter, ParsedFile, ParseRules, Row } from './types'
 
 export type ParseIssue =
+  | { kind: 'file'; message: string }
   | { kind: 'header'; message: string }
   | { kind: 'record'; recordNumber: number; message: string; raw: string }
 
 export type ParseOutcome =
   | { ok: true; file: ParsedFile }
-  | { ok: false; issues: ParseIssue[]; issueCount: number }
+  | { ok: false; issues: ParseIssue[] }
 
-export const MAX_REPORTED_ISSUES = 20
+const UTF8 = new TextDecoder('utf-8', { fatal: true })
+
+// UTF-8 only for v1. Invalid bytes are rejected rather than shown as replacement characters.
+export function decodeUtf8(bytes: ArrayBuffer): string | null {
+  try {
+    return UTF8.decode(bytes)
+  } catch {
+    return null
+  }
+}
+
+export const NOT_UTF8_MESSAGE =
+  "The file isn't valid UTF-8. Export it again as UTF-8 (in Excel: Save As → CSV UTF-8) and load it again."
 
 const GUESSABLE: Delimiter[] = [',', ';', '\t']
 
@@ -35,15 +48,11 @@ export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
   let fatal: ParseIssue[] = []
   const rows: Row[] = []
   const issues: ParseIssue[] = []
-  let issueCount = 0
   let recordNumber = 0
   let previousCursor = 0
 
   function reportRecord(message: string, raw: string) {
-    issueCount++
-    if (issues.length < MAX_REPORTED_ISSUES) {
-      issues.push({ kind: 'record', recordNumber, message, raw })
-    }
+    issues.push({ kind: 'record', recordNumber, message, raw })
   }
 
   Papa.parse<string[]>(input, {
@@ -75,7 +84,7 @@ export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
         reportRecord(errors.map((e) => e.message).join('; '), raw)
       } else if (result.data.length !== headers.length) {
         reportRecord(`Expected ${headers.length} fields, found ${result.data.length}`, raw)
-      } else if (issueCount === 0) {
+      } else if (issues.length === 0) {
         const row: Row = emptyDict()
         for (let i = 0; i < headers.length; i++) row[headers[i]] = result.data[i]
         rows.push(row)
@@ -84,9 +93,9 @@ export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
   })
 
   if (headers === null) {
-    return { ok: false, issues: [{ kind: 'header', message: 'The file is empty' }], issueCount: 1 }
+    return { ok: false, issues: [{ kind: 'header', message: 'The file is empty' }] }
   }
-  if (fatal.length > 0) return { ok: false, issues: fatal, issueCount: fatal.length }
-  if (issueCount > 0) return { ok: false, issues, issueCount }
+  if (fatal.length > 0) return { ok: false, issues: fatal }
+  if (issues.length > 0) return { ok: false, issues }
   return { ok: true, file: { headers, rows, delimiter } }
 }
