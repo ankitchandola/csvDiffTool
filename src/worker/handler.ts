@@ -1,5 +1,6 @@
 import { type ChangedRecord, checkKeyColumns, diffFiles, type DiffResult, schemaDiff } from '../engine/diff'
 import { classifyKeys, encodeKey, type KeyClassification, keyParts, normaliseKeyPart } from '../engine/keys'
+import { DEFAULT_LIMITS, fileTooLargeMessage, type Limits } from '../engine/limits'
 import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, parseCsv } from '../engine/parse'
 import { buildChangesCsv, buildJsonReport } from '../engine/report'
 import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ProgressFn, Row, Side } from '../engine/types'
@@ -53,7 +54,7 @@ function pageBounds(offset: number, limit: number): [number, number] {
 
 // Owns the parsed files, their complete diagnostics and the latest diff, so full data
 // never crosses to the UI thread.
-export function createHandler() {
+export function createHandler(limits: Limits = DEFAULT_LIMITS) {
   const files: Partial<Record<Side, ParsedFile>> = {}
   const fileNames: Partial<Record<Side, string>> = {}
   const issues: Partial<Record<Side, ParseIssue[]>> = {}
@@ -80,13 +81,18 @@ export function createHandler() {
     delete issues[side]
     latest = null
     const generation = ++generations[side]
+    if (file.size > limits.maxFileBytes) {
+      const tooBig: ParseIssue[] = [{ kind: 'file', message: fileTooLargeMessage(file.size, limits.maxFileBytes) }]
+      issues[side] = tooBig
+      return { ok: false, issues: preview(tooBig, PREVIEW_ISSUES) }
+    }
     const text = decodeUtf8(await file.arrayBuffer())
     // A newer file for this side was picked while this one was being read.
     if (generation !== generations[side]) throw new Error('Superseded by a newer file')
     const outcome =
       text === null
         ? { ok: false as const, issues: [{ kind: 'file' as const, message: NOT_UTF8_MESSAGE }] }
-        : parseCsv(text, rules, onProgress)
+        : parseCsv(text, rules, onProgress, limits.maxFields)
     if (!outcome.ok) {
       issues[side] = outcome.issues
       return { ok: false, issues: preview(outcome.issues, PREVIEW_ISSUES) }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureText, profile } from '../engine/fixtures.test-helper'
 import { createHandler } from './handler'
+import { fileTooLargeMessage, tooManyFieldsMessage } from '../engine/limits'
 import { NOT_UTF8_MESSAGE } from '../engine/parse'
 import {
   MAX_GROUP_MEMBERS,
@@ -302,5 +303,32 @@ describe('worker handler formula escaping', () => {
     const json = await handle({ id: 7, type: 'export', resultId, format: 'json' })
     if (!(json instanceof Blob)) throw new Error('expected a Blob')
     expect(JSON.parse(await json.text()).changed[0].changes[0].after).toBe('=HYPERLINK("x")')
+  })
+})
+
+describe('worker handler size limits', () => {
+  it('rejects a file over the byte limit without reading it', async () => {
+    const handle = createHandler({ maxFileBytes: 10, maxFields: 1_000 })
+    const file = new File(['id,v\n1,abcdefgh\n'], 'big.csv')
+    let read = false
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: () => {
+        read = true
+        return Promise.resolve(new ArrayBuffer(0))
+      },
+    })
+    const result = await handle({ id: 1, type: 'parse', side: 'old', file, rules: RULES })
+    expect(result).toEqual({
+      ok: false,
+      issues: { total: 1, items: [{ kind: 'file', message: fileTooLargeMessage(file.size, 10) }] },
+    })
+    expect(read).toBe(false)
+    expect(fileTooLargeMessage(300 * 2 ** 20, 200 * 2 ** 20)).toMatch('This file is 300 MB; the limit is 200 MB per file')
+  })
+
+  it('rejects a file over the field limit', async () => {
+    const handle = createHandler({ maxFileBytes: 1_000, maxFields: 3 })
+    const result = await handle({ id: 1, type: 'parse', side: 'old', file: new File(['a,b\n1,2\n3,4\n'], 'f.csv'), rules: RULES })
+    expect(result).toMatchObject({ ok: false, issues: { items: [{ kind: 'file', message: tooManyFieldsMessage(3) }] } })
   })
 })

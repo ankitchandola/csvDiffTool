@@ -1,5 +1,6 @@
 import Papa from 'papaparse'
 import { emptyDict } from './dict'
+import { MAX_FIELDS, tooManyFieldsMessage } from './limits'
 import { type Delimiter, type ParsedFile, type ParseRules, PROGRESS_EVERY, type ProgressFn, type Row } from './types'
 
 export type ParseIssue =
@@ -41,11 +42,17 @@ function headerIssues(headers: string[]): ParseIssue[] {
   return issues
 }
 
-export function parseCsv(text: string, rules: ParseRules, onProgress?: ProgressFn): ParseOutcome {
+export function parseCsv(
+  text: string,
+  rules: ParseRules,
+  onProgress?: ProgressFn,
+  maxFields: number = MAX_FIELDS,
+): ParseOutcome {
   const input = text.startsWith('﻿') ? text.slice(1) : text
   let headers: string[] | null = null
   let delimiter: Delimiter = ','
   let fatal: ParseIssue[] = []
+  let tooLarge = false
   const rows: Row[] = []
   const issues: ParseIssue[] = []
   let recordNumber = 0
@@ -80,6 +87,11 @@ export function parseCsv(text: string, rules: ParseRules, onProgress?: ProgressF
       }
 
       recordNumber++
+      if (recordNumber * headers.length > maxFields) {
+        tooLarge = true
+        parser.abort()
+        return
+      }
       if (onProgress && recordNumber % PROGRESS_EVERY === 0) onProgress('parse', result.meta.cursor, input.length)
       if (errors.length > 0) {
         reportRecord(errors.map((e) => e.message).join('; '), raw)
@@ -97,6 +109,7 @@ export function parseCsv(text: string, rules: ParseRules, onProgress?: ProgressF
   if (headers === null) {
     return { ok: false, issues: [{ kind: 'header', message: 'The file is empty' }] }
   }
+  if (tooLarge) return { ok: false, issues: [{ kind: 'file', message: tooManyFieldsMessage(maxFields) }] }
   if (fatal.length > 0) return { ok: false, issues: fatal }
   if (issues.length > 0) return { ok: false, issues }
   return { ok: true, file: { headers, rows, delimiter } }

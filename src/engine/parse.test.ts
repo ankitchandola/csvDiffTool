@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureText, parsedFixture } from './fixtures.test-helper'
+import { tooManyFieldsMessage } from './limits'
 import { decodeUtf8, parseCsv } from './parse'
 
 const AUTO = { delimiter: 'auto', trimHeaders: true } as const
@@ -88,5 +89,19 @@ describe('decodeUtf8', () => {
   it('rejects bytes that are not UTF-8, such as a Windows-1252 export', () => {
     // "café" in Windows-1252: é is the single byte 0xE9.
     expect(decodeUtf8(new Uint8Array([0x63, 0x61, 0x66, 0xe9]).buffer)).toBeNull()
+  })
+})
+
+describe('parseCsv field limit', () => {
+  it('accepts a file exactly at the limit', () => {
+    expect(parseCsv('a,b\n1,2\n3,4\n', AUTO, undefined, 4).ok).toBe(true)
+  })
+
+  it('stops with a clear message once records × columns exceed the limit', () => {
+    expect(parseCsv('a,b\n1,2\n3,4\n5,6\n', AUTO, undefined, 4)).toEqual({
+      ok: false,
+      issues: [{ kind: 'file', message: tooManyFieldsMessage(4) }],
+    })
+    expect(tooManyFieldsMessage(6_000_000)).toMatch('more than 6,000,000 fields')
   })
 })

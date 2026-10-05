@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
+import { MAX_FIELDS, MAX_FILE_BYTES } from '../engine/limits'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
 import { exportProfile, importProfile, missingColumns, ProfileError, profileFileName, readProfile, sameRules } from '../profiles/profile'
 import { browserStorage, createProfileStore } from '../profiles/store'
@@ -264,7 +265,10 @@ export function App() {
     <main>
       <header>
         <h1>CSV Diff</h1>
-        <p className="muted">Files are read in your browser and never uploaded.</p>
+        <p className="muted">
+          Files are read in your browser and never uploaded. Each file can be up to {MAX_FILE_BYTES / 2 ** 20} MB and{' '}
+          {MAX_FIELDS.toLocaleString('en-US')} fields (records × columns).
+        </p>
         <label>
           Delimiter{' '}
           <select value={delimiter} onChange={(e) => changeDelimiter(e.target.value as ParseRules['delimiter'])}>
