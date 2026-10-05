@@ -34,3 +34,13 @@ npm run typecheck  # tsc -b
   those values are compared as text and reported as warnings.
 - **Record numbers** count data records only: the header and skipped blank lines
   are not counted, and a quoted field spanning lines is still one record.
+
+## Exports
+
+- **Changes CSV** (UTF-8 with BOM, for Excel): `change_type, key, column, before, after`,
+  one line per field. Added and removed records list every column of their file;
+  changed records list only the fields that changed. A composite key is written as a
+  JSON array of its parts. Values are written exactly as read — nothing is escaped
+  for spreadsheet formulas, so a value starting with `=` is still that text.
+- **JSON report**: starts with the rules used, then the file names, the summary, and
+  every added, removed and changed record, ambiguous key, empty key and warning.
