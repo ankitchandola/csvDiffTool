@@ -83,15 +83,24 @@ This needs both files indexed in full, but each file is read only once. Correctn
 src/
   engine/            # pure TS, fully unit-tested
     types.ts
+    parse.ts         # CSV parsing, header/structure validation, UTF-8 decoding
     keys.ts          # key normalisation, encoding, classification
-    values.ts        # value comparators, decimal tolerance
+    values.ts        # value comparators
+    decimal.ts       # exact decimals and tolerance (scaled BigInt)
     compare.ts       # field diff for matched records
+    diff.ts          # whole-file comparison and summary
     report.ts        # export builders (CSV/JSON)
+    limits.ts        # file size and field-count limits
+    dict.ts          # dictionaries safe for any header name
   worker/
     compare.worker.ts
-    protocol.ts      # typed messages: parse, compare, getRows, export, progress
+    handler.ts       # worker state and request handling, testable without a Worker
+    protocol.ts      # typed messages: parse, getIssues, checkKeys, compare, getRows, export, progress
+    client.ts        # promise-based client used by the UI
   profiles/          # save/load/validate rule sets
   ui/                # React components
+    results/         # paged, virtualised result tabs
+scripts/bench/       # file-pair generator and benchmark runner
 ```
 
 **Profile types**
@@ -138,32 +147,56 @@ interface KeyRef {
 
 interface FieldChange { column: string; before: string; after: string }
 
+interface CompareWarning {
+  column: string;
+  side: 'old' | 'new';
+  recordNumber: number;
+  message: string;
+}
+
 interface CompareSummary {
   schema: { added: string[]; removed: string[]; shared: string[] };
   counts: { added: number; removed: number; changed: number;
             unchanged: number; ambiguous: number; emptyKey: number };
   changesByColumn: Record<string, number>;
-  warnings: { column: string; recordNumber: number; message: string }[];
+  warningCount: number;              // the warnings themselves stay in the worker
   rulesUsed: CompareProfile;
 }
 ```
 
-The UI requests rows with `getRows(tab, offset, limit)`; it never receives the full result set. Virtualisation (TanStack Virtual) limits rendered elements, but worker-side paging is what limits memory on the main thread.
+The UI requests rows with `getRows(resultId, tab, offset, limit, column?)`; it never receives the full result set. `resultId` identifies the comparison the view belongs to, and the worker refuses pages for a comparison that has been replaced. `column` filters the changed tab before paging, so totals stay correct. Virtualisation (TanStack Virtual) limits rendered elements, but worker-side paging is what limits memory on the main thread.
 
 ## Milestones
 
 Ten milestones, in order. The worker exists from milestone 1 so parsing never runs on the main thread, and profiles land right after value rules work. Milestones 3–4 carry the core value, so write their fixture tests before the UI.
 
-- [x] **0. Scaffold.** Vite + React + TS + Vitest, empty engine module with a passing test, deployed to a static host on day one.
+- [ ] **0. Scaffold.** Vite + React + TS + Vitest, empty engine module with a passing test, deployed to a static host on day one. *Scaffold done; the GitHub Pages deploy workflow is set up but has not completed yet.*
 - [x] **1. Read one file in a worker.** Shows columns, record count, first 20 records, and structural errors by record number. Duplicate or empty headers are rejected.
 - [x] **2. Read both files.** Schema diff (added, removed, shared columns), key column selection, ambiguous and empty key report before comparison.
 - [x] **3. Key classification engine.** Added, removed, matched, ambiguous and empty keys are correct across fixtures, including both duplicate cases and normalisation collisions. Tested without UI.
 - [x] **4. Value comparison.** Ignored columns, per-column case rules, decimal tolerance via scaled BigInt, numeric-validation warnings. Summary reads like "12 added, 3 removed, 8 changed (price: 8, stock: 5)."
 - [x] **5. Thin profiles.** Save, load and apply a profile; export and import as JSON; warn when a profile's columns are missing from the new files.
 - [x] **6. Results paging.** Worker serves pages via `getRows`; Added / Removed / Changed / Problems tabs with virtualised tables; filter changed records by column.
-- [x] **7. Progress and cancellation.** Progress bar per phase; Cancel terminates the worker; UI stays responsive on a large test file.
+- [ ] **7. Progress and cancellation.** Progress bar per phase; Cancel terminates the worker; UI stays responsive on a large test file. *Progress and Cancel are built; responsiveness on a large file has not been checked in a browser yet.*
 - [x] **8. Export.** Built in the worker: long-format changes CSV (`change_type, key, column, before, after`) and a JSON report whose header lists the rules used.
 - [x] **9. Benchmarks and limits.** Measure mostly-unchanged and mostly-changed inputs at several row counts and column widths, then set a documented size limit with a clear failure message.
+
+## What v1 ships beyond this plan
+
+Decisions made while building, documented where they live:
+
+- **Size limits:** 200 MB and 6,000,000 fields (records × columns) per file, set from
+  measurements. See [`benchmarks.md`](benchmarks.md).
+- **Strict UTF-8:** files that aren't valid UTF-8 are rejected with a re-export hint;
+  there is no encoding detection.
+- **Complete diagnostics:** parse issues, ambiguous and empty keys and numeric warnings
+  are kept in full in the worker; the UI shows previews labelled "showing X of Y" and
+  pages the rest.
+- **Formula escaping:** the changes CSV prefixes formula-like values with `'` by
+  default (plain numbers such as `-12` excepted); the comparison and JSON report keep
+  original values.
+- **Profile file format:** versioned JSON with strict validation on import.
+- **Input rules and export formats:** see the [README](../README.md).
 
 ## Deferred export improvements
 

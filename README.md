@@ -6,6 +6,7 @@ compared in a Web Worker and never leave the machine.
 Live: https://ankitchandola.github.io/csvDiffTool/ (deployed from `main` by GitHub Pages).
 
 Plan and scope: [`docs/build-plan.md`](docs/build-plan.md).
+Current behavior and verification: [`docs/v1-implementation-spec.md`](docs/v1-implementation-spec.md).
 
 ## Commands
 
@@ -52,5 +53,7 @@ npm run typecheck  # tsc -b
 
 ## Size limits
 
-Each file can be up to **200 MB** and **6,000,000 fields** (records × columns). Both
-come from measurements — see [`docs/benchmarks.md`](docs/benchmarks.md).
+Current guardrails reject files over **200 MiB** or **6,000,000 fields**
+(data records × columns). These are enforced caps, not verified browser capacity.
+Node measurements: [`docs/benchmarks.md`](docs/benchmarks.md). Safe supported
+browser limits remain pending; see the [implementation spec](docs/v1-implementation-spec.md).
