@@ -3,6 +3,8 @@
 Compares two CSV exports by record identity, in the browser. Files are parsed and
 compared in a Web Worker and never leave the machine.
 
+Live: https://ankitchandola.github.io/csvDiffTool/ (deployed from `main` by GitHub Pages).
+
 Plan and scope: [`docs/build-plan.md`](docs/build-plan.md).
 
 ## Commands

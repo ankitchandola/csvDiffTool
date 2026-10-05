@@ -154,7 +154,7 @@ The UI requests rows with `getRows(tab, offset, limit)`; it never receives the f
 
 Ten milestones, in order. The worker exists from milestone 1 so parsing never runs on the main thread, and profiles land right after value rules work. Milestones 3–4 carry the core value, so write their fixture tests before the UI.
 
-- [ ] **0. Scaffold.** Vite + React + TS + Vitest, empty engine module with a passing test, deployed to a static host on day one. *(Done except the deploy.)*
+- [x] **0. Scaffold.** Vite + React + TS + Vitest, empty engine module with a passing test, deployed to a static host on day one.
 - [x] **1. Read one file in a worker.** Shows columns, record count, first 20 records, and structural errors by record number. Duplicate or empty headers are rejected.
 - [x] **2. Read both files.** Schema diff (added, removed, shared columns), key column selection, ambiguous and empty key report before comparison.
 - [x] **3. Key classification engine.** Added, removed, matched, ambiguous and empty keys are correct across fixtures, including both duplicate cases and normalisation collisions. Tested without UI.
