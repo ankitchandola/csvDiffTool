@@ -1,4 +1,13 @@
-import type { AmbiguousKey, EmptyKeyRecord, KeyedRecord, KeyRules, Row, Side } from './types'
+import {
+  type AmbiguousKey,
+  type EmptyKeyRecord,
+  type KeyedRecord,
+  type KeyRules,
+  PROGRESS_EVERY,
+  type ProgressFn,
+  type Row,
+  type Side,
+} from './types'
 
 export interface MatchedPair {
   encoded: string
@@ -38,10 +47,11 @@ export function keyParts(row: Row, rules: KeyRules): string[] {
   return rules.columns.map((column) => row[column])
 }
 
-function buildIndex(rows: Row[], rules: KeyRules): KeyIndex {
+function buildIndex(rows: Row[], rules: KeyRules, onRow: (index: number) => void): KeyIndex {
   const byKey = new Map<string, number[]>()
   const emptyKey: number[] = []
   rows.forEach((row, index) => {
+    onRow(index)
     const normalised = keyParts(row, rules).map((part) => normaliseKeyPart(part, rules))
     if (!isKeyComplete(normalised)) {
       emptyKey.push(index)
@@ -63,9 +73,19 @@ function emptyKeyRecords(side: Side, rows: Row[], indices: number[], rules: KeyR
   return keyed(rows, indices, rules).map((record) => ({ ...record, side }))
 }
 
-export function classifyKeys(oldRows: Row[], newRows: Row[], rules: KeyRules): KeyClassification {
-  const oldIndex = buildIndex(oldRows, rules)
-  const newIndex = buildIndex(newRows, rules)
+export function classifyKeys(
+  oldRows: Row[],
+  newRows: Row[],
+  rules: KeyRules,
+  onProgress?: ProgressFn,
+): KeyClassification {
+  const total = oldRows.length + newRows.length
+  const report = (done: number) => {
+    if (onProgress && done % PROGRESS_EVERY === 0) onProgress('index', done, total)
+  }
+  const oldIndex = buildIndex(oldRows, rules, report)
+  const newIndex = buildIndex(newRows, rules, (i) => report(oldRows.length + i))
+  onProgress?.('index', total, total)
   const result: KeyClassification = {
     added: [],
     removed: [],

@@ -9,8 +9,10 @@ import type {
   KeyRef,
   KeyRules,
   ParsedFile,
+  ProgressFn,
   SchemaDiff,
 } from './types'
+import { PROGRESS_EVERY } from './types'
 import { compileValueRules, RulesError } from './values'
 
 export interface ChangedRecord {
@@ -45,18 +47,26 @@ export function checkKeyColumns(schema: SchemaDiff, rules: KeyRules): void {
   }
 }
 
-export function diffFiles(oldFile: ParsedFile, newFile: ParsedFile, profile: CompareProfile): DiffResult {
+export function diffFiles(
+  oldFile: ParsedFile,
+  newFile: ParsedFile,
+  profile: CompareProfile,
+  onProgress?: ProgressFn,
+): DiffResult {
   const schema = schemaDiff(oldFile.headers, newFile.headers)
   checkKeyColumns(schema, profile.key)
   const valueRules = compileValueRules(profile.value)
   const columns = schema.shared.filter((c) => !valueRules.ignored.has(c))
 
-  const keys = classifyKeys(oldFile.rows, newFile.rows, profile.key)
+  const keys = classifyKeys(oldFile.rows, newFile.rows, profile.key, onProgress)
   const changed: ChangedRecord[] = []
   const changesByColumn = emptyDict<number>()
   const warnings: CompareWarning[] = []
 
-  for (const pair of keys.matched) {
+  const pairs = keys.matched.length
+  for (let i = 0; i < pairs; i++) {
+    const pair = keys.matched[i]
+    if (onProgress && i % PROGRESS_EVERY === 0) onProgress('compare', i, pairs)
     const newRow = newFile.rows[pair.newIndex]
     const { changes, unparseable } = compareRecords(oldFile.rows[pair.oldIndex], newRow, columns, valueRules)
     for (const { column, side } of unparseable) {
@@ -74,6 +84,7 @@ export function diffFiles(oldFile: ParsedFile, newFile: ParsedFile, profile: Com
     })
   }
 
+  onProgress?.('compare', pairs, pairs)
   return {
     keys,
     changed,

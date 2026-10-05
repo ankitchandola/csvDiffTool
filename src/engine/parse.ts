@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 import { emptyDict } from './dict'
-import type { Delimiter, ParsedFile, ParseRules, Row } from './types'
+import { type Delimiter, type ParsedFile, type ParseRules, PROGRESS_EVERY, type ProgressFn, type Row } from './types'
 
 export type ParseIssue =
   | { kind: 'file'; message: string }
@@ -41,7 +41,7 @@ function headerIssues(headers: string[]): ParseIssue[] {
   return issues
 }
 
-export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
+export function parseCsv(text: string, rules: ParseRules, onProgress?: ProgressFn): ParseOutcome {
   const input = text.startsWith('﻿') ? text.slice(1) : text
   let headers: string[] | null = null
   let delimiter: Delimiter = ','
@@ -80,6 +80,7 @@ export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
       }
 
       recordNumber++
+      if (onProgress && recordNumber % PROGRESS_EVERY === 0) onProgress('parse', result.meta.cursor, input.length)
       if (errors.length > 0) {
         reportRecord(errors.map((e) => e.message).join('; '), raw)
       } else if (result.data.length !== headers.length) {
@@ -92,6 +93,7 @@ export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
     },
   })
 
+  onProgress?.('parse', input.length, input.length)
   if (headers === null) {
     return { ok: false, issues: [{ kind: 'header', message: 'The file is empty' }] }
   }

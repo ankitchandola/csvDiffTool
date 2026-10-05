@@ -95,3 +95,11 @@ export interface CompareSummary {
   warningCount: number
   rulesUsed: CompareProfile
 }
+
+export type Phase = 'parse' | 'index' | 'compare' | 'export'
+
+// Called as long-running engine work advances; done and total are in the phase's own units.
+export type ProgressFn = (phase: Phase, done: number, total: number) => void
+
+// How often (in records) engine loops report progress.
+export const PROGRESS_EVERY = 2048
