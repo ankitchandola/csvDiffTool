@@ -51,7 +51,7 @@ export function SummaryView({
       </label>
       <p className="note">
         {escapeFormulae
-          ? "Values starting with =, +, -, @, a tab or a line break (other than plain numbers such as -12) gain a leading ' in the CSV so a spreadsheet shows them as text instead of running them. The comparison and the JSON report keep the original values."
+          ? "Values starting with =, +, -, @, a tab or a carriage return (other than plain numbers such as -12) gain a leading ' in the CSV so a spreadsheet shows them as text instead of running them. The comparison and the JSON report keep the original values."
           : 'CSV values are written exactly as read. A value starting with = may run as a formula when the file is opened in a spreadsheet.'}
       </p>
       <p className="note">

@@ -323,7 +323,7 @@ describe('worker handler size limits', () => {
       issues: { total: 1, items: [{ kind: 'file', message: fileTooLargeMessage(file.size, 10) }] },
     })
     expect(read).toBe(false)
-    expect(fileTooLargeMessage(300 * 2 ** 20, 200 * 2 ** 20)).toMatch('This file is 300 MB; the limit is 200 MB per file')
+    expect(fileTooLargeMessage(300 * 2 ** 20, 200 * 2 ** 20)).toMatch('This file is 300 MiB; the limit is 200 MiB per file')
   })
 
   it('rejects a file over the field limit', async () => {

@@ -12,12 +12,12 @@ export interface Limits {
 
 export const DEFAULT_LIMITS: Limits = { maxFileBytes: MAX_FILE_BYTES, maxFields: MAX_FIELDS }
 
-function megabytes(bytes: number): string {
-  return `${Math.ceil(bytes / 2 ** 20).toLocaleString('en-US')} MB`
+function mebibytes(bytes: number): string {
+  return `${Math.ceil(bytes / 2 ** 20).toLocaleString('en-US')} MiB`
 }
 
 export function fileTooLargeMessage(size: number, limit: number): string {
-  return `This file is ${megabytes(size)}; the limit is ${megabytes(limit)} per file, so that a comparison fits in browser memory. Compare a smaller extract or split the export.`
+  return `This file is ${mebibytes(size)}; the limit is ${mebibytes(limit)} per file, so that a comparison fits in browser memory. Compare a smaller extract or split the export.`
 }
 
 export function tooManyFieldsMessage(limit: number): string {
