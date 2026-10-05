@@ -24,8 +24,11 @@ export function KeyProblemsList({
           <ul>
             {problems.ambiguous.map((a) => (
               <li key={a.encoded}>
-                {a.old.map((r) => `old record ${r.recordNumber}: ${parts(r.parts)}`)
+                {a.old
+                  .map((r) => `old record ${r.recordNumber}: ${parts(r.parts)}`)
+                  .concat(a.oldCount > a.old.length ? [`${a.oldCount - a.old.length} more in old`] : [])
                   .concat(a.new.map((r) => `new record ${r.recordNumber}: ${parts(r.parts)}`))
+                  .concat(a.newCount > a.new.length ? [`${a.newCount - a.new.length} more in new`] : [])
                   .join(' · ')}
               </li>
             ))}

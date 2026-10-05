@@ -1,23 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
-import { type CompareClient, createCompareClient } from '../worker/client'
+import { createCompareClient } from '../worker/client'
 import type { CompareResult, KeyReport } from '../worker/protocol'
 import { FilePanel, type FileState } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
 import { SummaryView } from './SummaryView'
 
-let client: CompareClient | null = null
-function getClient(): CompareClient {
-  client ??= createCompareClient()
-  return client
-}
-
 type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function failIfLoaded(state: FileState, reason: string): FileState {
+  return state.status === 'empty' ? state : { status: 'failed', file: state.file, message: `${reason}. Load the file again.` }
 }
 
 export function App() {
@@ -29,6 +27,13 @@ export function App() {
   const [valueRules, setValueRules] = useState<ValueRules>({ ignoredColumns: [], trim: false, caseInsensitive: [], numeric: {} })
   const [keyCheck, setKeyCheck] = useState<Outcome<KeyReport> | null>(null)
   const [comparison, setComparison] = useState<Outcome<CompareResult> | null>(null)
+  const [client] = useState(() =>
+    createCompareClient((reason) => {
+      setFiles((prev) => ({ old: failIfLoaded(prev.old, reason), new: failIfLoaded(prev.new, reason) }))
+      setDataVersion((v) => v + 1)
+    }),
+  )
+  useEffect(() => () => client.terminate(), [client])
   const loadTokens = useRef<Record<Side, number>>({ old: 0, new: 0 })
   const latestKeyInputs = useRef('')
   const latestCompareInputs = useRef('')
@@ -38,7 +43,7 @@ export function App() {
     const isCurrent = () => token === loadTokens.current[side]
     setFiles((prev) => ({ ...prev, [side]: { status: 'loading', file } }))
     setDataVersion((v) => v + 1)
-    getClient()
+    client
       .call('parse', { side, file, rules: { delimiter: delim, trimHeaders: true } })
       .then((result) => {
         if (!isCurrent()) return
@@ -67,27 +72,25 @@ export function App() {
     () => (oldInfo && newInfo ? schemaDiff(oldInfo.headers, newInfo.headers) : null),
     [oldInfo, newInfo],
   )
-  const effectiveKeyRules = useMemo(
-    () => ({ ...keyRules, columns: keyRules.columns.filter((c) => schema?.shared.includes(c)) }),
-    [keyRules, schema],
-  )
-  const keyInputs = JSON.stringify([dataVersion, effectiveKeyRules])
-  const compareInputs = JSON.stringify([dataVersion, effectiveKeyRules, valueRules])
-  const canCheckKeys = schema !== null && effectiveKeyRules.columns.length > 0
+  // Never drop a missing key column silently: (warehouse, sku) reduced to (sku) matches different records.
+  const missingKeyColumns = schema ? keyRules.columns.filter((c) => !schema.shared.includes(c)) : []
+  const keyInputs = JSON.stringify([dataVersion, keyRules])
+  const compareInputs = JSON.stringify([dataVersion, keyRules, valueRules])
+  const canCheckKeys = schema !== null && keyRules.columns.length > 0 && missingKeyColumns.length === 0
 
   useEffect(() => {
     latestKeyInputs.current = keyInputs
     if (!canCheckKeys) return
     const inputs = keyInputs
-    getClient()
-      .call('checkKeys', { rules: effectiveKeyRules })
+    client
+      .call('checkKeys', { rules: keyRules })
       .then((value) => {
         if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'done', value })
       })
       .catch((error: unknown) => {
         if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: message(error) })
       })
-  }, [keyInputs, canCheckKeys, effectiveKeyRules])
+  }, [client, keyInputs, canCheckKeys, keyRules])
 
   function compare() {
     const inputs = compareInputs
@@ -96,10 +99,10 @@ export function App() {
     const profile: CompareProfile = {
       name: 'Unsaved',
       parse: { delimiter, trimHeaders: true },
-      key: effectiveKeyRules,
+      key: keyRules,
       value: valueRules,
     }
-    getClient()
+    client
       .call('compare', { profile })
       .then((value) => {
         if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'done', value })
@@ -144,6 +147,18 @@ export function App() {
           </p>
 
           <KeyRulesForm columns={schema.shared} rules={keyRules} onChange={setKeyRules} />
+          {missingKeyColumns.length > 0 && (
+            <div className="error">
+              Key column{missingKeyColumns.length === 1 ? '' : 's'} {missingKeyColumns.join(', ')} missing from the loaded
+              files. Comparing without {missingKeyColumns.length === 1 ? 'it' : 'them'} would match different records.{' '}
+              <button
+                type="button"
+                onClick={() => setKeyRules({ ...keyRules, columns: keyRules.columns.filter((c) => schema.shared.includes(c)) })}
+              >
+                Remove from key
+              </button>
+            </div>
+          )}
           {canCheckKeys && !report && <p className="muted">Checking keys…</p>}
           {report?.status === 'error' && <p className="error">{report.message}</p>}
           {report?.status === 'done' && (

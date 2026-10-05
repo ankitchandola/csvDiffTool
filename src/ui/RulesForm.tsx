@@ -1,4 +1,5 @@
-import type { KeyRules, ValueRules } from '../engine/types'
+import { ownValue } from '../engine/dict'
+import type { KeyRules, NumericRule, ValueRules } from '../engine/types'
 
 function toggle(list: string[], item: string, on: boolean): string[] {
   return on ? [...list, item] : list.filter((x) => x !== item)
@@ -53,11 +54,10 @@ export function ValueRulesForm({
   rules: ValueRules
   onChange: (rules: ValueRules) => void
 }) {
-  function setNumeric(column: string, rule: ValueRules['numeric'][string] | null) {
-    const numeric = { ...rules.numeric }
-    if (rule) numeric[column] = rule
-    else delete numeric[column]
-    onChange({ ...rules, numeric })
+  function setNumeric(column: string, rule: NumericRule | null) {
+    // fromEntries defines own properties, so a column named "__proto__" stays an ordinary key.
+    const others = Object.entries(rules.numeric).filter(([c]) => c !== column)
+    onChange({ ...rules, numeric: Object.fromEntries(rule ? [...others, [column, rule]] : others) })
   }
 
   return (
@@ -82,7 +82,7 @@ export function ValueRulesForm({
           <tbody>
             {columns.map((column) => {
               const ignored = rules.ignoredColumns.includes(column)
-              const numeric = rules.numeric[column]
+              const numeric = ownValue(rules.numeric, column)
               return (
                 <tr key={column}>
                   <td>{column}</td>
