@@ -3,8 +3,9 @@ import { schemaDiff } from '../engine/diff'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
 import { exportProfile, importProfile, missingColumns, ProfileError, profileFileName, readProfile, sameRules } from '../profiles/profile'
 import { browserStorage, createProfileStore } from '../profiles/store'
-import { createCompareClient } from '../worker/client'
-import type { CompareResult, KeyReport } from '../worker/protocol'
+import { CancelledError, createCompareClient } from '../worker/client'
+import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
+import { type Activity, ActivityBar, type Task } from './ActivityBar'
 import { FilePanel, type FileState } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
@@ -18,8 +19,8 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function download(text: string, fileName: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+function download(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
   link.download = fileName
@@ -44,6 +45,9 @@ export function App() {
   const [savedProfiles, setSavedProfiles] = useState(() => profileStore.list())
   const [profileName, setProfileName] = useState('')
   const [profileMessage, setProfileMessage] = useState<ProfileMessage | null>(null)
+  const [activity, setActivity] = useState<Activity>({})
+  const [exportError, setExportError] = useState<string | null>(null)
+  const activityTokens = useRef<Partial<Record<Task, number>>>({})
   const [client] = useState(() =>
     createCompareClient((reason) => {
       setFiles((prev) => ({ old: failIfLoaded(prev.old, reason), new: failIfLoaded(prev.new, reason) }))
@@ -55,13 +59,39 @@ export function App() {
   const latestKeyInputs = useRef('')
   const latestCompareInputs = useRef('')
 
+  // Only the latest run of a task may update or clear its progress. A task appears with its
+  // first progress message; user-started tasks call show() to appear before that.
+  function track(task: Task) {
+    const token = (activityTokens.current[task] ?? 0) + 1
+    activityTokens.current[task] = token
+    const live = () => activityTokens.current[task] === token
+    return {
+      show: () => {
+        if (live()) setActivity((a) => ({ ...a, [task]: a[task] ?? null }))
+      },
+      progress: (p: Progress) => {
+        if (live()) setActivity((a) => ({ ...a, [task]: p }))
+      },
+      end: () => {
+        if (!live()) return
+        setActivity((a) => {
+          const next = { ...a }
+          delete next[task]
+          return next
+        })
+      },
+    }
+  }
+
   function load(side: Side, file: File, delim: ParseRules['delimiter']) {
     const token = ++loadTokens.current[side]
     const isCurrent = () => token === loadTokens.current[side]
+    const task = track(side)
+    task.show()
     setFiles((prev) => ({ ...prev, [side]: { status: 'loading', file } }))
     setDataVersion((v) => v + 1)
     client
-      .call('parse', { side, file, rules: { delimiter: delim, trimHeaders: true } })
+      .call('parse', { side, file, rules: { delimiter: delim, trimHeaders: true } }, task.progress)
       .then((result) => {
         if (!isCurrent()) return
         const next: FileState = result.ok
@@ -73,6 +103,7 @@ export function App() {
       .catch((error: unknown) => {
         if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: message(error) } }))
       })
+      .finally(task.end)
   }
 
   function changeDelimiter(next: ParseRules['delimiter']) {
@@ -119,7 +150,7 @@ export function App() {
   function exportCurrentProfile() {
     const profile = validProfile()
     if (!profile) return
-    download(exportProfile(profile), profileFileName(profile.name))
+    download(new Blob([exportProfile(profile)], { type: 'application/json' }), profileFileName(profile.name))
     setProfileMessage(null)
   }
 
@@ -158,14 +189,17 @@ export function App() {
     latestKeyInputs.current = keyInputs
     if (!canCheckKeys) return
     const inputs = keyInputs
+    const task = track('keys')
     client
-      .call('checkKeys', { rules: keyRules })
+      .call('checkKeys', { rules: keyRules }, task.progress)
       .then((value) => {
         if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'done', value })
       })
       .catch((error: unknown) => {
+        if (error instanceof CancelledError) return
         if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: message(error) })
       })
+      .finally(task.end)
   }, [client, keyInputs, canCheckKeys, keyRules])
 
   function compare() {
@@ -173,14 +207,54 @@ export function App() {
     latestCompareInputs.current = inputs
     setComparison({ inputs, status: 'pending' })
     const profile = { ...currentProfile, name: currentProfile.name || 'Unsaved' }
+    const task = track('compare')
+    task.show()
+    setExportError(null)
     client
-      .call('compare', { profile })
+      .call('compare', { profile }, task.progress)
       .then((value) => {
         if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'done', value })
       })
       .catch((error: unknown) => {
+        if (error instanceof CancelledError) return
         if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'error', message: message(error) })
       })
+      .finally(task.end)
+  }
+
+  function exportResult(result: CompareResult, format: ExportFormat) {
+    const task = track('export')
+    task.show()
+    setExportError(null)
+    const base = currentProfile.name ? profileFileName(currentProfile.name).replace('.csv-diff-profile.json', '') : 'csv-diff'
+    client
+      .call('export', { resultId: result.resultId, format }, task.progress)
+      .then((blob) => download(blob, format === 'csv' ? `${base}-changes.csv` : `${base}-report.json`))
+      .catch((error: unknown) => {
+        if (!(error instanceof CancelledError)) setExportError(message(error))
+      })
+      .finally(task.end)
+  }
+
+  // The worker is stopped, so everything it held is gone: files mid-read must be picked
+  // again, files already read are read again, and a running comparison is abandoned.
+  function cancel() {
+    client.cancel()
+    activityTokens.current = {}
+    setActivity({})
+    for (const side of ['old', 'new'] as const) {
+      const state = files[side]
+      if (state.status === 'loading') {
+        loadTokens.current[side]++
+        setFiles((prev) => ({
+          ...prev,
+          [side]: { status: 'failed', file: state.file, message: 'Reading cancelled. Pick the file again.' },
+        }))
+      } else if (state.status === 'ready') {
+        load(side, state.file, delimiter)
+      }
+    }
+    setComparison((c) => (c?.status === 'pending' ? { inputs: c.inputs, status: 'error', message: 'Comparison cancelled.' } : c))
   }
 
   const report = keyCheck?.inputs === keyInputs ? keyCheck : null
@@ -202,6 +276,8 @@ export function App() {
         </label>{' '}
         <span className="muted">Headers are trimmed; a leading byte-order mark is ignored.</span>
       </header>
+
+      <ActivityBar activity={activity} onCancel={cancel} />
 
       <ProfileBar
         name={profileName}
@@ -281,7 +357,12 @@ export function App() {
 
       {currentComparison?.status === 'done' && oldInfo && newInfo && (
         <>
-          <SummaryView result={currentComparison.value} />
+          <SummaryView
+            result={currentComparison.value}
+            exporting={'export' in activity}
+            exportError={exportError}
+            onExport={(format) => exportResult(currentComparison.value, format)}
+          />
           <ResultsTabs
             client={client}
             result={currentComparison.value}

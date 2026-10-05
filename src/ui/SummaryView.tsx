@@ -1,8 +1,18 @@
 import { formatSummary } from '../engine/diff'
-import type { CompareResult } from '../worker/protocol'
+import type { CompareResult, ExportFormat } from '../worker/protocol'
 import { count } from './format'
 
-export function SummaryView({ result }: { result: CompareResult }) {
+export function SummaryView({
+  result,
+  exporting,
+  exportError,
+  onExport,
+}: {
+  result: CompareResult
+  exporting: boolean
+  exportError: string | null
+  onExport: (format: ExportFormat) => void
+}) {
   const { summary } = result
   const { counts } = summary
   return (
@@ -25,6 +35,19 @@ export function SummaryView({ result }: { result: CompareResult }) {
           comparison; {count(summary.warningCount)} numeric warnings. See the Problems tab.
         </p>
       )}
+      <div className="row">
+        <button type="button" disabled={exporting} onClick={() => onExport('csv')}>
+          Download changes (CSV)
+        </button>
+        <button type="button" className="secondary" disabled={exporting} onClick={() => onExport('json')}>
+          Download full report (JSON)
+        </button>
+      </div>
+      <p className="note">
+        The CSV has one line per changed field (change_type, key, column, before, after); a composite key is written as a
+        JSON array. The JSON report starts with the rules used and includes ambiguous keys, empty keys and warnings.
+      </p>
+      {exportError && <p className="error">{exportError}</p>}
       <details>
         <summary>Rules used</summary>
         <pre>{JSON.stringify(summary.rulesUsed, null, 2)}</pre>

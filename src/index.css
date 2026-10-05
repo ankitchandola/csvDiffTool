@@ -77,3 +77,7 @@ button.tab.active { color: var(--accent); border-bottom-color: var(--accent); fo
 .before { color: var(--error); text-decoration: line-through; white-space: pre-wrap; }
 .after { color: var(--accent); white-space: pre-wrap; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.activity { display: flex; flex-direction: column; gap: 6px; }
+.activity-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.activity-row progress { flex: 1; min-width: 160px; }
+.activity button { align-self: flex-start; }
