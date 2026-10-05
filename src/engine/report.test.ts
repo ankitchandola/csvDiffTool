@@ -105,3 +105,22 @@ describe('buildJsonReport', () => {
     expect(report.added[0].record).toEqual(JSON.parse('{"id":"2","__proto__":"b"}'))
   })
 })
+
+describe('buildChangesCsv key column', () => {
+  it('escapes a composite key as one quoted CSV field, keeping the original parts', () => {
+    const text = buildChangesCsv(
+      input('warehouse,sku,price\nw1,001,10\n', 'warehouse,sku,price\nw1,001,12\n', profile({ columns: ['warehouse', 'sku'] })),
+    ).join('')
+    expect(text).toBe('﻿change_type,key,column,before,after\r\nchanged,"[""w1"",""001""]",price,10,12\r\n')
+  })
+
+  it('writes the key as typed in the file, not its normalised matching form', () => {
+    const p = profile({ columns: ['sku'], trim: true, caseInsensitive: true })
+    const rows = readCsv(buildChangesCsv(input('sku,qty\n0042,1\n', 'sku,qty\n 0042 ,2\n', p)))
+    // Value rules don't trim, so the key column's own spacing change is reported too.
+    expect(rows.slice(1)).toEqual([
+      ['changed', ' 0042 ', 'sku', '0042', ' 0042 '],
+      ['changed', ' 0042 ', 'qty', '1', '2'],
+    ])
+  })
+})
