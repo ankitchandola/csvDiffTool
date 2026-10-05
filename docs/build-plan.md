@@ -165,6 +165,22 @@ Ten milestones, in order. The worker exists from milestone 1 so parsing never ru
 - [x] **8. Export.** Built in the worker: long-format changes CSV (`change_type, key, column, before, after`) and a JSON report whose header lists the rules used.
 - [ ] **9. Benchmarks and limits.** Measure mostly-unchanged and mostly-changed inputs at several row counts and column widths, then set a documented size limit with a clear failure message.
 
+## Deferred export improvements
+
+Usability only; the current single long-format CSV is within the plan. Revisit if
+realistic exports show its size is inconvenient.
+
+- **Split CSV export** into three files, all with formula escaping:
+
+  | File | Layout |
+  | --- | --- |
+  | `added.csv` | One row per added record, with all new-file columns |
+  | `removed.csv` | One row per removed record, with all old-file columns |
+  | `changed.csv` | One row per changed field: `key, column, before, after` |
+
+- **Separate key columns** (`key_warehouse, key_sku`) instead of one JSON-array `key`
+  column, for easier filtering in Excel.
+
 ## Testing
 
 The engine is pure, so test it heavily with small fixture pairs and measure memory across the whole pipeline, not just parsing.
