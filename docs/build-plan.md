@@ -160,7 +160,7 @@ Ten milestones, in order. The worker exists from milestone 1 so parsing never ru
 - [x] **3. Key classification engine.** Added, removed, matched, ambiguous and empty keys are correct across fixtures, including both duplicate cases and normalisation collisions. Tested without UI.
 - [x] **4. Value comparison.** Ignored columns, per-column case rules, decimal tolerance via scaled BigInt, numeric-validation warnings. Summary reads like "12 added, 3 removed, 8 changed (price: 8, stock: 5)."
 - [x] **5. Thin profiles.** Save, load and apply a profile; export and import as JSON; warn when a profile's columns are missing from the new files.
-- [ ] **6. Results paging.** Worker serves pages via `getRows`; Added / Removed / Changed / Problems tabs with virtualised tables; filter changed records by column.
+- [x] **6. Results paging.** Worker serves pages via `getRows`; Added / Removed / Changed / Problems tabs with virtualised tables; filter changed records by column.
 - [ ] **7. Progress and cancellation.** Progress bar per phase; Cancel terminates the worker; UI stays responsive on a large test file.
 - [ ] **8. Export.** Built in the worker: long-format changes CSV (`change_type, key, column, before, after`) and a JSON report whose header lists the rules used.
 - [ ] **9. Benchmarks and limits.** Measure mostly-unchanged and mostly-changed inputs at several row counts and column widths, then set a documented size limit with a clear failure message.
