@@ -1,11 +1,24 @@
-import type { Requests, RequestType, Results, WorkerRequest, WorkerResponse } from './protocol'
+import type { Progress, Requests, RequestType, Results, WorkerRequest, WorkerResponse } from './protocol'
+
+export class CancelledError extends Error {
+  constructor() {
+    super('Cancelled')
+  }
+}
 
 export interface CompareClient {
-  call<K extends RequestType>(type: K, payload: Requests[K]): Promise<Results[K]>
+  call<K extends RequestType>(type: K, payload: Requests[K], onProgress?: (progress: Progress) => void): Promise<Results[K]>
+  // Stops the worker mid-task. Pending calls reject with CancelledError and the parsed files
+  // are gone; the next call starts a fresh worker.
+  cancel(): void
   terminate(): void
 }
 
-type Pending = { resolve: (value: never) => void; reject: (error: Error) => void }
+type Pending = {
+  resolve: (value: never) => void
+  reject: (error: Error) => void
+  onProgress?: (progress: Progress) => void
+}
 
 // onFailure fires when the worker dies. Its state (the parsed files) is gone with it;
 // the next call starts a fresh worker, so callers must load the files again.
@@ -30,6 +43,10 @@ export function createCompareClient(onFailure: (message: string) => void): Compa
     const w = new Worker(new URL('./compare.worker.ts', import.meta.url), { type: 'module' })
     w.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const response = event.data
+      if ('progress' in response) {
+        pending.get(response.id)?.onProgress?.(response.progress)
+        return
+      }
       if (response.id === null) {
         if (!response.ok) fail(response.message)
         return
@@ -49,7 +66,7 @@ export function createCompareClient(onFailure: (message: string) => void): Compa
   }
 
   return {
-    call(type, payload) {
+    call(type, payload, onProgress) {
       const id = nextId++
       let target: Worker
       try {
@@ -60,7 +77,7 @@ export function createCompareClient(onFailure: (message: string) => void): Compa
         return Promise.reject(new Error(message))
       }
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve: resolve as (value: never) => void, reject })
+        pending.set(id, { resolve: resolve as (value: never) => void, reject, onProgress })
         try {
           target.postMessage({ id, type, ...payload } as WorkerRequest)
         } catch (error) {
@@ -68,6 +85,9 @@ export function createCompareClient(onFailure: (message: string) => void): Compa
           reject(error instanceof Error ? error : new Error(String(error)))
         }
       })
+    },
+    cancel() {
+      stop(new CancelledError())
     },
     terminate() {
       stop(new Error('Worker terminated'))

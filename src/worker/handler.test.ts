@@ -254,3 +254,27 @@ describe('worker handler paging guarantees', () => {
     })
   })
 })
+
+describe('worker handler export', () => {
+  it('exports the latest comparison as a changes CSV and a JSON report naming the files', async () => {
+    const handle = createHandler()
+    await handle({ id: 1, type: 'parse', side: 'old', file: new File(['id,v\n1,a\n'], 'monday.csv'), rules: RULES })
+    await handle({ id: 2, type: 'parse', side: 'new', file: new File(['id,v\n1,b\n'], 'tuesday.csv'), rules: RULES })
+    const result = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+    if (!('resultId' in result)) throw new Error('expected a comparison')
+
+    const csv = await handle({ id: 4, type: 'export', resultId: result.resultId, format: 'csv' })
+    if (!(csv instanceof Blob)) throw new Error('expected a Blob')
+    // Blob.text() drops a BOM while decoding, so check the bytes for it.
+    expect([...new Uint8Array(await csv.arrayBuffer()).slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+    expect(await csv.text()).toBe('change_type,key,column,before,after\r\nchanged,1,v,a,b\r\n')
+
+    const json = await handle({ id: 5, type: 'export', resultId: result.resultId, format: 'json' })
+    if (!(json instanceof Blob)) throw new Error('expected a Blob')
+    expect(JSON.parse(await json.text())).toMatchObject({ files: { old: 'monday.csv', new: 'tuesday.csv' } })
+
+    await expect(handle({ id: 6, type: 'export', resultId: result.resultId + 1, format: 'csv' })).rejects.toThrow(
+      'replaced by a newer comparison',
+    )
+  })
+})

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createCompareClient } from './client'
+import { CancelledError, createCompareClient } from './client'
 
 class FakeWorker {
   static instances: FakeWorker[] = []
@@ -94,5 +94,38 @@ describe('createCompareClient startup failure', () => {
     }).not.toThrow()
     await expect(call).rejects.toThrow('could not start: SecurityError')
     expect(onFailure).toHaveBeenCalledWith('The comparison worker could not start: SecurityError')
+  })
+})
+
+describe('createCompareClient progress and cancel', () => {
+  beforeEach(() => {
+    FakeWorker.instances = []
+    vi.stubGlobal('Worker', FakeWorker)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('routes progress messages to the call that asked for them', async () => {
+    const client = createCompareClient(() => {})
+    const onProgress = vi.fn()
+    const call = client.call('checkKeys', { rules: RULES }, onProgress)
+    const worker = FakeWorker.instances[0]
+    const { id } = worker.posted[0]
+    worker.onmessage?.({ data: { id, progress: { phase: 'index', done: 5, total: 10 } } })
+    worker.onmessage?.({ data: { id: id + 99, progress: { phase: 'index', done: 1, total: 10 } } })
+    worker.onmessage?.({ data: { id, ok: true, result: 'done' } })
+    await expect(call).resolves.toBe('done')
+    expect(onProgress).toHaveBeenCalledExactlyOnceWith({ phase: 'index', done: 5, total: 10 })
+  })
+
+  it('cancels by stopping the worker, without reporting a failure', async () => {
+    const onFailure = vi.fn()
+    const client = createCompareClient(onFailure)
+    const call = client.call('checkKeys', { rules: RULES })
+    client.cancel()
+    await expect(call).rejects.toBeInstanceOf(CancelledError)
+    expect(FakeWorker.instances[0].terminated).toBe(true)
+    expect(onFailure).not.toHaveBeenCalled()
+    client.call('checkKeys', { rules: RULES })
+    expect(FakeWorker.instances).toHaveLength(2)
   })
 })

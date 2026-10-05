@@ -1,7 +1,8 @@
 import { type ChangedRecord, checkKeyColumns, diffFiles, type DiffResult, schemaDiff } from '../engine/diff'
 import { classifyKeys, encodeKey, type KeyClassification, keyParts, normaliseKeyPart } from '../engine/keys'
 import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, parseCsv } from '../engine/parse'
-import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, Row, Side } from '../engine/types'
+import { buildChangesCsv, buildJsonReport } from '../engine/report'
+import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ProgressFn, Row, Side } from '../engine/types'
 import {
   type AmbiguousKeyPreview,
   type AmbiguousRecord,
@@ -54,6 +55,7 @@ function pageBounds(offset: number, limit: number): [number, number] {
 // never crosses to the UI thread.
 export function createHandler() {
   const files: Partial<Record<Side, ParsedFile>> = {}
+  const fileNames: Partial<Record<Side, string>> = {}
   const issues: Partial<Record<Side, ParseIssue[]>> = {}
   const generations: Record<Side, number> = { old: 0, new: 0 }
   let latest: {
@@ -61,6 +63,8 @@ export function createHandler() {
     oldFile: ParsedFile
     newFile: ParsedFile
     resultId: number
+    oldName: string
+    newName: string
     changedByColumn: Map<string, ChangedRecord[]>
     ambiguousRecords: AmbiguousRecord[] | null
   } | null = null
@@ -71,7 +75,7 @@ export function createHandler() {
     return [files.old, files.new]
   }
 
-  async function parse({ side, file, rules }: Requests['parse']): Promise<Results['parse']> {
+  async function parse({ side, file, rules }: Requests['parse'], onProgress?: ProgressFn): Promise<Results['parse']> {
     delete files[side]
     delete issues[side]
     latest = null
@@ -80,12 +84,15 @@ export function createHandler() {
     // A newer file for this side was picked while this one was being read.
     if (generation !== generations[side]) throw new Error('Superseded by a newer file')
     const outcome =
-      text === null ? { ok: false as const, issues: [{ kind: 'file' as const, message: NOT_UTF8_MESSAGE }] } : parseCsv(text, rules)
+      text === null
+        ? { ok: false as const, issues: [{ kind: 'file' as const, message: NOT_UTF8_MESSAGE }] }
+        : parseCsv(text, rules, onProgress)
     if (!outcome.ok) {
       issues[side] = outcome.issues
       return { ok: false, issues: preview(outcome.issues, PREVIEW_ISSUES) }
     }
     files[side] = outcome.file
+    fileNames[side] = file.name
     const { headers, rows, delimiter } = outcome.file
     return { ok: true, info: { headers, delimiter, recordCount: rows.length, preview: rows.slice(0, PREVIEW_RECORDS) } }
   }
@@ -96,22 +103,29 @@ export function createHandler() {
     return { side, total: all.length, offset: start, items: all.slice(start, end) }
   }
 
-  function checkKeys({ rules }: Requests['checkKeys']): Results['checkKeys'] {
+  function checkKeys({ rules }: Requests['checkKeys'], onProgress?: ProgressFn): Results['checkKeys'] {
     const [oldFile, newFile] = bothFiles()
     checkKeyColumns(schemaDiff(oldFile.headers, newFile.headers), rules)
-    const keys = classifyKeys(oldFile.rows, newFile.rows, rules)
+    const keys = classifyKeys(oldFile.rows, newFile.rows, rules, onProgress)
     return {
       counts: { matched: keys.matched.length, added: keys.added.length, removed: keys.removed.length },
       ...keyProblems(keys),
     }
   }
 
-  function compare({ profile }: Requests['compare']): Results['compare'] {
+  function compare({ profile }: Requests['compare'], onProgress?: ProgressFn): Results['compare'] {
     const [oldFile, newFile] = bothFiles()
     latest = null
-    const diff = diffFiles(oldFile, newFile, profile)
+    const diff = diffFiles(oldFile, newFile, profile, onProgress)
     const resultId = nextResultId++
-    latest = { diff, oldFile, newFile, resultId, changedByColumn: new Map(), ambiguousRecords: null }
+    latest = {
+      diff,
+      oldFile,
+      newFile,
+      resultId,
+      oldName: fileNames.old ?? 'old.csv',
+      newName: fileNames.new ?? 'new.csv',
+      changedByColumn: new Map(), ambiguousRecords: null }
     const ambiguousRecordCount = diff.keys.ambiguous.reduce((n, g) => n + g.old.length + g.new.length, 0)
     return { resultId, ambiguousRecordCount, summary: diff.summary, warnings: preview(diff.warnings, PREVIEW_WARNINGS), ...keyProblems(diff.keys) }
   }
@@ -139,10 +153,22 @@ export function createHandler() {
     return latest.ambiguousRecords
   }
 
-  function getRows({ resultId, tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {
+  function current(resultId: number): NonNullable<typeof latest> {
     if (!latest) throw new Error('Compare the files first')
     if (resultId !== latest.resultId) throw new Error('These results were replaced by a newer comparison')
-    const { diff, oldFile, newFile } = latest
+    return latest
+  }
+
+  function exportResult({ resultId, format }: Requests['export'], onProgress?: ProgressFn): Results['export'] {
+    const { diff, oldFile, newFile, oldName, newName } = current(resultId)
+    const input = { diff, oldFile, newFile, oldName, newName, generatedAt: new Date().toISOString() }
+    return format === 'csv'
+      ? new Blob(buildChangesCsv(input, onProgress), { type: 'text/csv;charset=utf-8' })
+      : new Blob(buildJsonReport(input, onProgress), { type: 'application/json' })
+  }
+
+  function getRows({ resultId, tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {
+    const { diff, oldFile, newFile } = current(resultId)
     const [start, end] = pageBounds(offset, limit)
     const rules = diff.summary.rulesUsed.key
 
@@ -182,18 +208,20 @@ export function createHandler() {
     }
   }
 
-  return async function handle(request: WorkerRequest): Promise<Results[WorkerRequest['type']]> {
+  return async function handle(request: WorkerRequest, onProgress?: ProgressFn): Promise<Results[WorkerRequest['type']]> {
     switch (request.type) {
       case 'parse':
-        return parse(request)
+        return parse(request, onProgress)
       case 'getIssues':
         return getIssues(request)
       case 'checkKeys':
-        return checkKeys(request)
+        return checkKeys(request, onProgress)
       case 'compare':
-        return compare(request)
+        return compare(request, onProgress)
       case 'getRows':
         return getRows(request)
+      case 'export':
+        return exportResult(request, onProgress)
     }
   }
 }

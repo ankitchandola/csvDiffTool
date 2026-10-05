@@ -10,6 +10,7 @@ import type {
   KeyRef,
   KeyRules,
   ParseRules,
+  Phase,
   Row,
   Side,
 } from '../engine/types'
@@ -107,6 +108,14 @@ export interface IssuesPage {
   items: ParseIssue[]
 }
 
+export interface Progress {
+  phase: Phase
+  done: number
+  total: number
+}
+
+export type ExportFormat = 'csv' | 'json'
+
 export interface Requests {
   parse: { side: Side; file: File; rules: ParseRules }
   getIssues: { side: Side; offset: number; limit: number }
@@ -114,6 +123,7 @@ export interface Requests {
   compare: { profile: CompareProfile }
   // column narrows the changed tab to records where that column changed.
   getRows: { resultId: number; tab: ResultTab; offset: number; limit: number; column?: string }
+  export: { resultId: number; format: ExportFormat }
 }
 
 export interface Results {
@@ -122,6 +132,7 @@ export interface Results {
   checkKeys: KeyReport
   compare: CompareResult
   getRows: RowsPage
+  export: Blob
 }
 
 export type RequestType = keyof Requests
@@ -132,5 +143,6 @@ export type WorkerRequest = {
 
 // id null: the worker could not read a request, so it can't say which one failed.
 export type WorkerResponse =
+  | { id: number; progress: Progress }
   | { id: number; ok: true; result: Results[RequestType] }
   | { id: number | null; ok: false; message: string }
