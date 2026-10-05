@@ -9,6 +9,7 @@ import { FilePanel, type FileState } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
+import { ResultsTabs } from './results/ResultsTabs'
 import { SummaryView } from './SummaryView'
 
 type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
@@ -278,7 +279,18 @@ export function App() {
         </section>
       )}
 
-      {currentComparison?.status === 'done' && <SummaryView result={currentComparison.value} />}
+      {currentComparison?.status === 'done' && oldInfo && newInfo && (
+        <>
+          <SummaryView result={currentComparison.value} />
+          <ResultsTabs
+            client={client}
+            result={currentComparison.value}
+            resultKey={currentComparison.inputs}
+            oldHeaders={oldInfo.headers}
+            newHeaders={newInfo.headers}
+          />
+        </>
+      )}
     </main>
   )
 }

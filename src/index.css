@@ -62,3 +62,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 button.secondary, .secondary-file { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
 .secondary-file { display: inline-block; padding: 6px 16px; border-radius: 6px; cursor: pointer; }
 .secondary-file input { display: none; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+button.tab { background: transparent; color: var(--text); border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent; }
+button.tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.vlist { height: min(60vh, 560px); overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.vlist-header { position: sticky; top: 0; z-index: 1; background: var(--panel); font-weight: 600; border-bottom: 1px solid var(--border); }
+.vlist-row { position: absolute; top: 0; left: 0; width: 100%; border-bottom: 1px solid var(--border); }
+.cell { padding: 6px 8px; font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.changes { display: flex; flex-direction: column; gap: 2px; }
+.change { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.change.focus .change-column { color: var(--accent); }
+.change-column { font-weight: 600; }
+.before { color: var(--error); text-decoration: line-through; white-space: pre-wrap; }
+.after { color: var(--accent); white-space: pre-wrap; }

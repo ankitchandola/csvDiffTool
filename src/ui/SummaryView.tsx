@@ -1,11 +1,9 @@
 import { formatSummary } from '../engine/diff'
 import type { CompareResult } from '../worker/protocol'
-import { count, RECORD_NUMBER_NOTE } from './format'
-import { ShowingNote } from './ShowingNote'
-import { KeyProblemsList } from './KeyProblemsList'
+import { count } from './format'
 
 export function SummaryView({ result }: { result: CompareResult }) {
-  const { summary, warnings } = result
+  const { summary } = result
   const { counts } = summary
   return (
     <section className="panel">
@@ -21,22 +19,11 @@ export function SummaryView({ result }: { result: CompareResult }) {
           {summary.schema.removed.length > 0 && ` Old file only: ${summary.schema.removed.join(', ')}.`}
         </p>
       )}
-      <KeyProblemsList problems={result} />
-      {warnings.total > 0 && (
-        <div className="warning">
-          <h4>
-            {count(warnings.total)} numeric-validation warning{warnings.total === 1 ? '' : 's'}
-          </h4>
-          <ul>
-            {warnings.items.map((w, i) => (
-              <li key={i}>
-                {w.side} data record {w.recordNumber}, {w.column}: {w.message}
-              </li>
-            ))}
-          </ul>
-          <ShowingNote shown={warnings.items.length} total={warnings.total} />
-          <p className="note">{RECORD_NUMBER_NOTE}</p>
-        </div>
+      {(counts.ambiguous > 0 || counts.emptyKey > 0 || summary.warningCount > 0) && (
+        <p className="warning">
+          {count(counts.ambiguous)} ambiguous keys and {count(counts.emptyKey)} empty keys were left out of the
+          comparison; {count(summary.warningCount)} numeric warnings. See the Problems tab.
+        </p>
       )}
       <details>
         <summary>Rules used</summary>
