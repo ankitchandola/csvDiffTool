@@ -58,7 +58,7 @@ describe('buildChangesCsv', () => {
 
   it('reports progress up to the total', () => {
     const onProgress = vi.fn()
-    buildChangesCsv(input(OLD, NEW), onProgress)
+    buildChangesCsv(input(OLD, NEW), {}, onProgress)
     expect(onProgress).toHaveBeenLastCalledWith('export', 3, 3)
   })
 
@@ -122,5 +122,52 @@ describe('buildChangesCsv key column', () => {
       ['changed', ' 0042 ', 'sku', '0042', ' 0042 '],
       ['changed', ' 0042 ', 'qty', '1', '2'],
     ])
+  })
+})
+
+describe('buildChangesCsv formula escaping', () => {
+  const RISKY = ['=1+1', '+cmd|calc', '-1+1', '@SUM(A1)', '\tx', '\rx']
+  const SAFE = ['-12', '+3.5', '-0.25', '.5', 'plain', '12-3', '1=1', "'quoted"]
+
+  function changed(values: string[]) {
+    const oldText = 'id,v\n' + values.map((_, i) => `${i},old`).join('\n') + '\n'
+    const newText = 'id,v\n' + values.map((v, i) => `${i},"${v}"`).join('\n') + '\n'
+    return input(oldText, newText)
+  }
+
+  function afterValues(chunks: string[]) {
+    return readCsv(chunks)
+      .slice(1)
+      .map((row) => row[4])
+  }
+
+  it.each(RISKY)('prefixes %j with an apostrophe', (value) => {
+    expect(afterValues(buildChangesCsv(changed([value])))).toEqual([`'${value}`])
+  })
+
+  it.each(SAFE)('leaves %j unchanged', (value) => {
+    expect(afterValues(buildChangesCsv(changed([value])))).toEqual([value])
+  })
+
+  it('escapes a formula-like key too', () => {
+    const rows = readCsv(buildChangesCsv(input('id,v\n=A1,1\n', 'id,v\n=A1,2\n')))
+    expect(rows[1].slice(0, 2)).toEqual(['changed', "'=A1"])
+  })
+
+  it('writes values as read when escaping is turned off', () => {
+    expect(afterValues(buildChangesCsv(changed(RISKY), { escapeFormulae: false }))).toEqual(RISKY)
+  })
+
+  it('keeps original values in the JSON report', () => {
+    const report = JSON.parse(buildJsonReport(changed(RISKY)).join(''))
+    expect(report.changed.map((c: { changes: { after: string }[] }) => c.changes[0].after)).toEqual(RISKY)
+  })
+
+  it('never modifies the comparison result it exports', () => {
+    const report = changed([...RISKY, ...SAFE])
+    const before = structuredClone(report)
+    buildChangesCsv(report)
+    buildJsonReport(report)
+    expect(report).toEqual(before)
   })
 })

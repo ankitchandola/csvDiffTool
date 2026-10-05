@@ -123,7 +123,8 @@ export interface Requests {
   compare: { profile: CompareProfile }
   // column narrows the changed tab to records where that column changed.
   getRows: { resultId: number; tab: ResultTab; offset: number; limit: number; column?: string }
-  export: { resultId: number; format: ExportFormat }
+  // escapeFormulae applies to the CSV only; defaults to true.
+  export: { resultId: number; format: ExportFormat; escapeFormulae?: boolean }
 }
 
 export interface Results {

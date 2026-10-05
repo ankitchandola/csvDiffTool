@@ -159,11 +159,11 @@ export function createHandler() {
     return latest
   }
 
-  function exportResult({ resultId, format }: Requests['export'], onProgress?: ProgressFn): Results['export'] {
+  function exportResult({ resultId, format, escapeFormulae }: Requests['export'], onProgress?: ProgressFn): Results['export'] {
     const { diff, oldFile, newFile, oldName, newName } = current(resultId)
     const input = { diff, oldFile, newFile, oldName, newName, generatedAt: new Date().toISOString() }
     return format === 'csv'
-      ? new Blob(buildChangesCsv(input, onProgress), { type: 'text/csv;charset=utf-8' })
+      ? new Blob(buildChangesCsv(input, { escapeFormulae }, onProgress), { type: 'text/csv;charset=utf-8' })
       : new Blob(buildJsonReport(input, onProgress), { type: 'application/json' })
   }
 

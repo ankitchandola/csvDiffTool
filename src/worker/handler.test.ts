@@ -278,3 +278,29 @@ describe('worker handler export', () => {
     )
   })
 })
+
+describe('worker handler formula escaping', () => {
+  it('escapes only the CSV download and leaves the stored comparison untouched', async () => {
+    const handle = createHandler()
+    await handle({ id: 1, type: 'parse', side: 'old', file: new File(['id,v\n1,a\n'], 'o.csv'), rules: RULES })
+    await handle({ id: 2, type: 'parse', side: 'new', file: new File(['id,v\n1,=HYPERLINK("x")\n'], 'n.csv'), rules: RULES })
+    const result = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+    if (!('resultId' in result)) throw new Error('expected a comparison')
+    const { resultId } = result
+
+    const csv = await handle({ id: 4, type: 'export', resultId, format: 'csv' })
+    if (!(csv instanceof Blob)) throw new Error('expected a Blob')
+    expect(await csv.text()).toContain(`"'=HYPERLINK(""x"")"`)
+
+    const raw = await handle({ id: 5, type: 'export', resultId, format: 'csv', escapeFormulae: false })
+    if (!(raw instanceof Blob)) throw new Error('expected a Blob')
+    expect(await raw.text()).toContain('"=HYPERLINK(""x"")"')
+
+    expect(await handle({ id: 6, type: 'getRows', resultId, tab: 'changed', offset: 0, limit: 10 })).toMatchObject({
+      items: [{ changes: [{ column: 'v', before: 'a', after: '=HYPERLINK("x")' }] }],
+    })
+    const json = await handle({ id: 7, type: 'export', resultId, format: 'json' })
+    if (!(json instanceof Blob)) throw new Error('expected a Blob')
+    expect(JSON.parse(await json.text()).changed[0].changes[0].after).toBe('=HYPERLINK("x")')
+  })
+})

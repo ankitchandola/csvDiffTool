@@ -1,3 +1,4 @@
+import Papa from 'papaparse'
 import type { DiffResult } from './diff'
 import { keyParts } from './keys'
 import { type ParsedFile, PROGRESS_EVERY, type ProgressFn } from './types'
@@ -40,12 +41,28 @@ function chunkWriter() {
   }
 }
 
-function csvField(value: string): string {
-  return /[",\r\n]/.test(value) || value !== value.trim() ? `"${value.replaceAll('"', '""')}"` : value
-}
+// A value starting with =, +, -, @, tab or CR can run as a formula when the CSV is opened in a
+// spreadsheet; Papa Parse prefixes it with an apostrophe. Plain signed numbers such as -12 can't,
+// so they're left alone and stay numbers in Excel.
+export const FORMULA_PATTERN = /^(?![+-]?(?:\d+(?:\.\d*)?|\.\d+)$)[=+\-@\t\r]/
 
-function csvLine(fields: string[]): string {
-  return fields.map(csvField).join(',') + '\r\n'
+const ROWS_PER_BATCH = 1000
+
+function csvRows(write: (text: string) => void, escapeFormulae: boolean) {
+  const config = { newline: '\r\n', escapeFormulae: escapeFormulae ? FORMULA_PATTERN : false }
+  let batch: string[][] = []
+  const flush = () => {
+    if (batch.length === 0) return
+    write(Papa.unparse(batch, config) + '\r\n')
+    batch = []
+  }
+  return {
+    row(fields: string[]) {
+      batch.push(fields)
+      if (batch.length >= ROWS_PER_BATCH) flush()
+    },
+    flush,
+  }
 }
 
 // A single-column key is written as its value; a composite key as a JSON array of its parts.
@@ -63,32 +80,40 @@ function progress(onProgress: ProgressFn | undefined, total: number) {
 
 // Long format: one line per field. Added and removed records list every column of their
 // file, with the value under after or before; changed records list only the changed fields.
-// Starts with a BOM so Excel reads the file as UTF-8.
-export function buildChangesCsv(input: ReportInput, onProgress?: ProgressFn): string[] {
+// Starts with a BOM so Excel reads the file as UTF-8. Only this CSV escapes formulas; the
+// engine and the JSON report keep values exactly as read.
+export function buildChangesCsv(
+  input: ReportInput,
+  { escapeFormulae = true }: { escapeFormulae?: boolean } = {},
+  onProgress?: ProgressFn,
+): string[] {
   const { diff, oldFile, newFile } = input
   const rules = diff.summary.rulesUsed.key
   const out = chunkWriter()
+  const csv = csvRows(out.write, escapeFormulae)
   const total = diff.keys.added.length + diff.keys.removed.length + diff.changed.length
   const tick = progress(onProgress, total)
 
-  out.write('﻿' + csvLine(CHANGES_CSV_HEADER))
+  out.write('\uFEFF')
+  csv.row(CHANGES_CSV_HEADER)
   for (const index of diff.keys.added) {
     const row = newFile.rows[index]
     const key = keyCell(keyParts(row, rules))
-    for (const column of newFile.headers) out.write(csvLine(['added', key, column, '', row[column]]))
+    for (const column of newFile.headers) csv.row(['added', key, column, '', row[column]])
     tick()
   }
   for (const index of diff.keys.removed) {
     const row = oldFile.rows[index]
     const key = keyCell(keyParts(row, rules))
-    for (const column of oldFile.headers) out.write(csvLine(['removed', key, column, row[column], '']))
+    for (const column of oldFile.headers) csv.row(['removed', key, column, row[column], ''])
     tick()
   }
   for (const record of diff.changed) {
     const key = keyCell(record.key.parts)
-    for (const change of record.changes) out.write(csvLine(['changed', key, change.column, change.before, change.after]))
+    for (const change of record.changes) csv.row(['changed', key, change.column, change.before, change.after])
     tick()
   }
+  csv.flush()
   onProgress?.('export', total, total)
   return out.finish()
 }
