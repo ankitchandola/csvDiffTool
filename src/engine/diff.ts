@@ -1,4 +1,5 @@
 import { compareRecords } from './compare'
+import { emptyDict } from './dict'
 import { classifyKeys, type KeyClassification, keyParts } from './keys'
 import type {
   CompareProfile,
@@ -53,7 +54,7 @@ export function diffFiles(oldFile: ParsedFile, newFile: ParsedFile, profile: Com
 
   const keys = classifyKeys(oldFile.rows, newFile.rows, profile.key)
   const changed: ChangedRecord[] = []
-  const changesByColumn: Record<string, number> = {}
+  const changesByColumn = emptyDict<number>()
   const warnings: CompareWarning[] = []
   let warningCount = 0
 

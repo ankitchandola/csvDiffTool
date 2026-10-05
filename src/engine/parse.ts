@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { emptyDict } from './dict'
 import type { Delimiter, ParsedFile, ParseRules, Row } from './types'
 
 export type ParseIssue =
@@ -75,7 +76,7 @@ export function parseCsv(text: string, rules: ParseRules): ParseOutcome {
       } else if (result.data.length !== headers.length) {
         reportRecord(`Expected ${headers.length} fields, found ${result.data.length}`, raw)
       } else if (issueCount === 0) {
-        const row: Row = {}
+        const row: Row = emptyDict()
         for (let i = 0; i < headers.length; i++) row[headers[i]] = result.data[i]
         rows.push(row)
       }

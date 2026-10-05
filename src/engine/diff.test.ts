@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { diffFiles, formatSummary } from './diff'
 import { parsedFixture, profile } from './fixtures.test-helper'
+import { parseCsv } from './parse'
 import type { CompareProfile } from './types'
 import { RulesError } from './values'
 
@@ -112,5 +113,47 @@ describe('diffFiles', () => {
   it('records the rules used', () => {
     const p = profile({ columns: ['id'] })
     expect(diff('reordered', p).summary.rulesUsed).toEqual(p)
+  })
+})
+
+describe('headers that collide with Object.prototype names', () => {
+  const rules = { delimiter: 'auto', trimHeaders: true } as const
+
+  it('keeps their values and counts their changes', () => {
+    const a = parseCsv('id,__proto__,constructor,toString\n1,x,a,p\n', rules)
+    const b = parseCsv('id,__proto__,constructor,toString\n1,y,b,q\n', rules)
+    if (!a.ok || !b.ok) throw new Error('parse failed')
+    expect(a.file.rows[0].__proto__).toBe('x')
+    const { summary } = diffFiles(a.file, b.file, profile({ columns: ['id'] }))
+    expect(formatSummary(summary)).toBe('0 added, 0 removed, 1 changed (__proto__: 1, constructor: 1, toString: 1).')
+  })
+
+  it('survive the structured clone to the UI thread', () => {
+    const a = parseCsv('__proto__,constructor\nx,a\n', rules)
+    if (!a.ok) throw new Error('parse failed')
+    const cloned = structuredClone(a.file.rows[0])
+    expect(Object.hasOwn(cloned, '__proto__')).toBe(true)
+    expect(Object.entries(cloned)).toEqual([
+      ['__proto__', 'x'],
+      ['constructor', 'a'],
+    ])
+  })
+
+  it('accepts a numeric rule for a column named constructor', () => {
+    const a = parseCsv('id,constructor\n1,1.0\n', rules)
+    const b = parseCsv('id,constructor\n1,1.00\n', rules)
+    if (!a.ok || !b.ok) throw new Error('parse failed')
+    const numeric = Object.fromEntries([['constructor', { tolerance: '0', stripThousandsSeparator: false }]])
+    expect(diffFiles(a.file, b.file, profile({ columns: ['id'] }, { numeric })).summary.counts.changed).toBe(0)
+  })
+})
+
+describe('ignored columns', () => {
+  it('skip their numeric rules, including an invalid tolerance', () => {
+    const p = profile(
+      { columns: ['id'] },
+      { ignoredColumns: ['price'], numeric: { price: { tolerance: 'not a number', stripThousandsSeparator: false } } },
+    )
+    expect(diff('tolerance', p).summary.counts).toMatchObject({ changed: 0, unchanged: 2 })
   })
 })

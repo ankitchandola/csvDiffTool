@@ -17,7 +17,9 @@ export class RulesError extends Error {}
 
 export function compileValueRules(rules: ValueRules): CompiledValueRules {
   const numeric: CompiledValueRules['numeric'] = new Map()
+  const ignored = new Set(rules.ignoredColumns)
   for (const [column, rule] of Object.entries(rules.numeric)) {
+    if (ignored.has(column)) continue
     const tolerance = parseDecimal(rule.tolerance.trim(), false)
     if (tolerance === null || tolerance.units < 0n) {
       throw new RulesError(`Tolerance for "${column}" must be a non-negative number, got "${rule.tolerance}"`)
@@ -25,7 +27,7 @@ export function compileValueRules(rules: ValueRules): CompiledValueRules {
     numeric.set(column, { tolerance, stripThousandsSeparator: rule.stripThousandsSeparator })
   }
   return {
-    ignored: new Set(rules.ignoredColumns),
+    ignored,
     trim: rules.trim,
     caseInsensitive: new Set(rules.caseInsensitive),
     numeric,
