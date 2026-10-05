@@ -154,12 +154,12 @@ The UI requests rows with `getRows(tab, offset, limit)`; it never receives the f
 
 Ten milestones, in order. The worker exists from milestone 1 so parsing never runs on the main thread, and profiles land right after value rules work. Milestones 3–4 carry the core value, so write their fixture tests before the UI.
 
-- [ ] **0. Scaffold.** Vite + React + TS + Vitest, empty engine module with a passing test, deployed to a static host on day one.
-- [ ] **1. Read one file in a worker.** Shows columns, record count, first 20 records, and structural errors by record number. Duplicate or empty headers are rejected.
-- [ ] **2. Read both files.** Schema diff (added, removed, shared columns), key column selection, ambiguous and empty key report before comparison.
-- [ ] **3. Key classification engine.** Added, removed, matched, ambiguous and empty keys are correct across fixtures, including both duplicate cases and normalisation collisions. Tested without UI.
-- [ ] **4. Value comparison.** Ignored columns, per-column case rules, decimal tolerance via scaled BigInt, numeric-validation warnings. Summary reads like "12 added, 3 removed, 8 changed (price: 8, stock: 5)."
-- [ ] **5. Thin profiles.** Save, load and apply a profile; export and import as JSON; warn when a profile's columns are missing from the new files.
+- [ ] **0. Scaffold.** Vite + React + TS + Vitest, empty engine module with a passing test, deployed to a static host on day one. *(Done except the deploy.)*
+- [x] **1. Read one file in a worker.** Shows columns, record count, first 20 records, and structural errors by record number. Duplicate or empty headers are rejected.
+- [x] **2. Read both files.** Schema diff (added, removed, shared columns), key column selection, ambiguous and empty key report before comparison.
+- [x] **3. Key classification engine.** Added, removed, matched, ambiguous and empty keys are correct across fixtures, including both duplicate cases and normalisation collisions. Tested without UI.
+- [x] **4. Value comparison.** Ignored columns, per-column case rules, decimal tolerance via scaled BigInt, numeric-validation warnings. Summary reads like "12 added, 3 removed, 8 changed (price: 8, stock: 5)."
+- [x] **5. Thin profiles.** Save, load and apply a profile; export and import as JSON; warn when a profile's columns are missing from the new files.
 - [ ] **6. Results paging.** Worker serves pages via `getRows`; Added / Removed / Changed / Problems tabs with virtualised tables; filter changed records by column.
 - [ ] **7. Progress and cancellation.** Progress bar per phase; Cancel terminates the worker; UI stays responsive on a large test file.
 - [ ] **8. Export.** Built in the worker: long-format changes CSV (`change_type, key, column, before, after`) and a JSON report whose header lists the rules used.
