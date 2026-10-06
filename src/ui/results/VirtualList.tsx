@@ -42,7 +42,7 @@ export function VirtualList<T>({
   if (loader.total === 0) return <p className="muted">{empty}</p>
 
   return (
-    <div ref={scrollRef} className="vlist">
+    <div ref={scrollRef} className="vlist" tabIndex={0} role="region" aria-label="Comparison records, scroll to browse">
       <div style={{ minWidth }}>
         {header && <div className="vlist-header">{header}</div>}
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>

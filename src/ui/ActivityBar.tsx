@@ -43,7 +43,9 @@ export function ActivityBar({ activity, onCancel }: { activity: Activity; onCanc
       <button type="button" className="secondary" onClick={onCancel}>
         Cancel
       </button>
-      <p className="note">Cancelling stops all work in progress. Files that were already read are read again.</p>
+      <p className="note">
+        Cancelling stops all work in progress. You will need to explicitly read your files again to continue.
+      </p>
     </section>
   )
 }

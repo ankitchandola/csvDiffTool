@@ -1,6 +1,6 @@
 # V1 implementation spec
 
-Snapshot: `20ae403`, verified 2026-10-06. The [original build plan](build-plan.md)
+Snapshot: `83d8fcd`, verified 2026-10-06. The [original build plan](build-plan.md)
 remains the design record; this document describes the current implementation.
 
 **Evidence labels apply independently:**
@@ -10,19 +10,21 @@ remains the design record; this document describes the current implementation.
 - **Not yet verified:** evidence is missing for that environment or interaction.
 - **Not implemented:** the capability is absent, even if the build plan describes it.
 
-Tests run in Node, not a real browser. An implemented feature with passing module
-tests is not automatically a browser-verified user workflow. Historical benchmark
-results are identified separately from measurements made for this document.
+Unit tests run in Node. Selected workflows were additionally checked in real
+headless Chrome and downloaded CSVs in Numbers; see the
+[browser verification report](browser-verification.md). Passing module tests do
+not certify untested browser interactions. Historical benchmark results are
+identified separately from measurements made for this document.
 
 ## Features
 
 | What users can do now | Implemented | Tested | Not yet verified |
 | --- | --- | --- | --- |
-| Load two local CSVs, choose auto/comma/semicolon/tab delimiters, inspect the first 20 data records and schema differences. | File inputs, previews and schema display. | Parser, diff and handler tests. | Browser file selection, delimiter changes and network/privacy check. |
-| Select single/composite keys and value rules; see added/removed/changed/unchanged counts and per-column change counts. | Rule forms, automatic key checks and comparison summary. | Classification and comparison tests. | Rule-form interactions and missing-key recovery in the browser. |
-| Browse Added, Removed, Changed and Problems; filter changed records by column. | Virtualised, paged tables; Problems includes ambiguous records, empty keys and numeric warnings. | Handler filtering/paging and page-loader tests. | Rendering, scrolling, focus/keyboard behavior and accessibility. |
-| Save/apply/delete profiles; import/export profile JSON. | Browser storage with a warned session-memory fallback. | Profile validation, round trips and storage doubles. | Real persistence, private mode and file-download/import UX. |
-| Download changes CSV or a JSON report; observe progress and Cancel. | Export builders, download controls and worker termination. | Report/handler tests and mocked worker lifecycle tests. | Browser downloads, spreadsheet import and mid-task cancellation UX. |
+| Load two local CSVs, choose auto/comma/semicolon/tab delimiters, inspect the first 20 data records and schema differences. | File inputs, previews and schema display. | Module tests plus real Chrome file loading/previews. | Browser delimiter overrides, deployed site and comprehensive privacy audit. |
+| Select single/composite keys and value rules; see added/removed/changed/unchanged counts and per-column change counts. | Rule forms, automatic key checks and comparison summary. | Module tests plus Chrome composite keys, numeric tolerance and case-rule controls. | Missing-key recovery and exhaustive rule combinations in the browser. |
+| Browse Added, Removed, Changed and Problems; filter changed records by column. | Virtualised, paged tables; Problems includes ambiguous records, empty keys and numeric warnings. | Module tests plus Chrome tabs, filters, long scrolling and screenshots. | Other engines, focus/keyboard behavior and accessibility. |
+| Save/apply/delete profiles; import/export profile JSON. | Browser storage with a warned session-memory fallback. | Module tests plus Chrome save/reload/apply and reproduced comparison. | Browser restart, private mode, profile-file import/export and deletion UX. |
+| Download changes CSV or a JSON report; observe progress and Cancel. | Export builders, download controls and worker termination. | Module tests plus actual Chrome downloads, Numbers import and explicit cancellation recovery. | Other browsers/spreadsheets, export cancellation and exhaustive phase boundaries. |
 
 **Deferred:** parse diagnostics beyond the first 20 are retained and accessible
 through `getIssues`, but the UI does not page them; it shows the first 20 and states
@@ -112,7 +114,9 @@ worker, but the lost files must be reloaded. Unmount terminates the worker.
 
 **Tested:** handler invalidation/stale-result checks; startup failures, worker
 crashes and restart behavior using a fake worker.
-**Not yet verified:** actual browser-worker construction, recovery and messaging.
+**Browser-tested:** real worker construction/messaging and fresh-worker recovery
+after cancellation in Chrome. **Not yet verified:** runtime-crash recovery in a
+real browser or other browser engines.
 
 ### Paging and main-thread memory
 
@@ -128,7 +132,10 @@ result, so a long scroll never copies a whole tab into the page.
 
 **Tested:** stable page ordering, full-member coverage, filtering before paging,
 page caps, stale-result rejection, loader request deduplication/errors and cache eviction.
-**Not yet verified:** long-scroll browser memory, row sizing and visual layout.
+**Browser-tested:** sampled long scrolls, last-row reachability, refetch after
+eviction, rendered-row counts and Chrome process-tree memory through export.
+**Not yet verified:** other engines, all row layouts and exhaustive sequential
+scrolling; measured memory is not a universal bound.
 
 ### Progress and cancellation
 
@@ -139,8 +146,10 @@ automatically: each file that was reading or read shows "Read <file> again", so
 Cancel visibly stops work. Profiles stored outside the worker are unaffected.
 
 **Tested:** progress routing and termination/rejection with a fake worker.
-**Not yet verified:** real mid-task responsiveness, the explicit re-read, repeated
-cancellation and recovery while multiple UI tasks are active.
+**Browser-tested:** cancellation during reading and comparison indexing, no
+automatic restart, explicit reread controls, successful recomparison and same-file
+selection. **Not yet verified:** export cancellation, every phase boundary and
+all combinations of simultaneous tasks.
 
 ### Profile storage
 
@@ -158,7 +167,9 @@ and written into the JSON report so a reviewer can check them.
 
 **Tested:** validation, JSON round trips, equivalent comparisons after applying
 profiles, same-name replacement, persistence via storage doubles and fallback.
-**Not yet verified:** real browser reload, private mode and cross-tab behavior.
+**Browser-tested:** save, page reload, Apply and equivalent recomparison in real
+Chrome localStorage. **Not yet verified:** browser restart, private mode,
+cross-tab behavior and profile-file controls.
 
 ## Export behavior
 
@@ -182,7 +193,10 @@ changed,"[""w1"",""001""]",price,10,12
 
 **Tested:** field layout, original/composite keys, quotes/commas/embedded newlines,
 large-output chunking and handler Blob contents.
-**Not yet verified:** spreadsheet interpretation of leading zeros, BOM and keys.
+**Spreadsheet-tested:** Numbers 14.4 imported the BOM/header and composite keys.
+Ordinary values `004`/`00123` became numbers `4`/`123`; their strings remain intact
+in the CSV and JSON. **Not yet verified:** other spreadsheets and text-preserving
+import workflows.
 
 ### Formula protection
 
@@ -194,9 +208,10 @@ comparison values and JSON are unchanged.
 
 **Tested:** listed prefixes, formula-like single keys, numeric exceptions,
 opt-out and preservation of the comparison/JSON.
-**Not yet verified:** Excel/LibreOffice execution behavior and protection against
-all formula interpretations. This implementation is not a universal spreadsheet
-safety guarantee, especially when protection is disabled.
+**Spreadsheet-tested:** Numbers 14.4 showed protected `'=1+1` as text with a
+visible apostrophe; the unprotected CSV calculated `2` using formula `=1+1`.
+**Not yet verified:** Excel/LibreOffice and all formula interpretations. This is
+not a universal spreadsheet safety guarantee, especially with protection disabled.
 
 ### JSON and export memory
 
@@ -214,7 +229,9 @@ limit exports: exports use the full retained comparison.
 
 **Tested:** report shape, filename/rules metadata, full diagnostic groups,
 prototype-named fields and export immutability.
-**Not yet verified:** large browser downloads and their peak memory.
+**Browser-tested:** actual large downloads and sampled Chrome process-tree memory,
+including a 93.73 MiB JSON report. **Not yet verified:** other engines, transient
+peaks missed by sampling and worst-case inputs within both guardrails.
 
 ## Limits and input diagnostics
 
@@ -240,14 +257,15 @@ real-world exports across browser engines and export tools.
 reading; abort parsing above **6,000,000 data records × header columns per file**.
 Both constraints apply independently to each file. Field limits count data
 records, not the header; byte limits are binary MiB and the UI labels them MiB.
-Both caps are **provisional** until measured in a browser across the whole pipeline
-(parse, compare, scroll, export).
+Both caps remain **provisional**. Chrome whole-pipeline measurements now include
+exactly 6M fields and approximately 197.30 MiB per file simultaneously, but only
+on one browser/hardware configuration; see [conditions and results](browser-verification.md).
 
-**Tested:** enforcement at small injected thresholds, including acceptance exactly
-at the field boundary. These are not tests of a full-sized browser comparison.
-**Not yet verified:** safe supported browser/file limits. Capacity remains
-**pending**; Node timings do not establish that two files at both caps, their
-diagnostics and their exports fit safely in a browser tab.
+**Tested:** small-threshold enforcement and a Chrome comparison with 6M fields
+per file, approximately 197.30 MiB per file, scrolling and both exports.
+**Not yet verified:** safe supported limits across engines/hardware and
+diagnostics/numeric-heavy workloads. Capacity remains **pending** beyond this
+observed envelope; do not infer a universal maximum from one successful sample.
 
 ## Verification and benchmarks
 
@@ -255,19 +273,23 @@ diagnostics and their exports fit safely in a browser tab.
 
 | Command | Tested result | What it does not establish |
 | --- | --- | --- |
-| `npm test` | 145 tests passed in 10 files. | Browser/E2E behavior; client/storage tests use doubles. |
+| `npm test` | 146 tests passed in 10 files for `83d8fcd`. | Browser/E2E behavior; client/storage tests use doubles. |
 | `npm run build` | TypeScript compilation and production build passed. | Deployed-page behavior or successful downloads. |
-| `npm run bench -- --quick` | Both scenarios completed; exact generated comparison counts matched. | Browser capacity, UI responsiveness or repeatable performance bounds. |
+| `npm run bench -- --quick` | Both scenarios completed for the earlier `20ae403` snapshot; exact generated counts matched. | Current-snapshot performance, browser capacity or repeatable bounds. |
+| Session browser harness | Known-file tabs/filter, profile reproduction, downloads, cancellation recovery and ten larger Chrome pipelines passed. | Other engines/hardware or a permanent repository E2E suite. |
 
 No lint run in this verification.
 
-**Not yet verified, browser checks:** none performed here; no repository browser/E2E test suite.
-Deployment, worker operation, scrolling, same-file reload, profile persistence,
-downloads, progress/cancellation and spreadsheet import remain browser-unverified.
+**Browser checks performed:** headless Chrome 154.0.8037.98 on Apple M4 / 16 GiB /
+macOS 15.7.9, local production preview, plus actual Numbers 14.4 imports.
+The [browser verification report](browser-verification.md) records inputs,
+assertions, timings, memory method and spreadsheet observations.
+The repository still has no committed browser/E2E suite. Deployment, other
+engines/hardware, accessibility and several recovery scenarios remain unverified.
 
-### Fresh Node benchmark measurements
+### Earlier session Node smoke measurements
 
-**Tested:** one sample per case, no warmup/repetition; tests
+**Tested on earlier snapshot `20ae403`:** one sample per case, no warmup/repetition; tests
 and build ran concurrently, so these are noisy smoke measurements, not capacity
 evidence. Seed 42; 2% additions, nominal 2% sampled removals; one value field
 changed per selected record. Columns include `id`; field length applies to value
@@ -300,21 +322,25 @@ on Apple M4/16 GB/Node 24.15.0, with no browser. They are historical evidence,
 not fresh validation of this snapshot or supported browser limits. Browser
 measurements must identify browser/version, OS/hardware, old/new row counts,
 total columns, field lengths, change/add/remove ratios, repeated stage timings
-and peak memory. Include mostly-unchanged and mostly-changed cases, wide files,
-long values, diagnostics-heavy inputs and exports before setting supported limits.
+and peak memory. Chrome measurements now cover mostly-unchanged/mostly-changed,
+wide and long-value files through scrolling/export. Repetition, other
+engines/hardware and diagnostics/numeric-heavy cases remain pending before
+setting generally supported limits.
 
 ## Known gaps and deliberate exclusions
 
 - **Implemented limitation, source-observed:** the full benchmark matrix includes 1M rows
   with 11 total columns, exceeding today's 6M-field guardrail; it cannot reproduce
   that historical scenario with the default handler limits. **Not yet verified:** full rerun.
-- **Deferred:** parse diagnostics lack a paging UI (the first 20 and the total are
-  shown). **Not yet verified:** UI memory in a real long scroll, and how spreadsheets
-  treat the escaped CSV. Formula protection covers `=`, `+`, `-`, `@`, tab and carriage
-  return; the UI copy says the same.
-- **Tested:** earlier prototype-header, ignored-rule and worker-startup regressions
-  have tests. **Implemented:** same-file selection clears the input. **Not yet verified:** browser regression
-  checks; there is no claim that all bugs are resolved.
+- **Deferred:** parse diagnostics lack a paging UI (the first 20 and total are shown).
+  **Browser-tested:** sampled Chrome long scrolling and Numbers formula protection.
+  **Not yet verified:** other environments and broader spreadsheet safety.
+- **Observed spreadsheet limitation:** Numbers converts ordinary zero-padded
+  values to numbers; composite-key JSON cells and JSON report strings retain zeros.
+- **Tested:** prototype-header, ignored-rule and worker-startup module regressions;
+  real Chrome same-file selection and cancellation recovery.
+  **Not yet verified:** runtime-crash recovery and all remaining browser scenarios;
+  there is no claim that all bugs are resolved.
 - **Not implemented, deliberately excluded:** JSON/nested input, column mapping,
   fuzzy matching, cleaning/editing, optional key components, accounts/backend/DB,
   Electron, split CSVs and separate exported key columns.

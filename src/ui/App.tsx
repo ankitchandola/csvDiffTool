@@ -1,8 +1,21 @@
+import {
+  ArrowRight,
+  Check,
+  LockKeyhole,
+} from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
 import { MAX_FIELDS, MAX_FILE_BYTES } from '../engine/limits'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
-import { exportProfile, importProfile, missingColumns, ProfileError, profileFileName, readProfile, sameRules } from '../profiles/profile'
+import {
+  exportProfile,
+  importProfile,
+  missingColumns,
+  ProfileError,
+  profileFileName,
+  readProfile,
+  sameRules,
+} from '../profiles/profile'
 import { browserStorage, createProfileStore } from '../profiles/store'
 import { CancelledError, createCompareClient } from '../worker/client'
 import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
@@ -13,8 +26,13 @@ import { ProfileBar, type ProfileMessage } from './ProfileBar'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
 import { ResultsTabs } from './results/ResultsTabs'
 import { SummaryView } from './SummaryView'
+import { Select } from './Select'
 
-type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
+type Step = 'files' | 'rules' | 'results'
+
+type Outcome<T> = { inputs: string } & (
+  { status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string }
+)
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -30,16 +48,24 @@ function download(blob: Blob, fileName: string) {
 }
 
 function failIfLoaded(state: FileState, reason: string): FileState {
-  return state.status === 'empty' ? state : { status: 'failed', file: state.file, message: `${reason}. Load the file again.` }
+  return state.status === 'empty'
+    ? state
+    : { status: 'failed', file: state.file, message: `${reason}. Load the file again.` }
 }
 
 export function App() {
+  const [requestedStep, setStep] = useState<Step>('files')
   const [delimiter, setDelimiter] = useState<ParseRules['delimiter']>('auto')
   const [files, setFiles] = useState<Record<Side, FileState>>({ old: { status: 'empty' }, new: { status: 'empty' } })
   // Bumped on every load so results computed from earlier files are recognisably stale.
   const [dataVersion, setDataVersion] = useState(0)
   const [keyRules, setKeyRules] = useState<KeyRules>({ columns: [], trim: true, caseInsensitive: false })
-  const [valueRules, setValueRules] = useState<ValueRules>({ ignoredColumns: [], trim: false, caseInsensitive: [], numeric: {} })
+  const [valueRules, setValueRules] = useState<ValueRules>({
+    ignoredColumns: [],
+    trim: false,
+    caseInsensitive: [],
+    numeric: {},
+  })
   const [keyCheck, setKeyCheck] = useState<Outcome<KeyReport> | null>(null)
   const [comparison, setComparison] = useState<Outcome<CompareResult> | null>(null)
   const [profileStore] = useState(() => createProfileStore(browserStorage()))
@@ -85,6 +111,7 @@ export function App() {
   }
 
   function load(side: Side, file: File, delim: ParseRules['delimiter']) {
+    setStep('files')
     const token = ++loadTokens.current[side]
     const isCurrent = () => token === loadTokens.current[side]
     const task = track(side)
@@ -170,7 +197,9 @@ export function App() {
               : `Applied “${profile.name}”. Save it to keep it in this browser.`,
         })
       })
-      .catch((error: unknown) => setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${message(error)}` }))
+      .catch((error: unknown) =>
+        setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${message(error)}` }),
+      )
   }
 
   const oldInfo = files.old.status === 'ready' ? files.old.info : null
@@ -214,7 +243,10 @@ export function App() {
     client
       .call('compare', { profile }, task.progress)
       .then((value) => {
-        if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'done', value })
+        if (latestCompareInputs.current === inputs) {
+          setComparison({ inputs, status: 'done', value })
+          setStep('results')
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof CancelledError) return
@@ -227,7 +259,9 @@ export function App() {
     const task = track('export')
     task.show()
     setExportError(null)
-    const base = currentProfile.name ? profileFileName(currentProfile.name).replace('.csv-diff-profile.json', '') : 'csv-diff'
+    const base = currentProfile.name
+      ? profileFileName(currentProfile.name).replace('.csv-diff-profile.json', '')
+      : 'csv-diff'
     client
       .call('export', { resultId: result.resultId, format, escapeFormulae }, task.progress)
       .then((blob) => download(blob, format === 'csv' ? `${base}-changes.csv` : `${base}-report.json`))
@@ -240,6 +274,7 @@ export function App() {
   // The worker is stopped, so everything it held is gone. Nothing restarts on its own:
   // re-reading straight away would make Cancel look like it did nothing.
   function cancel() {
+    setStep('files')
     client.cancel()
     activityTokens.current = {}
     setActivity({})
@@ -250,126 +285,274 @@ export function App() {
       const text = state.status === 'loading' ? 'Reading cancelled.' : 'Cancelled, so this file needs reading again.'
       setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file: state.file, message: text } }))
     }
-    setComparison((c) => (c?.status === 'pending' ? { inputs: c.inputs, status: 'error', message: 'Comparison cancelled.' } : c))
+    setComparison((c) =>
+      c?.status === 'pending' ? { inputs: c.inputs, status: 'error', message: 'Comparison cancelled.' } : c,
+    )
   }
 
   const report = keyCheck?.inputs === keyInputs ? keyCheck : null
   const currentComparison = comparison?.inputs === compareInputs ? comparison : null
+  const step = !schema
+    ? 'files'
+    : requestedStep === 'results' && currentComparison?.status !== 'done'
+      ? 'rules'
+      : requestedStep
+  const stepHeading = useRef<HTMLHeadingElement>(null)
+  const previousStep = useRef(step)
+
+  useEffect(() => {
+    latestCompareInputs.current = compareInputs
+  }, [compareInputs])
+
+  useEffect(() => {
+    if (previousStep.current === step) return
+    previousStep.current = step
+    stepHeading.current?.focus({ preventScroll: true })
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [step])
 
   return (
-    <main>
-      <header>
-        <h1>CSV Diff</h1>
-        <p className="muted">
-          Files are read in your browser and never uploaded. Each file can be up to {MAX_FILE_BYTES / 2 ** 20} MiB and{' '}
-          {MAX_FIELDS.toLocaleString('en-US')} fields (records × columns).
-        </p>
-        <label>
-          Delimiter{' '}
-          <select value={delimiter} onChange={(e) => changeDelimiter(e.target.value as ParseRules['delimiter'])}>
-            <option value="auto">Detect automatically</option>
-            <option value=",">Comma</option>
-            <option value=";">Semicolon</option>
-            <option value={'\t'}>Tab</option>
-          </select>
-        </label>{' '}
-        <span className="muted">Headers are trimmed; a leading byte-order mark is ignored.</span>
-      </header>
-
-      <ActivityBar activity={activity} onCancel={cancel} />
-
-      <ProfileBar
-        name={profileName}
-        onNameChange={setProfileName}
-        saved={savedProfiles}
-        modified={modified}
-        canSave={currentProfile.name !== '' && keyRules.columns.length > 0}
-        message={profileMessage}
-        storeProblem={profileStore.problem}
-        onSave={saveProfile}
-        onApply={(profile) => {
-          applyProfile(profile)
-          setProfileMessage({ kind: 'info', text: `Applied “${profile.name}”.` })
-        }}
-        onDelete={(name) => {
-          setSavedProfiles(profileStore.remove(name))
-          setProfileMessage({ kind: 'info', text: `Deleted “${name}”.` })
-        }}
-        onExport={exportCurrentProfile}
-        onImport={importProfileFile}
-      />
-
-      <div className="files">
-        <FilePanel title="Old file" state={files.old} onPick={(file) => load('old', file, delimiter)} />
-        <FilePanel title="New file" state={files.new} onPick={(file) => load('new', file, delimiter)} />
-      </div>
-
-      {schema && (
-        <section className="panel">
-          <h2>Columns</h2>
-          <p>
-            {schema.shared.length} shared
-            {schema.added.length > 0 && ` · new file only: ${schema.added.join(', ')}`}
-            {schema.removed.length > 0 && ` · old file only: ${schema.removed.join(', ')}`}
-          </p>
-
-          <KeyRulesForm columns={schema.shared} rules={keyRules} onChange={setKeyRules} />
-          {missingKeyColumns.length > 0 && (
-            <div className="error">
-              Key column{missingKeyColumns.length === 1 ? '' : 's'} {missingKeyColumns.join(', ')} missing from the loaded
-              files. Comparing without {missingKeyColumns.length === 1 ? 'it' : 'them'} would match different records.{' '}
-              <button
-                type="button"
-                onClick={() => setKeyRules({ ...keyRules, columns: keyRules.columns.filter((c) => schema.shared.includes(c)) })}
-              >
-                Remove from key
-              </button>
+    <>
+      <a className="skip-link" href="#workspace">
+        Skip to workspace
+      </a>
+      <header className="app-header">
+        <a className="brand" href="#workspace" aria-label="CSV Diff workspace">
+          <img
+            className="brand-icon"
+            src={`${import.meta.env.BASE_URL}favicon.svg?v=original-brand`}
+            width="32"
+            height="32"
+            alt=""
+          />
+          <span>CSV Diff</span>
+        </a>
+        <div className="header-end">
+          <span className="privacy-badge">
+            <LockKeyhole size={14} aria-hidden="true" /> Files stay local
+          </span>
+          <details className="help-disclosure">
+            <summary>Help</summary>
+            <div className="help-content">
+              <h2>Comparing CSV files</h2>
+              <p>Load an old and a new export, then choose the columns that identify the same record in both files.</p>
+              <p>A key can be one column, such as <code>invoice_id</code>, or a combination like <code>warehouse + sku</code>.</p>
+              <details>
+                <summary>Excluded records and warnings</summary>
+                <p>Duplicate keys and records with an empty key component are excluded. Numeric warnings flag values that could not be read as numbers.</p>
+              </details>
+              <details>
+                <summary>File formats and limits</summary>
+                <p>Use UTF-8 CSV, not .xlsx. Headers are trimmed automatically. Leading zeros can be lost when a spreadsheet opens a CSV; JSON preserves the original strings.</p>
+                <p>Per-file limits: {MAX_FILE_BYTES / 2 ** 20} MiB and {MAX_FIELDS.toLocaleString('en-US')} fields. Capacity depends on your browser and device.</p>
+              </details>
+              <p className="note">Files stay in this browser. Saved profiles contain rules, never file contents.</p>
             </div>
-          )}
-          {canCheckKeys && !report && <p className="muted">Checking keys…</p>}
-          {report?.status === 'error' && <p className="error">{report.message}</p>}
-          {report?.status === 'done' && (
-            <>
-              <p>
-                {report.value.counts.matched} matched · {report.value.counts.added} only in new ·{' '}
-                {report.value.counts.removed} only in old
+          </details>
+        </div>
+      </header>
+      <main id="workspace" tabIndex={-1} className={step === 'results' ? 'workspace results-workspace' : 'workspace'}>
+        <nav className="workflow-nav" aria-label="Comparison workflow">
+          {(['files', 'rules', 'results'] as const).map((item, index) => (
+            <button
+              key={item}
+              type="button"
+              aria-current={step === item ? 'step' : undefined}
+              className={step === item ? 'current' : ''}
+              disabled={item === 'rules' ? !schema : item === 'results' ? currentComparison?.status !== 'done' : false}
+              onClick={() => setStep(item)}
+            >
+              <span className="step-number">
+                {item === 'files' && schema ? <Check size={14} aria-hidden="true" /> : index + 1}
+              </span>
+              {item === 'files' ? 'Files' : item === 'rules' ? 'Match' : 'Results'}
+            </button>
+          ))}
+        </nav>
+        <ActivityBar activity={activity} onCancel={cancel} />
+        <div className="workspace-surface">
+          <div className="workspace-heading">
+            <div>
+              <h1 ref={stepHeading} tabIndex={-1}>
+                {step === 'files' ? 'Compare CSV files' : step === 'rules' ? 'Match records' : 'Comparison results'}
+              </h1>
+              <p className="muted">
+                {step === 'files' ? 'Add your baseline and updated export.'
+                  : step === 'rules' ? 'Choose the columns that identify the same record in both files.'
+                  : `${files.old.status === 'ready' ? files.old.file.name : ''} → ${files.new.status === 'ready' ? files.new.file.name : ''}`}
               </p>
-              <KeyProblemsList problems={report.value} />
+            </div>
+            {step === 'results' && <button type="button" onClick={() => setStep('rules')}>Edit comparison</button>}
+          </div>
+          {step === 'files' && (
+            <section id="files" aria-label="Source files">
+              <div className="files">
+                <FilePanel title="Old file" state={files.old} onPick={(file) => load('old', file, delimiter)} />
+                <FilePanel title="New file" state={files.new} onPick={(file) => load('new', file, delimiter)} />
+              </div>
+
+              <div className="parse-toolbar">
+                <span>Delimiter</span>
+                <Select<ParseRules['delimiter']>
+                  label="Delimiter"
+                  value={delimiter}
+                  onChange={changeDelimiter}
+                  options={[
+                    { value: 'auto', label: 'Detect automatically' },
+                    { value: ',', label: 'Comma' },
+                    { value: ';', label: 'Semicolon' },
+                    { value: '\t', label: 'Tab' },
+                  ]}
+                />
+              </div>
+            </section>
+          )}
+          {step === 'rules' && schema && (
+              <section id="rules" className="rules-panel" aria-label="Comparison rules">
+                {schema.shared.length === 0 && (
+                  <p className="warning">No shared columns. Go back and choose files with at least one matching header.</p>
+                )}
+                <KeyRulesForm columns={schema.shared} rules={keyRules} onChange={setKeyRules} />
+                {missingKeyColumns.length > 0 && (
+                  <div className="error">
+                    Key column{missingKeyColumns.length === 1 ? '' : 's'} {missingKeyColumns.join(', ')} missing from
+                    the loaded files. Comparing without {missingKeyColumns.length === 1 ? 'it' : 'them'} would match
+                    different records.{' '}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setKeyRules({ ...keyRules, columns: keyRules.columns.filter((c) => schema.shared.includes(c)) })
+                      }
+                    >
+                      Remove from key
+                    </button>
+                  </div>
+                )}
+                {canCheckKeys && !report && <p className="muted">Checking keys…</p>}
+                {report?.status === 'error' && <p className="error">{report.message}</p>}
+                {report?.status === 'done' && (
+                  <>
+                    <p className="key-status" role="status">
+                      {report.value.counts.matched} matched · {report.value.counts.added} only in new ·{' '}
+                      {report.value.counts.removed} only in old
+                    </p>
+                    {(report.value.ambiguous.total > 0 || report.value.emptyKey.total > 0) && (
+                      <details className="key-problems">
+                        <summary>
+                          Review key problems: {report.value.ambiguous.total}{' '}
+                          ambiguous keys · {report.value.emptyKey.total} empty-key records
+                        </summary>
+                        <KeyProblemsList problems={report.value} />
+                      </details>
+                    )}
+                  </>
+                )}
+
+                <details className="value-disclosure">
+                  <summary>
+                    Value comparison{' '}
+                    <span className="muted">
+                      {valueRules.ignoredColumns.length +
+                        valueRules.caseInsensitive.length +
+                        Object.keys(valueRules.numeric).length >
+                        0 || valueRules.trim
+                        ? 'Custom rules active'
+                        : 'Exact comparison by default'}
+                    </span>
+                  </summary>
+                  <ValueRulesForm columns={schema.shared} rules={valueRules} onChange={setValueRules} />
+                </details>
+                {missing.rules.length > 0 && (
+                  <p className="warning">
+                    Value rules name column{missing.rules.length === 1 ? '' : 's'} not in these files, so{' '}
+                    {missing.rules.length === 1 ? 'it has' : 'they have'} no effect: {missing.rules.join(', ')}.
+                  </p>
+                )}
+
+                {currentComparison?.status === 'error' && (
+                  <p className="error" role="alert">
+                    {currentComparison.message}
+                  </p>
+                )}
+              </section>
+            )}
+          {step === 'results' && currentComparison?.status === 'done' && oldInfo && newInfo && (
+            <section id="results" aria-label="Comparison results">
+              <SummaryView
+                key={currentComparison.value.resultId}
+                result={currentComparison.value}
+                exporting={'export' in activity}
+                exportError={exportError}
+                onExport={(format, escape) => exportResult(currentComparison.value, format, escape)}
+              />
+              <ResultsTabs
+                key={currentComparison.value.resultId}
+                client={client}
+                result={currentComparison.value}
+                oldHeaders={oldInfo.headers}
+                newHeaders={newInfo.headers}
+              />
+            </section>
+          )}
+          {step !== 'results' && (
+            <>
+              <details className="profile-disclosure">
+                <summary>
+                  Saved profiles
+                  {profileName && <span className="muted">{profileName}{modified ? ' (modified)' : ''}</span>}
+                </summary>
+                <ProfileBar
+                  name={profileName}
+                  onNameChange={setProfileName}
+                  saved={savedProfiles}
+                  modified={modified}
+                  canSave={currentProfile.name !== '' && keyRules.columns.length > 0}
+                  message={profileMessage}
+                  storeProblem={profileStore.problem}
+                  onSave={saveProfile}
+                  onApply={(profile) => {
+                    applyProfile(profile)
+                    setProfileMessage({ kind: 'info', text: `Applied “${profile.name}”.` })
+                  }}
+                  onDelete={(name) => {
+                    setSavedProfiles(profileStore.remove(name))
+                    setProfileMessage({ kind: 'info', text: `Deleted “${name}”.` })
+                  }}
+                  onExport={exportCurrentProfile}
+                  onImport={importProfileFile}
+                />
+              </details>
+              <div className="step-actions">
+                {step === 'files' ? (
+                  <>
+                    <span className="note" role="status">{schema ? 'Both files ready' : 'Add both files to continue'}</span>
+                    <button className="primary" type="button" disabled={!schema} onClick={() => setStep('rules')}>
+                      Choose matching columns <ArrowRight size={16} aria-hidden="true" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => setStep('files')}>Back to files</button>
+                    <span className="note" role="status">
+                      {!canCheckKeys ? 'Select a shared key column to continue.'
+                        : comparison && !currentComparison ? 'Setup changed. Compare again to update results.' : ''}
+                    </span>
+                    <button
+                      className="primary"
+                      type="button"
+                      disabled={!canCheckKeys || currentComparison?.status === 'pending'}
+                      onClick={compare}
+                    >
+                      {currentComparison?.status === 'pending' ? 'Comparing…' : 'Compare files'}
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+              </div>
             </>
           )}
-
-          <ValueRulesForm columns={schema.shared} rules={valueRules} onChange={setValueRules} />
-          {missing.rules.length > 0 && (
-            <p className="warning">
-              Value rules name column{missing.rules.length === 1 ? '' : 's'} not in these files, so{' '}
-              {missing.rules.length === 1 ? 'it has' : 'they have'} no effect: {missing.rules.join(', ')}.
-            </p>
-          )}
-
-          <button type="button" disabled={!canCheckKeys || currentComparison?.status === 'pending'} onClick={compare}>
-            {currentComparison?.status === 'pending' ? 'Comparing…' : 'Compare'}
-          </button>
-          {comparison && !currentComparison && <span className="muted"> Files or rules changed since the last result.</span>}
-          {currentComparison?.status === 'error' && <p className="error">{currentComparison.message}</p>}
-        </section>
-      )}
-
-      {currentComparison?.status === 'done' && oldInfo && newInfo && (
-        <>
-          <SummaryView
-            result={currentComparison.value}
-            exporting={'export' in activity}
-            exportError={exportError}
-            onExport={(format, escape) => exportResult(currentComparison.value, format, escape)}
-          />
-          <ResultsTabs
-            client={client}
-            result={currentComparison.value}
-            oldHeaders={oldInfo.headers}
-            newHeaders={newInfo.headers}
-          />
-        </>
-      )}
-    </main>
+        </div>
+      </main>
+    </>
   )
 }

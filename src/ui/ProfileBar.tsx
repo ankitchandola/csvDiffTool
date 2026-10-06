@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CompareProfile } from '../engine/types'
+import { Select } from './Select'
 
 export type ProfileMessage = { kind: 'error' | 'info'; text: string }
 
@@ -35,20 +36,19 @@ export function ProfileBar({
   const exists = saved.some((p) => p.name === name.trim())
 
   return (
-    <section className="panel">
-      <h2>Profile</h2>
+    <section className="profile-content">
+      <p className="note">Save a named set of parse, key, and value rules for your next comparison.</p>
       <div className="row">
-        <label>
-          Saved{' '}
-          <select value={chosen ? selected : ''} onChange={(e) => setSelected(e.target.value)}>
-            <option value="">{saved.length === 0 ? 'No saved profiles' : 'Choose a profile'}</option>
-            {saved.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="Saved profiles"
+          value={chosen ? selected : ''}
+          onChange={setSelected}
+          disabled={saved.length === 0}
+          options={[
+            { value: '', label: saved.length === 0 ? 'No saved profiles' : 'Choose a profile' },
+            ...saved.map((profile) => ({ value: profile.name, label: profile.name })),
+          ]}
+        />
         <button type="button" disabled={!chosen} onClick={() => chosen && onApply(chosen)}>
           Apply
         </button>
@@ -80,7 +80,13 @@ export function ProfileBar({
       </div>
       <div className="row">
         <label>
-          Name <input type="text" value={name} placeholder="e.g. Daily product export" onChange={(e) => onNameChange(e.target.value)} />
+          Name{' '}
+          <input
+            type="text"
+            value={name}
+            placeholder="e.g. Daily product export"
+            onChange={(e) => onNameChange(e.target.value)}
+          />
         </label>
         <button type="button" disabled={!canSave} onClick={onSave}>
           {exists ? 'Update saved profile' : 'Save profile'}
@@ -91,7 +97,11 @@ export function ProfileBar({
         {modified && <span className="muted">Rules changed since “{name.trim()}” was saved.</span>}
       </div>
       {!canSave && <p className="note">Name the profile and choose at least one key column to save or export it.</p>}
-      {message && <p className={message.kind === 'error' ? 'error' : 'note'}>{message.text}</p>}
+      {message && (
+        <p role="status" className={message.kind === 'error' ? 'error' : 'note'}>
+          {message.text}
+        </p>
+      )}
       {storeProblem && <p className="warning">{storeProblem}</p>}
     </section>
   )

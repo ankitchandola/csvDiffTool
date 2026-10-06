@@ -1,3 +1,4 @@
+import { ArrowRightLeft, Filter, Minus, Plus, TriangleAlert } from 'lucide-react'
 import { type CSSProperties, useState } from 'react'
 import type { CompareClient } from '../../worker/client'
 import type { CompareWarning, EmptyKeyRecord } from '../../engine/types'
@@ -12,6 +13,9 @@ import type {
 import { count, formatKey, formatValue, RECORD_NUMBER_NOTE } from '../format'
 import type { Page } from './page-loader'
 import { VirtualList } from './VirtualList'
+import { Select } from '../Select'
+
+const TAB_ICONS = { added: Plus, removed: Minus, changed: ArrowRightLeft, problems: TriangleAlert }
 
 type Tab = 'added' | 'removed' | 'changed' | 'problems'
 type Problem = 'ambiguous' | 'emptyKey' | 'warnings'
@@ -253,70 +257,117 @@ export function ResultsTabs({
   ]
 
   return (
-    <section className="panel">
-      <div className="tabs" role="tablist">
-        {tabs.map(([id, label, n]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            className={tab === id ? 'tab active' : 'tab'}
-            onClick={() => setTab(id)}
-          >
-            {label} ({count(n)})
-          </button>
-        ))}
+    <section className="panel results-panel">
+      <div className="tabs" role="tablist" aria-label="Comparison results">
+        {tabs.map(([id, label, n]) => {
+          const Icon = TAB_ICONS[id]
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`tab-${id}`}
+              aria-controls="result-panel"
+              tabIndex={tab === id ? 0 : -1}
+              onKeyDown={(e) => {
+                const index = tabs.findIndex(([key]) => key === id)
+                const next =
+                  e.key === 'ArrowRight'
+                    ? (index + 1) % tabs.length
+                    : e.key === 'ArrowLeft'
+                      ? (index + tabs.length - 1) % tabs.length
+                      : e.key === 'Home'
+                        ? 0
+                        : e.key === 'End'
+                          ? tabs.length - 1
+                          : -1
+                if (next >= 0) {
+                  e.preventDefault()
+                  const target = tabs[next][0]
+                  setTab(target)
+                  document.getElementById(`tab-${target}`)?.focus()
+                }
+              }}
+              aria-selected={tab === id}
+              className={tab === id ? 'tab active' : 'tab'}
+              onClick={() => setTab(id)}
+            >
+              <Icon size={16} />
+              {label} <span className="tab-count">{count(n)}</span>
+            </button>
+          )
+        })}
       </div>
-
-      {tab === 'added' && (
-        <RecordTable key={`${resultId}-added`} client={client} resultId={resultId} tab="added" headers={newHeaders} />
-      )}
-      {tab === 'removed' && (
-        <RecordTable key={`${resultId}-removed`} client={client} resultId={resultId} tab="removed" headers={oldHeaders} />
-      )}
-      {tab === 'changed' && (
-        <>
-          <label className="row">
-            Show records where{' '}
-            <select value={filterColumn ?? ''} onChange={(e) => setColumn(e.target.value)}>
-              <option value="">any column changed ({count(counts.changed)})</option>
-              {Object.entries(changesByColumn)
-                .sort(([, a], [, b]) => b - a)
-                .map(([c, n]) => (
-                  <option key={c} value={c}>
-                    {c} changed ({count(n)})
-                  </option>
-                ))}
-            </select>
-          </label>
-          <ChangedTable
-            key={`${resultId}-changed-${filterColumn ?? ''}`}
+      <div id="result-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
+        {tab === 'added' && (
+          <RecordTable key={`${resultId}-added`} client={client} resultId={resultId} tab="added" headers={newHeaders} />
+        )}
+        {tab === 'removed' && (
+          <RecordTable
+            key={`${resultId}-removed`}
             client={client}
             resultId={resultId}
-            column={filterColumn}
+            tab="removed"
+            headers={oldHeaders}
           />
-        </>
-      )}
-      {tab === 'problems' && (
-        <>
-          <div className="row">
-            {(Object.keys(PROBLEM_LABELS) as Problem[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={problem === p ? 'tab active' : 'tab'}
-                onClick={() => setProblem(p)}
-              >
-                {PROBLEM_LABELS[p]} ({count(problemCounts[p])}
-                {p === 'ambiguous' && problemCounts.ambiguous > 0 && ` keys, ${count(ambiguousRecordCount)} records`})
-              </button>
-            ))}
-          </div>
-          <ProblemTable key={`${resultId}-${problem}`} client={client} resultId={resultId} problem={problem} />
-        </>
-      )}
-      <p className="note">{RECORD_NUMBER_NOTE}</p>
+        )}
+        {tab === 'changed' && (
+          <>
+            <div className="row">
+              <Filter size={16} aria-hidden="true" />
+              <Select
+                label="Changed column"
+                value={filterColumn ?? ''}
+                onChange={setColumn}
+                options={[
+                  { value: '', label: `All changed columns (${count(counts.changed)})` },
+                  ...Object.entries(changesByColumn)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([column, total]) => ({ value: column, label: `${column} (${count(total)})` })),
+                ]}
+              />
+            </div>
+            <ChangedTable
+              key={`${resultId}-changed-${filterColumn ?? ''}`}
+              client={client}
+              resultId={resultId}
+              column={filterColumn}
+            />
+          </>
+        )}
+        {tab === 'problems' && (
+          <>
+            <p className="note">
+              Problems include distinct ambiguous keys, empty-key records, and individual numeric warnings. These are
+              different units, not a count of unique affected records.
+            </p>
+            <div className="row">
+              {(Object.keys(PROBLEM_LABELS) as Problem[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  aria-pressed={problem === p}
+                  className={problem === p ? 'tab active' : 'tab'}
+                  onClick={() => setProblem(p)}
+                >
+                  {PROBLEM_LABELS[p]} ({count(problemCounts[p])}
+                  {p === 'ambiguous' && problemCounts.ambiguous > 0 && ` keys, ${count(ambiguousRecordCount)} records`})
+                </button>
+              ))}
+            </div>
+            <ProblemTable key={`${resultId}-${problem}`} client={client} resultId={resultId} problem={problem} />
+          </>
+        )}
+      </div>
+      <div className="results-legend">
+        <span>
+          <span className="legend-swatch before-swatch" /> Before · old value
+        </span>
+        <span>
+          <span className="legend-swatch after-swatch" /> After · new value
+        </span>
+        <span className="note">{RECORD_NUMBER_NOTE}</span>
+      </div>
     </section>
   )
 }

@@ -7,6 +7,11 @@ Live: https://ankitchandola.github.io/csvDiffTool/ (deployed from `main` by GitH
 
 Plan and scope: [`docs/build-plan.md`](docs/build-plan.md).
 Current behavior and verification: [`docs/v1-implementation-spec.md`](docs/v1-implementation-spec.md).
+Browser measurements and spreadsheet observations: [`docs/browser-verification.md`](docs/browser-verification.md).
+
+## UI redesign
+
+The interface shows one step at a time: **Files → Match → Results**. Back keeps loaded files and rules; changing either invalidates the old result. The header uses the original purple lightning favicon as its brand icon, with matching purple controls on neutral surfaces. Help, profiles, previews and advanced options open on demand; dropdowns support keyboard and touch. Fonts and icons are bundled locally. See [`docs/ui-redesign.md`](docs/ui-redesign.md) for layout decisions and verification.
 
 ## Commands
 
@@ -15,8 +20,13 @@ npm run dev        # vite dev server
 npm run build      # tsc -b && vite build
 npm run lint       # oxlint
 npm test           # vitest run
+npm run test:ui    # Playwright browser checks (installed Google Chrome)
 npm run typecheck  # tsc -b
 ```
+
+`npm run test:ui` starts and stops a local Vite server on port 4175. Install Google
+Chrome first, or run `npx playwright install chrome` after installing dependencies.
+Browser test screenshots and failure traces are written to ignored `test-results/`.
 
 ## Layout
 
@@ -48,12 +58,17 @@ npm run typecheck  # tsc -b
   leading `'`; plain signed numbers such as `-12` are left alone. This can be turned
   off per export. The comparison itself and the JSON report always keep the
   original values.
+  Automatic spreadsheet import can still remove leading zeros from ordinary
+  values: Numbers 14.4 imported `00123` as `123`. Composite-key JSON cells retained
+  their parts; see the [spreadsheet checks](docs/browser-verification.md).
 - **JSON report**: starts with the rules used, then the file names, the summary, and
   every added, removed and changed record, ambiguous key, empty key and warning.
 
 ## Size limits
 
 Current guardrails reject files over **200 MiB** or **6,000,000 fields**
-(data records × columns). These are enforced caps, not verified browser capacity.
-Node measurements: [`docs/benchmarks.md`](docs/benchmarks.md). Safe supported
-browser limits remain pending; see the [implementation spec](docs/v1-implementation-spec.md).
+(data records × columns). Chrome 154 on an M4 / 16 GiB machine completed two
+197.30 MiB files with 6,000,000 fields each through scrolling and both exports.
+These are enforced caps and one measured configuration, not guaranteed capacity
+across browsers/hardware. [Browser measurements](docs/browser-verification.md);
+[Node measurements](docs/benchmarks.md). Generally supported limits remain pending.
