@@ -60,7 +60,7 @@ describe('parseXlsx', () => {
         s['B3'] = { t: 'n', f: 'A3*10' }
       },
     })
-    expect(parseXlsx(bytes, undefined, DEFAULT_LIMITS)).toEqual({
+    expect(parseXlsx(bytes, undefined, DEFAULT_LIMITS)).toMatchObject({
       ok: false,
       issues: [
         {
@@ -71,6 +71,51 @@ describe('parseXlsx', () => {
         },
       ],
     })
+  })
+
+  it('reads saved formula results of "", 0 and FALSE as values, not as missing', () => {
+    const bytes = workbook({
+      name: 'S',
+      rows: [['id', 'text', 'number', 'flag'], ['1', 'x', 5, true]],
+      edit: (s) => {
+        s['B2'] = { t: 's', f: '""', v: '' }
+        s['C2'] = { t: 'n', f: '0*1', v: 0 }
+        s['D2'] = { t: 'b', f: '1=2', v: false }
+      },
+    })
+    expect(parsed(bytes).rows).toEqual([{ id: '1', text: '', number: '0', flag: 'FALSE' }])
+  })
+
+  it('takes the first non-blank row of the used range as the header', () => {
+    const file = parsed(workbook({ name: 'S', rows: [[], [], ['id', 'v'], ['1', 'x']] }))
+    expect(file.headers).toEqual(['id', 'v'])
+    expect(file.rows).toEqual([{ id: '1', v: 'x' }])
+  })
+
+  it('returns the sheet list with a failed sheet so another can be picked', () => {
+    const bytes = workbook({ name: 'Notes', rows: [['a', 'a'], ['1', '2']] }, { name: 'Data', rows: [['id'], ['1']] })
+    expect(parseXlsx(bytes, undefined, DEFAULT_LIMITS)).toMatchObject({
+      ok: false,
+      format: { kind: 'xlsx', sheet: 'Notes', sheets: ['Notes', 'Data'] },
+    })
+  })
+
+  it('stops parsing at the field limit instead of checking after a full read', () => {
+    const rows = [['id', 'v'], ...Array.from({ length: 50 }, (_, i) => [String(i), 'x'])]
+    const outcome = parseXlsx(workbook({ name: 'S', rows }), undefined, { ...DEFAULT_LIMITS, maxXlsxFields: 20 })
+    expect(outcome.ok === false && outcome.issues[0].message).toMatch(/more than 20 fields/)
+  })
+
+  it('rechecks at the header width when the declared range has extra empty columns', () => {
+    const bytes = workbook({
+      name: 'S',
+      rows: [['id', 'v'], ['1', 'x'], ['2', 'y']],
+      edit: (s) => {
+        s['!ref'] = 'A1:D3'
+      },
+    })
+    expect(parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxXlsxFields: 4 }).ok).toBe(true)
+    expect(parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxXlsxFields: 3 }).ok).toBe(false)
   })
 
   it('fills short rows and ignores empty columns past the last header', () => {
@@ -84,7 +129,7 @@ describe('parseXlsx', () => {
 
   it('rejects a value outside the named columns as a record problem', () => {
     const outcome = parseXlsx(workbook({ name: 'S', rows: [['id', 'a'], ['1', 'x'], ['2', 'y', 'stray']] }), undefined, DEFAULT_LIMITS)
-    expect(outcome).toEqual({
+    expect(outcome).toMatchObject({
       ok: false,
       issues: [{ kind: 'record', recordNumber: 2, message: 'Has values beyond the 2 named columns', raw: '2, y, stray' }],
     })
@@ -118,11 +163,11 @@ describe('parseXlsx', () => {
   })
 
   it('reports header problems and empty sheets like CSV does', () => {
-    expect(parseXlsx(workbook({ name: 'S', rows: [['id', 'id'], ['1', '2']] }), undefined, DEFAULT_LIMITS)).toEqual({
+    expect(parseXlsx(workbook({ name: 'S', rows: [['id', 'id'], ['1', '2']] }), undefined, DEFAULT_LIMITS)).toMatchObject({
       ok: false,
       issues: [{ kind: 'header', message: 'Header "id" appears more than once' }],
     })
-    expect(parseXlsx(workbook({ name: 'S', rows: [] }), undefined, DEFAULT_LIMITS)).toEqual({
+    expect(parseXlsx(workbook({ name: 'S', rows: [] }), undefined, DEFAULT_LIMITS)).toMatchObject({
       ok: false,
       issues: [{ kind: 'header', message: 'Sheet "S" is empty' }],
     })

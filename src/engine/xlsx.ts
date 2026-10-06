@@ -9,20 +9,38 @@ import { unpackedSize } from './zip'
 export const NOT_XLSX_MESSAGE =
   "This file couldn't be read as an .xlsx workbook. Open it in Excel and save it again as .xlsx or CSV UTF-8."
 
-const fail = (kind: 'file' | 'header', message: string): ParseOutcome => ({ ok: false, issues: [{ kind, message }] })
+type Failure = Extract<ParseOutcome, { ok: false }>
 
-function readSheetNames(bytes: ArrayBuffer): string[] | null {
+const fail = (kind: 'file' | 'header', message: string): Failure => ({ ok: false, issues: [{ kind, message }] })
+
+interface Outline {
+  sheets: string[]
+  // The sheet's declared used range: rows and columns as the file states them.
+  rows: number
+  columns: number
+}
+
+// A one-row read of the chosen sheet: enough for the sheet names and the declared size,
+// without parsing the sheet's cells. sheets: 0 means the first sheet.
+function readOutline(bytes: ArrayBuffer, sheet: string | number): Outline | null {
   try {
-    return XLSX.read(bytes, { type: 'array', bookSheets: true }).SheetNames
+    const book = XLSX.read(bytes, { type: 'array', dense: true, sheets: sheet, sheetRows: 1 })
+    const name = typeof sheet === 'number' ? book.SheetNames[sheet] : sheet
+    const ref = name === undefined ? undefined : (book.Sheets[name]?.['!fullref'] ?? book.Sheets[name]?.['!ref'])
+    if (!ref) return { sheets: book.SheetNames, rows: 0, columns: 0 }
+    const range = XLSX.utils.decode_range(ref)
+    return { sheets: book.SheetNames, rows: range.e.r - range.s.r + 1, columns: range.e.c - range.s.c + 1 }
   } catch {
     return null
   }
 }
 
-function readWorksheet(bytes: ArrayBuffer, name: string): XLSX.WorkSheet | null {
+// sheetRows stops SheetJS parsing after that many worksheet rows, which is what bounds
+// memory while parsing; a field count taken afterwards would not.
+function readWorksheet(bytes: ArrayBuffer, name: string, sheetRows?: number): XLSX.WorkSheet | null {
   try {
     // cellStyles is what makes SheetJS read hidden rows and columns.
-    return XLSX.read(bytes, { type: 'array', dense: true, cellStyles: true, sheets: name }).Sheets[name] ?? null
+    return XLSX.read(bytes, { type: 'array', dense: true, cellStyles: true, sheets: name, sheetRows }).Sheets[name] ?? null
   } catch {
     return null
   }
@@ -92,23 +110,40 @@ export function parseXlsx(
   if (unpacked === null) return fail('file', NOT_XLSX_MESSAGE)
   if (unpacked > limits.maxUnpackedBytes) return fail('file', unpackedTooLargeMessage(limits.maxUnpackedBytes))
 
-  const sheets = readSheetNames(bytes)
-  if (!sheets) return fail('file', NOT_XLSX_MESSAGE)
+  const outline = readOutline(bytes, sheet ?? 0)
+  if (!outline) return fail('file', NOT_XLSX_MESSAGE)
+  const { sheets } = outline
   const name = sheet ?? sheets[0]
   if (name === undefined) return fail('file', 'The workbook has no sheets.')
   if (!sheets.includes(name)) return fail('file', `This workbook has no sheet named "${name}".`)
-  const worksheet = readWorksheet(bytes, name)
-  if (!worksheet) return fail('file', NOT_XLSX_MESSAGE)
+  const format = { kind: 'xlsx' as const, sheet: name, sheets }
+  const failIn = (kind: 'file' | 'header', message: string): Failure => ({ ...fail(kind, message), format })
+  if (outline.rows === 0) return failIn('header', `Sheet "${name}" is empty`)
 
-  const { rows: cells, uncached } = readGrid(worksheet)
-  if (cells.length === 0) return fail('header', `Sheet "${name}" is empty`)
+  // Enough worksheet rows for the field limit at the declared width, plus the header.
+  // Declared rows include blank ones, so the limit is checked over declared rows.
+  const rowBudget = Math.floor(limits.maxXlsxFields / outline.columns) + 1
+  const truncated = outline.rows > rowBudget
+  let worksheet = readWorksheet(bytes, name, truncated ? rowBudget : undefined)
+  if (!worksheet) return failIn('file', NOT_XLSX_MESSAGE)
+  let grid = readGrid(worksheet)
+  if (grid.rows.length === 0) return failIn('header', `Sheet "${name}" is empty`)
+  if (truncated) {
+    // The declared width can include empty columns past the last header; recheck at the real width.
+    const width = namedWidth(grid.rows[0].map((h) => h.trim()))
+    if ((outline.rows - 1) * width > limits.maxXlsxFields) return failIn('file', tooManyFieldsMessage(limits.maxXlsxFields))
+    worksheet = readWorksheet(bytes, name)
+    if (!worksheet) return failIn('file', NOT_XLSX_MESSAGE)
+    grid = readGrid(worksheet)
+  }
+  const { rows: cells, uncached } = grid
 
   const width = namedWidth(cells[0].map((h) => h.trim()))
   const headers = cells[0].slice(0, width).map((h) => h.trim())
-  if (width === 0) return fail('header', `Sheet "${name}" has no header row`)
+  if (width === 0) return failIn('header', `Sheet "${name}" has no header row`)
   const problems = headerIssues(headers)
-  if (problems.length > 0) return { ok: false, issues: problems }
-  if ((cells.length - 1) * width > limits.maxXlsxFields) return fail('file', tooManyFieldsMessage(limits.maxXlsxFields))
+  if (problems.length > 0) return { ok: false, issues: problems, format }
+  if ((cells.length - 1) * width > limits.maxXlsxFields) return failIn('file', tooManyFieldsMessage(limits.maxXlsxFields))
 
   const rows: Row[] = []
   const issues: ParseIssue[] = []
@@ -129,6 +164,6 @@ export function parseXlsx(
     rows.push(row)
   }
   onProgress?.('parse', 1, 1)
-  if (issues.length > 0) return { ok: false, issues }
-  return { ok: true, file: { headers, rows, format: { kind: 'xlsx', sheet: name, sheets }, notes: sheetNotes(worksheet) } }
+  if (issues.length > 0) return { ok: false, issues, format }
+  return { ok: true, file: { headers, rows, format, notes: sheetNotes(worksheet) } }
 }

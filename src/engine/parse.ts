@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 import { emptyDict } from './dict'
 import { MAX_FIELDS, tooManyFieldsMessage } from './limits'
-import { type Delimiter, type ParsedFile, type ParseRules, PROGRESS_EVERY, type ProgressFn, type Row } from './types'
+import { type Delimiter, type FileFormat, type ParsedFile, type ParseRules, PROGRESS_EVERY, type ProgressFn, type Row } from './types'
 
 export type ParseIssue =
   | { kind: 'file'; message: string }
@@ -10,7 +10,8 @@ export type ParseIssue =
 
 export type ParseOutcome =
   | { ok: true; file: ParsedFile }
-  | { ok: false; issues: ParseIssue[] }
+  // format is set once the file's sheets are known, so another sheet can be picked.
+  | { ok: false; issues: ParseIssue[]; format?: FileFormat }
 
 const UTF8 = new TextDecoder('utf-8', { fatal: true })
 
