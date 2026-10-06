@@ -16,6 +16,20 @@ function workbook(...sheets: Sheet[]): ArrayBuffer {
   return XLSX.write(book, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
 }
 
+// Rewrites one cell's XML as another writer would have saved it.
+function withCellXml(bytes: ArrayBuffer, ref: string, xml: string): ArrayBuffer {
+  const zip = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' })
+  const entry = zip.FileIndex[zip.FullPaths.findIndex((path: string) => path.endsWith('xl/worksheets/sheet1.xml'))]
+  const sheet = new TextDecoder().decode(entry.content as Uint8Array)
+  const cell = new RegExp(`<c r="${ref}"[^>]*>.*?</c>|<c r="${ref}"[^>]*/>`)
+  if (!cell.test(sheet)) throw new Error(`no cell ${ref} to replace`)
+  entry.content = new TextEncoder().encode(sheet.replace(cell, xml))
+  entry.size = entry.content.length
+  return new Uint8Array(XLSX.CFB.write(zip, { fileType: 'zip', type: 'array' }) as number[]).buffer
+}
+
+const UNCACHED = 'Column "total" has a formula (=A3*10) with no saved result. Open the workbook in Excel and save it so results are stored.'
+
 function parsed(bytes: ArrayBuffer, sheet?: string) {
   const outcome = parseXlsx(bytes, sheet, DEFAULT_LIMITS)
   if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
@@ -50,6 +64,37 @@ describe('parseXlsx', () => {
       },
     })
     expect(parsed(bytes).rows).toEqual([{ code: '0007' }])
+  })
+
+  it.each([
+    ['no value element', '<c r="B3"><f>A3*10</f></c>'],
+    ['an empty value element', '<c r="B3"><f>A3*10</f><v></v></c>'],
+    ['a self-closing value element', '<c r="B3"><f>A3*10</f><v/></c>'],
+    ['a numeric type and an empty value', '<c r="B3" t="n"><f>A3*10</f><v></v></c>'],
+  ])('reports a formula saved with %s as having no result', (_, xml) => {
+    const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['2', 0]] })
+    expect(parseXlsx(withCellXml(base, 'B3', xml), undefined, DEFAULT_LIMITS)).toMatchObject({
+      ok: false,
+      issues: [{ kind: 'record', recordNumber: 2, message: UNCACHED }],
+    })
+  })
+
+  it('reports a row whose only content is a formula with no result instead of skipping it', () => {
+    const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['', 0]] })
+    const bytes = withCellXml(withCellXml(base, 'A3', '<c r="A3"/>'), 'B3', '<c r="B3"><f>A3*10</f><v></v></c>')
+    expect(parseXlsx(bytes, undefined, DEFAULT_LIMITS)).toMatchObject({
+      ok: false,
+      issues: [{ kind: 'record', recordNumber: 2, message: UNCACHED }],
+    })
+  })
+
+  it('reads a saved empty-string result as written by Excel', () => {
+    const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['2', 0]] })
+    const bytes = withCellXml(base, 'B3', '<c r="B3" t="str"><f>""</f><v></v></c>')
+    expect(parsed(bytes).rows).toEqual([
+      { id: '1', total: '10' },
+      { id: '2', total: '' },
+    ])
   })
 
   it('reports a formula with no saved result instead of reading it as empty', () => {

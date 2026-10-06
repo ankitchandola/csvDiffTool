@@ -39,11 +39,20 @@ function readOutline(bytes: ArrayBuffer, sheet: string | number): Outline | null
 // memory while parsing; a field count taken afterwards would not.
 function readWorksheet(bytes: ArrayBuffer, name: string, sheetRows?: number): XLSX.WorkSheet | null {
   try {
-    // cellStyles is what makes SheetJS read hidden rows and columns.
-    return XLSX.read(bytes, { type: 'array', dense: true, cellStyles: true, sheets: name, sheetRows }).Sheets[name] ?? null
+    // cellStyles is what makes SheetJS read hidden rows and columns. sheetStubs keeps cells
+    // that have no value: without it, a formula with no saved result is dropped entirely.
+    const options = { type: 'array', dense: true, cellStyles: true, sheetStubs: true, sheets: name, sheetRows } as const
+    return XLSX.read(bytes, options).Sheets[name] ?? null
   } catch {
     return null
   }
+}
+
+// A saved result of "", 0 or FALSE is a real value with its own type. A formula saved
+// without one reads as a stub ('z'; SheetJS may still set v to 0) or, from some writers,
+// as a cell with no value.
+function hasNoSavedResult(cell: XLSX.CellObject): boolean {
+  return cell.t === 'z' || cell.v === undefined
 }
 
 interface Grid {
@@ -66,7 +75,7 @@ function readGrid(sheet: XLSX.WorkSheet): Grid {
     const missing: [number, string][] = []
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cell = data[r]?.[c]
-      if (cell?.f !== undefined && cell.v === undefined) missing.push([c - range.s.c, cell.f])
+      if (cell?.f !== undefined && hasNoSavedResult(cell)) missing.push([c - range.s.c, cell.f])
       values.push(cell ? XLSX.utils.format_cell(cell) : '')
     }
     if (missing.length === 0 && values.every((value) => value === '')) continue
