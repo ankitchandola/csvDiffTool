@@ -1,3 +1,4 @@
+import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import { describe, expect, it } from 'vitest'
 import { diffFiles } from './diff'
@@ -5,9 +6,15 @@ import { profile } from './fixtures.test-helper'
 import { parseCsv } from './parse'
 import type { ReportInput } from './report'
 import type { CompareProfile } from './types'
-import { buildXlsxReport, ExportRefused, MAX_CELL_CHARS, MAX_SHEET_ROWS, type XlsxExportLimits } from './xlsx-report'
+import { buildXlsxReport, ExportRefused, MAX_CELL_CHARS, MAX_SHEET_COLUMNS, MAX_SHEET_ROWS, type XlsxExportLimits } from './xlsx-report'
 
-const LIMITS: XlsxExportLimits = { maxSheetRows: MAX_SHEET_ROWS, maxCellChars: MAX_CELL_CHARS, maxCells: 1_000_000 }
+const LIMITS: XlsxExportLimits = {
+  maxSheetRows: MAX_SHEET_ROWS,
+  maxSheetColumns: MAX_SHEET_COLUMNS,
+  maxCellChars: MAX_CELL_CHARS,
+  maxCells: 1_000_000,
+  maxTextChars: 10_000_000,
+}
 
 function parsed(text: string) {
   const outcome = parseCsv(text, { delimiter: 'auto', trimHeaders: true })
@@ -97,13 +104,103 @@ describe('buildXlsxReport', () => {
     expect(summary).toContainEqual(['Rules used', JSON.stringify(report.diff.summary.rulesUsed)])
   })
 
-  it('refuses rather than cutting a sheet short, overflowing a cell or exceeding the cell cap', () => {
+  it('refuses past every Excel and memory limit, naming where', () => {
     const big = input(RISKY, RISKY_NEW)
-    expect(() => buildXlsxReport(big, { ...LIMITS, maxSheetRows: 3 })).toThrow(/^The Summary sheet would have 16 rows; an .xlsx sheet holds 3\. Download the changes CSV/)
+    expect(() => buildXlsxReport(big, { ...LIMITS, maxSheetRows: 3 })).toThrow(
+      /^The Summary sheet would have \d+ rows; an .xlsx sheet holds 3\. Download the changes CSV/,
+    )
+    expect(() => buildXlsxReport(big, { ...LIMITS, maxSheetColumns: 5 })).toThrow(
+      /^The Added sheet would have 6 columns; an .xlsx sheet holds 5\./,
+    )
     const long = 'x'.repeat(MAX_CELL_CHARS + 1)
     expect(() => buildXlsxReport(input('id,note\n1,a\n', `id,note\n1,a\n2,${long}\n`), LIMITS)).toThrow(
-      /^A value in the Added sheet, column "note", row 2, has 32,768 characters; an .xlsx cell holds 32,767\./,
+      /^Cell Added!C2 \(column "note", record 2\) has 32,768 characters; an .xlsx cell holds 32,767\./,
     )
     expect(() => buildXlsxReport(big, { ...LIMITS, maxCells: 10 })).toThrow(ExportRefused)
+    expect(() => buildXlsxReport(big, { ...LIMITS, maxCells: 10 })).toThrow(/needs \d+ cells; the .xlsx export is limited to 10 cells/)
+    expect(() => buildXlsxReport(big, { ...LIMITS, maxTextChars: 100 })).toThrow(/characters of text; the .xlsx export is limited to 100/)
+  })
+
+  it('counts the generated Record column against the column limit', () => {
+    const headers = Array.from({ length: 5 }, (_, i) => `c${i}`)
+    const text = (rows: string[]) => [headers.join(','), ...rows].join('\n') + '\n'
+    const report = input(text(['1,a,b,c,d']), text(['1,a,b,c,d', '2,a,b,c,d']), profile({ columns: ['c0'] }))
+    expect(() => buildXlsxReport(report, { ...LIMITS, maxSheetColumns: 5 })).toThrow(/Added sheet would have 6 columns/)
+    expect(() => buildXlsxReport(report, { ...LIMITS, maxSheetColumns: 6 })).not.toThrow()
+  })
+
+  it('names the Summary item or header when they are too long', () => {
+    const report = input(RISKY, RISKY_NEW)
+    expect(() => buildXlsxReport({ ...report, oldName: 'x'.repeat(40) }, { ...LIMITS, maxCellChars: 39 })).toThrow(
+      /^Cell Summary!B2 \(column "Value", item "Old file"\) has 40 characters/,
+    )
+    const wide = `id,${'h'.repeat(300)}\n1,a\n`
+    expect(() => buildXlsxReport(input(wide, `${wide}2,b\n`), { ...LIMITS, maxCellChars: 299 })).toThrow(
+      /^Cell Added!C1 \(the header of column 3\) has 300 characters/,
+    )
+  })
+
+  it('preserves awkward text exactly', () => {
+    const values = [
+      '  padded  ',
+      'tab\there',
+      'two\nlines',
+      'emoji 🧾 and ₹ ü',
+      '_x0041_',
+      "'quoted",
+      '',
+      '=HYPERLINK("http://x")',
+      '+1',
+      '@SUM(A1)',
+      '\u0001control',
+      '_x005F_ already escaped',
+    ]
+    const csv = (rows: string[][]) => Papa.unparse(rows, { newline: '\n' })
+    const oldText = csv([['id', 'v'], ...values.map((_, i) => [String(i), 'old'])])
+    const newText = csv([['id', 'v'], ...values.map((v, i) => [String(i), v])])
+    const report = input(oldText + '\n', newText + '\n', profile({ columns: ['id'] }))
+    const bytes = buildXlsxReport(report, LIMITS)
+    const changed = read(bytes).Sheets.Changed
+    const after = values.map((_, i) => changed[XLSX.utils.encode_cell({ r: i + 1, c: 5 })])
+    expect(after.map((cell) => cell?.v ?? '')).toEqual(values)
+  })
+
+  // SheetJS's reader drops an escaped carriage return, so this checks the written XML.
+  it('escapes a carriage return inside a value rather than letting XML normalise it', () => {
+    const bytes = buildXlsxReport(input('id,v\n1,a\n', 'id,v\n1,"crlf\r\nline"\n'), LIMITS)
+    const zip = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' })
+    const strings = new TextDecoder().decode(
+      zip.FileIndex[zip.FullPaths.findIndex((path: string) => path.endsWith('xl/sharedStrings.xml'))].content as Uint8Array,
+    )
+    expect(strings).toMatch(/crlf_x000d_\nline/i)
+  })
+
+  it('writes shared-string cells only, with no formula elements, and keeps Excel text indicators', () => {
+    const bytes = buildXlsxReport(input(RISKY, RISKY_NEW), LIMITS)
+    const zip = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' })
+    const sheets = zip.FullPaths.map((path: string, i: number) => [path, zip.FileIndex[i]] as const).filter(([path]: readonly [string, unknown]) =>
+      /xl\/worksheets\/sheet\d+\.xml$/.test(path),
+    )
+    expect(sheets).toHaveLength(7)
+    for (const [path, entry] of sheets) {
+      const xml = new TextDecoder().decode(entry.content as Uint8Array)
+      expect(xml, path).not.toContain('<f>')
+      expect(xml, path).not.toContain('<f ')
+      expect(xml, path).not.toContain('ignoredErrors')
+      const types = [...xml.matchAll(/<c r="[A-Z]+\d+"([^>]*)>/g)].map((m) => /t="([^"]+)"/.exec(m[1])?.[1])
+      expect(new Set(types), path).toEqual(new Set(['s']))
+    }
+  })
+
+  it('names the compared worksheets of .xlsx inputs and says values are original text', () => {
+    const report = input(RISKY, RISKY_NEW)
+    report.oldFile = { ...report.oldFile, format: { kind: 'xlsx', sheet: 'March', sheets: ['Notes', 'March'] } }
+    const summary = rows(read(buildXlsxReport(report, LIMITS)), 'Summary')
+    expect(summary.slice(0, 3)).toEqual([
+      ['Item', 'Value'],
+      ['Old file', 'old.csv'],
+      ['Old sheet', 'March'],
+    ])
+    expect(summary.find(([item, value]) => item === 'Note' && value.startsWith("Values are each file's original text"))).toBeDefined()
   })
 })

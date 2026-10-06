@@ -200,10 +200,16 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
       case 'json':
         return new Blob(buildJsonReport(input, onProgress), { type: 'application/json' })
       case 'xlsx': {
-        const { buildXlsxReport, MAX_CELL_CHARS, MAX_SHEET_ROWS } = await import('../engine/xlsx-report')
+        const { buildXlsxReport, MAX_CELL_CHARS, MAX_SHEET_COLUMNS, MAX_SHEET_ROWS } = await import('../engine/xlsx-report')
         const bytes = buildXlsxReport(
           input,
-          { maxSheetRows: MAX_SHEET_ROWS, maxCellChars: MAX_CELL_CHARS, maxCells: limits.maxXlsxExportCells },
+          {
+            maxSheetRows: MAX_SHEET_ROWS,
+            maxSheetColumns: MAX_SHEET_COLUMNS,
+            maxCellChars: MAX_CELL_CHARS,
+            maxCells: limits.maxXlsxExportCells,
+            maxTextChars: limits.maxXlsxExportText,
+          },
           onProgress,
         )
         return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
