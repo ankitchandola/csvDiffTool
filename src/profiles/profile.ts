@@ -68,7 +68,7 @@ function readNumeric(value: unknown): Record<string, NumericRule> {
     const rule = record(raw, path)
     only(rule, ['tolerance', 'stripThousandsSeparator'], path)
     const tolerance = rule.tolerance
-    const parsed = typeof tolerance === 'string' ? parseDecimal(tolerance.trim(), false) : null
+    const parsed = typeof tolerance === 'string' ? parseDecimal(tolerance.trim()) : null
     if (typeof tolerance !== 'string' || parsed === null || parsed.units < 0n) {
       throw new ProfileError(`${path}.tolerance must be a non-negative decimal written as text, such as "0.01"`)
     }

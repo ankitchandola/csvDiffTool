@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { type Decimal, parseDecimal, withinTolerance } from './decimal'
 
 function d(text: string): Decimal {
-  const value = parseDecimal(text, false)
+  const value = parseDecimal(text)
   if (!value) throw new Error(`not a decimal: ${text}`)
   return value
 }
@@ -15,17 +15,46 @@ describe('parseDecimal', () => {
     ['.5', 5n, 1],
     ['3.', 3n, 0],
   ])('parses %s', (text, units, scale) => {
-    expect(parseDecimal(text, false)).toEqual({ units, scale })
+    expect(parseDecimal(text)).toEqual({ units, scale })
   })
 
-  it.each(['N/A', '', ' 1', '1e5', '1.2.3', '1,200'])('rejects %j', (text) => {
-    expect(parseDecimal(text, false)).toBeNull()
+  it.each(['N/A', '', ' 1', '1e5', '1.2.3', '1,200', '5-'])('rejects %j by default', (text) => {
+    expect(parseDecimal(text)).toBeNull()
   })
 
   it('strips well-formed thousands separators only when asked', () => {
-    expect(parseDecimal('1,200.50', true)).toEqual({ units: 120050n, scale: 2 })
-    expect(parseDecimal('1,2', true)).toBeNull()
-    expect(parseDecimal('12,00', true)).toBeNull()
+    expect(parseDecimal('1,200.50', { grouped: true })).toEqual({ units: 120050n, scale: 2 })
+    expect(parseDecimal('1,2', { grouped: true })).toBeNull()
+    expect(parseDecimal('12,00', { grouped: true })).toBeNull()
+  })
+
+  it.each([
+    ['1,23,456.00', 12345600n, 2],
+    ['12,34,567', 1234567n, 0],
+    ['1,00,00,000', 10000000n, 0],
+    ['-1,23,456', -123456n, 0],
+  ])('accepts Indian grouping %s', (text, units, scale) => {
+    expect(parseDecimal(text, { grouped: true })).toEqual({ units, scale })
+  })
+
+  it.each(['1,23,4567', '1,2,345', '123,45,678', '1,23,45'])('rejects malformed grouping %j', (text) => {
+    expect(parseDecimal(text, { grouped: true })).toBeNull()
+  })
+
+  it.each([
+    ['1234.50-', -123450n, 2],
+    ['5-', -5n, 0],
+    ['.5-', -5n, 1],
+  ])('reads trailing minus %s as negative when asked', (text, units, scale) => {
+    expect(parseDecimal(text, { trailingMinus: true })).toEqual({ units, scale })
+  })
+
+  it('combines Indian grouping with a trailing minus', () => {
+    expect(parseDecimal('1,23,456.00-', { grouped: true, trailingMinus: true })).toEqual({ units: -12345600n, scale: 2 })
+  })
+
+  it.each(['-5-', '+5-', '-', '5--', '5 -'])('rejects a malformed trailing minus %j', (text) => {
+    expect(parseDecimal(text, { grouped: true, trailingMinus: true })).toBeNull()
   })
 })
 

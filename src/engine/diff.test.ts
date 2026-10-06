@@ -68,6 +68,17 @@ describe('diffFiles', () => {
     expect(changed.map((c) => c.key.parts)).toEqual([['2']])
   })
 
+  it('reads Indian grouping and trailing-minus negatives as numbers, with tolerance', () => {
+    const { changed, warnings } = diff(
+      'regional-numbers',
+      profile({ columns: ['id'] }, { numeric: { amount: { tolerance: '0.01', stripThousandsSeparator: true } } }),
+    )
+    expect(changed).toEqual([
+      { key: { encoded: '["4"]', parts: ['4'] }, oldIndex: 3, newIndex: 3, changes: [{ column: 'amount', before: '500.00-', after: '500.00' }] },
+    ])
+    expect(warnings).toEqual([])
+  })
+
   it('skips ignored columns entirely', () => {
     const { summary } = diff('numeric', profile({ columns: ['id'] }, { ignoredColumns: ['stock', 'price'] }))
     expect(summary.counts.changed).toBe(0)

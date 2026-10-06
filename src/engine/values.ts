@@ -20,7 +20,7 @@ export function compileValueRules(rules: ValueRules): CompiledValueRules {
   const ignored = new Set(rules.ignoredColumns)
   for (const [column, rule] of Object.entries(rules.numeric)) {
     if (ignored.has(column)) continue
-    const tolerance = parseDecimal(rule.tolerance.trim(), false)
+    const tolerance = parseDecimal(rule.tolerance.trim())
     if (tolerance === null || tolerance.units < 0n) {
       throw new RulesError(`Tolerance for "${column}" must be a non-negative number, got "${rule.tolerance}"`)
     }
@@ -45,8 +45,9 @@ export function compareValues(
 
   const numeric = rules.numeric.get(column)
   if (numeric) {
-    const da = parseDecimal(a, numeric.stripThousandsSeparator)
-    const db = parseDecimal(b, numeric.stripThousandsSeparator)
+    const format = { grouped: numeric.stripThousandsSeparator, trailingMinus: true }
+    const da = parseDecimal(a, format)
+    const db = parseDecimal(b, format)
     if (da && db) return { equal: withinTolerance(da, db, numeric.tolerance), unparseable: [] }
     const unparseable: Side[] = []
     if (!da) unparseable.push('old')

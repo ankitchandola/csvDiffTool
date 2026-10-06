@@ -6,10 +6,18 @@ export interface Decimal {
 }
 
 const PLAIN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/
-const GROUPED = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d*)?$/
+// Western thousands (1,234,567) or Indian lakh/crore grouping (12,34,567).
+const GROUPED = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})+,\d{3})(?:\.\d*)?$/
 
-export function parseDecimal(raw: string, stripThousandsSeparator: boolean): Decimal | null {
-  const text = stripThousandsSeparator && GROUPED.test(raw) ? raw.replaceAll(',', '') : raw
+export interface DecimalFormat {
+  grouped?: boolean
+  // Accounting/ERP exports (SAP among them) write negatives as 1234.50-.
+  trailingMinus?: boolean
+}
+
+export function parseDecimal(raw: string, { grouped = false, trailingMinus = false }: DecimalFormat = {}): Decimal | null {
+  const signed = trailingMinus && raw.endsWith('-') && !/^[+-]/.test(raw) ? `-${raw.slice(0, -1)}` : raw
+  const text = grouped && GROUPED.test(signed) ? signed.replaceAll(',', '') : signed
   if (!PLAIN.test(text)) return null
   const negative = text.startsWith('-')
   const [intPart, fracPart = ''] = text.replace(/^[+-]/, '').split('.')
