@@ -40,6 +40,9 @@ const FULL: Scenario[] = [
   { name: 'xlsx', spec: { ...BASE, rows: 100_000 }, xlsx: { otherSheets: 0 } },
   { name: 'xlsx wide', spec: { ...BASE, rows: 100_000, columns: 50 }, xlsx: { otherSheets: 0 } },
   { name: 'xlsx 4 sheets', spec: { ...BASE, rows: 100_000 }, xlsx: { otherSheets: 3 } },
+  // About 940,000 .xlsx export cells, just under the export cap. A result near an .xlsx
+  // sheet's 1,048,575-row limit (about 5.7 million cells) ran out of Node's 4 GB heap.
+  { name: 'xlsx export at cell cap', spec: { ...BASE, rows: 160_000, changeRatio: 0.9 } },
 ]
 
 const QUICK: Scenario[] = [
@@ -103,6 +106,8 @@ interface Row {
   csvMB: number
   jsonMs: number
   jsonMB: number
+  xlsxMs: number
+  xlsxMB: number
   peakMB: number
   retainedMB: number
   maxRssMB: number
@@ -115,7 +120,12 @@ async function runScenario(scenario: Scenario): Promise<Row> {
   collect()
   const baseline = memory()
   // .xlsx caps are what these runs are meant to set, so they don't apply here.
-  const handle = createHandler(scenario.xlsx ? { ...DEFAULT_LIMITS, maxXlsxBytes: Infinity, maxUnpackedBytes: Infinity, maxXlsxFields: Infinity } : DEFAULT_LIMITS)
+  const handle = createHandler({
+    ...DEFAULT_LIMITS,
+    // The .xlsx export cell cap is one of the numbers these runs are meant to set.
+    maxXlsxExportCells: Infinity,
+    ...(scenario.xlsx && { maxXlsxBytes: Infinity, maxUnpackedBytes: Infinity, maxXlsxFields: Infinity }),
+  })
   const stages: Stage[] = []
   const progress = (sample: () => void) => (_phase: Phase) => sample()
 
@@ -181,7 +191,16 @@ async function runScenario(scenario: Scenario): Promise<Row> {
     const blob = await handle({ id: 8, type: 'export', resultId, format: 'json' }, progress(s))
     jsonBytes = (blob as Blob).size
   })
-  stages.push(csv, json)
+  let xlsxBytes = Number.NaN
+  const [, xlsx] = await measure(baseline, async (s) => {
+    try {
+      const blob = await handle({ id: 9, type: 'export', resultId, format: 'xlsx' }, progress(s))
+      xlsxBytes = (blob as Blob).size
+    } catch (error) {
+      console.error(`${scenario.name}: .xlsx export refused: ${(error as Error).message}`)
+    }
+  })
+  stages.push(csv, json, xlsx)
 
   return {
     scenario,
@@ -194,6 +213,8 @@ async function runScenario(scenario: Scenario): Promise<Row> {
     csvMB: csvBytes / MB,
     jsonMs: json.ms,
     jsonMB: jsonBytes / MB,
+    xlsxMs: Number.isNaN(xlsxBytes) ? Number.NaN : xlsx.ms,
+    xlsxMB: xlsxBytes / MB,
     peakMB: Math.max(...stages.map((s) => s.peak)) / MB,
     retainedMB: compare.retained / MB,
     maxRssMB: process.resourceUsage().maxRSS / 1024,
@@ -203,13 +224,13 @@ async function runScenario(scenario: Scenario): Promise<Row> {
 function table(rows: Row[]): string {
   const f = (n: number) => (n >= 100 ? n.toFixed(0) : n.toFixed(1))
   const lines = [
-    '| Varying | Rows | Cols | Field | Changed | Input MB | Parse ms | Index ms | Compare ms | Page ms | CSV ms (MB) | JSON ms (MB) | Peak MB | Held MB | Max RSS MB |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| Varying | Rows | Cols | Field | Changed | Input MB | Parse ms | Index ms | Compare ms | Page ms | CSV ms (MB) | JSON ms (MB) | XLSX ms (MB) | Peak MB | Held MB | Max RSS MB |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ]
   for (const r of rows) {
     const s = r.scenario.spec
     lines.push(
-      `| ${r.scenario.name} | ${s.rows.toLocaleString('en-US')} | ${s.columns} | ${s.fieldLength} | ${s.changeRatio * 100}% | ${f(r.inputMB)} | ${f(r.parseMs)} | ${f(r.indexMs)} | ${f(r.compareMs)} | ${f(r.pageMs)} | ${f(r.csvMs)} (${f(r.csvMB)}) | ${f(r.jsonMs)} (${f(r.jsonMB)}) | ${f(r.peakMB)} | ${f(r.retainedMB)} | ${f(r.maxRssMB)} |`,
+      `| ${r.scenario.name} | ${s.rows.toLocaleString('en-US')} | ${s.columns} | ${s.fieldLength} | ${s.changeRatio * 100}% | ${f(r.inputMB)} | ${f(r.parseMs)} | ${f(r.indexMs)} | ${f(r.compareMs)} | ${f(r.pageMs)} | ${f(r.csvMs)} (${f(r.csvMB)}) | ${f(r.jsonMs)} (${f(r.jsonMB)}) | ${Number.isNaN(r.xlsxMs) ? 'refused' : `${f(r.xlsxMs)} (${f(r.xlsxMB)})`} | ${f(r.peakMB)} | ${f(r.retainedMB)} | ${f(r.maxRssMB)} |`,
     )
   }
   return lines.join('\n')
