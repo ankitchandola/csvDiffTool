@@ -79,8 +79,9 @@ export function ValueRulesForm({
       <details className="numeric-help">
         <summary>Numeric formats</summary>
         <p className="note">
-          Numeric columns accept plain decimals such as 1234.5, -0.25 or .5, optionally with comma thousands separators
-          (1,234.5). Decimal commas, exponents (1e5) and surrounding spaces are not numbers; those values are compared as
+          Numeric columns accept plain decimals such as 1234.5, -0.25 or .5, and trailing-minus negatives such as
+          1234.50-. With thousands separators stripped, comma grouping is accepted in Western (1,234,567.5) or Indian
+          (12,34,567.5) style. Decimal commas, exponents (1e5) and surrounding spaces are not numbers; those values are compared as
           text and reported as warnings. Turn on trimming to ignore surrounding spaces.
         </p>
       </details>

@@ -42,8 +42,9 @@ Browser test screenshots and failure traces are written to ignored `test-results
 - **Keys:** every key component must be non-empty after key normalisation. Records
   with an empty component are reported, not compared.
 - **Numbers** (only in columns marked numeric): plain decimals such as `1234.5`,
-  `-0.25`, `.5`, optionally with comma thousands separators (`1,234.5`) when that
-  option is on. Decimal commas, exponents and surrounding spaces are not numbers;
+  `-0.25`, `.5`, and trailing-minus negatives such as `1234.50-`. With the
+  thousands-separator option on, comma grouping is accepted in Western
+  (`1,234,567.5`) or Indian lakh/crore (`12,34,567.5`) style. Decimal commas, exponents and surrounding spaces are not numbers;
   those values are compared as text and reported as warnings.
 - **Record numbers** count data records only: the header and skipped blank lines
   are not counted, and a quoted field spanning lines is still one record.

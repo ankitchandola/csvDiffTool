@@ -78,8 +78,10 @@ per-column case rules and prototype-named headers (`__proto__`, `constructor`).
 ### Numeric formats and tolerance
 
 **Implemented:** numeric comparison is opt-in per column. Accepted plain decimal
-forms include `1234.5`, `+7`, `-0.25`, `.5` and `3.`. Optional thousands stripping
-accepts correctly grouped commas such as `1,234.50`, not `1,2` or `12,00`.
+forms include `1234.5`, `+7`, `-0.25`, `.5` and `3.`, plus trailing-minus negatives
+(`1234.50-`, as ERP exports write them). Optional thousands stripping accepts
+correctly grouped commas in Western (`1,234.50`) or Indian lakh/crore
+(`1,23,456.00`) style, not `1,2`, `12,00` or `1,23,4567`.
 Exponents, decimal commas and blanks are not numbers. Surrounding spaces are
 accepted only when the independent value-trim rule removes them.
 
