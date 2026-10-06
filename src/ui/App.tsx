@@ -20,7 +20,8 @@ import { browserStorage, createProfileStore } from '../profiles/store'
 import { CancelledError, createCompareClient } from '../worker/client'
 import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
 import { type Activity, ActivityBar, type Task } from './ActivityBar'
-import { FilePanel, type FileState } from './FilePanel'
+import { type FileState, sheetOf } from './file-state'
+import { FilePanel } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
@@ -51,7 +52,7 @@ function download(blob: Blob, fileName: string) {
 function failIfLoaded(state: FileState, reason: string): FileState {
   return state.status === 'empty'
     ? state
-    : { status: 'failed', file: state.file, message: `${reason}. Load the file again.` }
+    : { status: 'failed', file: state.file, message: `${reason}. Load the file again.`, sheet: sheetOf(state) }
 }
 
 export function App() {
@@ -117,7 +118,7 @@ export function App() {
     const isCurrent = () => token === loadTokens.current[side]
     const task = track(side)
     task.show()
-    setFiles((prev) => ({ ...prev, [side]: { status: 'loading', file } }))
+    setFiles((prev) => ({ ...prev, [side]: { status: 'loading', file, sheet } }))
     setDataVersion((v) => v + 1)
     client
       .call('parse', { side, file, sheet, rules: { delimiter: delim, trimHeaders: true } }, task.progress)
@@ -125,12 +126,12 @@ export function App() {
         if (!isCurrent()) return
         const next: FileState = result.ok
           ? { status: 'ready', file, info: result.info }
-          : { status: 'invalid', file, issues: result.issues }
+          : { status: 'invalid', file, issues: result.issues, format: result.format }
         setFiles((prev) => ({ ...prev, [side]: next }))
         setDataVersion((v) => v + 1)
       })
       .catch((error: unknown) => {
-        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: message(error) } }))
+        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: message(error), sheet } }))
       })
       .finally(task.end)
   }
@@ -140,7 +141,7 @@ export function App() {
     for (const side of ['old', 'new'] as const) {
       const state = files[side]
       if (state.status === 'empty' || (state.status === 'ready' && state.info.format.kind === 'xlsx')) continue
-      load(side, state.file, next)
+      load(side, state.file, next, sheetOf(state))
     }
   }
 
@@ -285,7 +286,7 @@ export function App() {
       if (state.status !== 'loading' && state.status !== 'ready') continue
       loadTokens.current[side]++
       const text = state.status === 'loading' ? 'Reading cancelled.' : 'Cancelled, so this file needs reading again.'
-      setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file: state.file, message: text } }))
+      setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file: state.file, message: text, sheet: sheetOf(state) } }))
     }
     setComparison((c) =>
       c?.status === 'pending' ? { inputs: c.inputs, status: 'error', message: 'Comparison cancelled.' } : c,
@@ -398,7 +399,7 @@ export function App() {
                     key={side}
                     title={side === 'old' ? 'Old file' : 'New file'}
                     state={files[side]}
-                    onPick={(file) => load(side, file, delimiter)}
+                    onPick={(file, sheet) => load(side, file, delimiter, sheet)}
                     onPickSheet={(sheet) => {
                       const state = files[side]
                       if (state.status !== 'empty') load(side, state.file, delimiter, sheet)

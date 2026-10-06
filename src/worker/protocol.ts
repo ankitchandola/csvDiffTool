@@ -36,7 +36,9 @@ export interface FileInfo {
   preview: Row[]
 }
 
-export type ParseResult = { ok: true; info: FileInfo } | { ok: false; issues: Preview<ParseIssue> }
+export type ParseResult =
+  | { ok: true; info: FileInfo }
+  | { ok: false; issues: Preview<ParseIssue>; format?: FileFormat }
 
 // One duplicated key can cover thousands of records, so members are capped per group too.
 export interface AmbiguousKeyPreview extends AmbiguousKey {

@@ -2,17 +2,26 @@ import { useId, useState } from 'react'
 import { CheckCircle2, FileSpreadsheet, UploadCloud } from 'lucide-react'
 import type { ParseIssue } from '../engine/parse'
 import type { Delimiter, FileFormat } from '../engine/types'
+import type { FileState } from './file-state'
 import type { FileInfo, Preview } from '../worker/protocol'
 import { count, counted, noun, RECORD_NUMBER_NOTE } from './format'
 import { Select } from './Select'
 import { ShowingNote } from './ShowingNote'
 
-export type FileState =
-  | { status: 'empty' }
-  | { status: 'loading'; file: File }
-  | { status: 'ready'; file: File; info: FileInfo }
-  | { status: 'invalid'; file: File; issues: Preview<ParseIssue> }
-  | { status: 'failed'; file: File; message: string }
+function SheetPicker({ title, format, onPickSheet }: { title: string; format?: FileFormat; onPickSheet: (sheet: string) => void }) {
+  if (format?.kind !== 'xlsx' || format.sheets.length < 2) return null
+  return (
+    <div className="parse-toolbar">
+      <span>Sheet</span>
+      <Select<string>
+        label={`Sheet in ${title.toLowerCase()}`}
+        value={format.sheet}
+        onChange={onPickSheet}
+        options={format.sheets.map((sheet) => ({ value: sheet, label: sheet }))}
+      />
+    </div>
+  )
+}
 
 const DELIMITER_NAMES: Record<Delimiter, string> = { ',': 'comma', ';': 'semicolon', '\t': 'tab' }
 
@@ -92,7 +101,7 @@ export function FilePanel({
 }: {
   title: string
   state: FileState
-  onPick: (file: File) => void
+  onPick: (file: File, sheet?: string) => void
   onPickSheet: (sheet: string) => void
 }) {
   const inputId = useId()
@@ -171,17 +180,7 @@ export function FilePanel({
             <strong>{state.info.headers.length}</strong> {noun(state.info.headers.length, 'column')} <span>·</span>{' '}
             {formatName(state.info.format)}
           </p>
-          {state.info.format.kind === 'xlsx' && state.info.format.sheets.length > 1 && (
-            <div className="parse-toolbar">
-              <span>Sheet</span>
-              <Select<string>
-                label={`Sheet in ${title.toLowerCase()}`}
-                value={state.info.format.sheet}
-                onChange={onPickSheet}
-                options={state.info.format.sheets.map((sheet) => ({ value: sheet, label: sheet }))}
-              />
-            </div>
-          )}
+          <SheetPicker title={title} format={state.info.format} onPickSheet={onPickSheet} />
           {state.info.format.kind === 'xlsx' && (
             <p className="note">Cells are compared as Excel displays them; a formula gives the value Excel last saved.</p>
           )}
@@ -196,12 +195,18 @@ export function FilePanel({
           </details>
         </>
       )}
-      {state.status === 'invalid' && <Issues issues={state.issues} />}
+      {state.status === 'invalid' && (
+        <>
+          <SheetPicker title={title} format={state.format} onPickSheet={onPickSheet} />
+          <Issues issues={state.issues} />
+        </>
+      )}
       {state.status === 'failed' && (
         <p className="error" role="alert">
           {state.message}{' '}
-          <button type="button" className="secondary" onClick={() => onPick(state.file)}>
-            Read {state.file.name} again
+          <button type="button" className="secondary" onClick={() => onPick(state.file, state.sheet)}>
+            Read {state.file.name}
+            {state.sheet ? ` (sheet “${state.sheet}”)` : ''} again
           </button>
         </p>
       )}

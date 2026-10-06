@@ -121,7 +121,7 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
     const outcome = await read(file, rules, sheet, () => generation === generations[side], onProgress)
     if (!outcome.ok) {
       issues[side] = outcome.issues
-      return { ok: false, issues: preview(outcome.issues, PREVIEW_ISSUES) }
+      return { ok: false, issues: preview(outcome.issues, PREVIEW_ISSUES), ...(outcome.format && { format: outcome.format }) }
     }
     files[side] = outcome.file
     fileNames[side] = file.name
