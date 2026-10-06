@@ -1,4 +1,4 @@
-import { ArrowRightLeft, Filter, Minus, Plus, TriangleAlert } from 'lucide-react'
+import { ArrowRightLeft, Filter, Minus, Plus, Search, TriangleAlert } from 'lucide-react'
 import { type CSSProperties, useState } from 'react'
 import type { CompareClient } from '../../worker/client'
 import type { CompareWarning, EmptyKeyRecord } from '../../engine/types'
@@ -15,6 +15,9 @@ import type { Page } from './page-loader'
 import { firstRelevantTab, type Tab } from './tabs'
 import { VirtualList } from './VirtualList'
 import { Select } from '../Select'
+import { useDebounced } from '../use-debounced'
+
+const SEARCH_DELAY_MS = 250
 
 const TAB_ICONS = { added: Plus, removed: Minus, changed: ArrowRightLeft, problems: TriangleAlert }
 
@@ -26,11 +29,19 @@ const PROBLEM_LABELS: Record<Problem, string> = {
   warnings: 'Numeric warnings',
 }
 
-function pager<K extends ResultTab>(client: CompareClient, resultId: number, tab: K, column?: string) {
+function pager<K extends ResultTab>(client: CompareClient, resultId: number, tab: K, search: string, column?: string) {
   return async (offset: number, limit: number): Promise<Page<PageItems[K]>> => {
-    const page = await client.call('getRows', { resultId, tab, offset, limit, column })
+    const page = await client.call('getRows', { resultId, tab, offset, limit, column, search })
     return { total: page.total, items: page.items as PageItems[K][] }
   }
+}
+
+function noMatches(search: string): string {
+  return `Nothing here matches “${search}”.`
+}
+
+function matchSummary(search: string): ((total: number) => string) | undefined {
+  return search ? (total) => `${counted(total, 'match', 'matches')} for “${search}”` : undefined
 }
 
 function Pending() {
@@ -46,19 +57,22 @@ function RecordTable({
   resultId,
   tab,
   headers,
+  search,
 }: {
   client: CompareClient
   resultId: number
   tab: 'added' | 'removed'
   headers: string[]
+  search: string
 }) {
   const template = `7rem 12rem repeat(${headers.length}, 12rem)`
   return (
     <VirtualList<RecordEntry>
-      fetchPage={pager(client, resultId, tab)}
+      fetchPage={pager(client, resultId, tab, search)}
       estimateSize={34}
       minWidth={`${19 + 12 * headers.length}rem`}
-      empty={tab === 'added' ? 'No records were added.' : 'No records were removed.'}
+      empty={search ? noMatches(search) : tab === 'added' ? 'No records were added.' : 'No records were removed.'}
+      summary={matchSummary(search)}
       header={
         <div style={grid(template)}>
           <div className="cell" title={RECORD_NUMBER_NOTE}>
@@ -95,18 +109,21 @@ function ChangedTable({
   client,
   resultId,
   column,
+  search,
 }: {
   client: CompareClient
   resultId: number
   column: string | undefined
+  search: string
 }) {
   const template = '9rem 12rem minmax(24rem, 1fr)'
   return (
     <VirtualList<ChangedEntry>
-      fetchPage={pager(client, resultId, 'changed', column)}
+      fetchPage={pager(client, resultId, 'changed', search, column)}
       estimateSize={34}
       minWidth="45rem"
-      empty={column ? `No record changed in ${column}.` : 'No records changed.'}
+      empty={search ? noMatches(search) : column ? `No record changed in ${column}.` : 'No records changed.'}
+      summary={matchSummary(search)}
       header={
         <div style={grid(template)}>
           <div className="cell" title={RECORD_NUMBER_NOTE}>
@@ -153,12 +170,23 @@ function ChangedTable({
   )
 }
 
-function ProblemTable({ client, resultId, problem }: { client: CompareClient; resultId: number; problem: Problem }) {
-  const empty = `No ${PROBLEM_LABELS[problem].toLowerCase()}.`
+function ProblemTable({
+  client,
+  resultId,
+  problem,
+  search,
+}: {
+  client: CompareClient
+  resultId: number
+  problem: Problem
+  search: string
+}) {
+  const empty = search ? noMatches(search) : `No ${PROBLEM_LABELS[problem].toLowerCase()}.`
   if (problem === 'ambiguous') {
     return (
       <VirtualList<AmbiguousRecord>
-        fetchPage={pager(client, resultId, 'ambiguous')}
+        fetchPage={pager(client, resultId, 'ambiguous', search)}
+        summary={matchSummary(search)}
         estimateSize={34}
         empty={empty}
         header={
@@ -191,7 +219,8 @@ function ProblemTable({ client, resultId, problem }: { client: CompareClient; re
   if (problem === 'emptyKey') {
     return (
       <VirtualList<EmptyKeyRecord>
-        fetchPage={pager(client, resultId, 'emptyKey')}
+        fetchPage={pager(client, resultId, 'emptyKey', search)}
+        summary={matchSummary(search)}
         estimateSize={34}
         empty={empty}
         renderRow={(r) =>
@@ -208,7 +237,8 @@ function ProblemTable({ client, resultId, problem }: { client: CompareClient; re
   }
   return (
     <VirtualList<CompareWarning>
-      fetchPage={pager(client, resultId, 'warnings')}
+      fetchPage={pager(client, resultId, 'warnings', search)}
+      summary={matchSummary(search)}
       estimateSize={34}
       empty={empty}
       renderRow={(w) =>
@@ -247,6 +277,8 @@ export function ResultsTabs({
   const differences = counts.added + counts.removed + counts.changed
   const [tab, setTab] = useState<Tab>(() => firstRelevantTab(counts, problemTotal))
   const [column, setColumn] = useState('')
+  const [query, setQuery] = useState('')
+  const search = useDebounced(query.trim(), SEARCH_DELAY_MS)
   const [problem, setProblem] = useState<Problem>('ambiguous')
   const filterColumn = column !== '' && Object.hasOwn(changesByColumn, column) ? column : undefined
 
@@ -305,17 +337,33 @@ export function ResultsTabs({
           )
         })}
       </div>
+      <div className="row result-search">
+        <Search size={16} aria-hidden="true" />
+        <input
+          type="search"
+          aria-label="Search this tab"
+          placeholder="Search keys and values in this tab"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query && (
+          <button type="button" className="secondary" onClick={() => setQuery('')}>
+            Clear
+          </button>
+        )}
+      </div>
       <div id="result-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === 'added' && (
-          <RecordTable key={`${resultId}-added`} client={client} resultId={resultId} tab="added" headers={newHeaders} />
+          <RecordTable key={`${resultId}-added-${search}`} client={client} resultId={resultId} tab="added" headers={newHeaders} search={search} />
         )}
         {tab === 'removed' && (
           <RecordTable
-            key={`${resultId}-removed`}
+            key={`${resultId}-removed-${search}`}
             client={client}
             resultId={resultId}
             tab="removed"
             headers={oldHeaders}
+            search={search}
           />
         )}
         {tab === 'changed' && (
@@ -335,10 +383,11 @@ export function ResultsTabs({
               />
             </div>
             <ChangedTable
-              key={`${resultId}-changed-${filterColumn ?? ''}`}
+              key={`${resultId}-changed-${filterColumn ?? ''}-${search}`}
               client={client}
               resultId={resultId}
               column={filterColumn}
+              search={search}
             />
           </>
         )}
@@ -362,7 +411,7 @@ export function ResultsTabs({
                 </button>
               ))}
             </div>
-            <ProblemTable key={`${resultId}-${problem}`} client={client} resultId={resultId} problem={problem} />
+            <ProblemTable key={`${resultId}-${problem}-${search}`} client={client} resultId={resultId} problem={problem} search={search} />
           </>
         )}
       </div>

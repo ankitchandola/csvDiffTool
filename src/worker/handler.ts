@@ -4,6 +4,7 @@ import { DEFAULT_LIMITS, fileTooLargeMessage, type Limits } from '../engine/limi
 import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, type ParseOutcome, parseCsv } from '../engine/parse'
 import { buildChangesCsv, buildJsonReport } from '../engine/report'
 import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ParseRules, ProgressFn, Row, Side } from '../engine/types'
+import { createSearchCache, matches, normaliseSearch } from './search'
 import {
   type AmbiguousKeyPreview,
   type AmbiguousRecord,
@@ -88,6 +89,7 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
     ambiguousRecords: AmbiguousRecord[] | null
   } | null = null
   let nextResultId = 1
+  const searchCache = createSearchCache()
 
   function bothFiles(): [ParsedFile, ParsedFile] {
     if (!files.old || !files.new) throw new Error('Load both files first')
@@ -217,14 +219,21 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
     }
   }
 
-  function getRows({ resultId, tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {
+  function getRows({ resultId, tab, offset, limit, column, search }: Requests['getRows']): Results['getRows'] {
     const { diff, oldFile, newFile } = current(resultId)
     const [start, end] = pageBounds(offset, limit)
     const rules = diff.summary.rulesUsed.key
+    const needle = normaliseSearch(search)
+    const filtered = <T,>(list: T[], texts: (item: T) => Iterable<string>): T[] =>
+      needle === '' ? list : searchCache.get(`${resultId}\u0000${tab}\u0000${column ?? ''}\u0000${needle}`, () => list.filter((item) => matches(texts(item), needle)))
 
     switch (tab) {
       case 'changed': {
-        const changed = changedRecords(column)
+        const changed = filtered(changedRecords(column), (c) => [
+          ...c.key.parts,
+          ...keyParts(oldFile.rows[c.oldIndex], rules),
+          ...c.changes.flatMap((change) => [change.column, change.before, change.after]),
+        ])
         return {
           tab,
           total: changed.length,
@@ -240,21 +249,25 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
       }
       case 'added':
       case 'removed': {
-        const indices = tab === 'added' ? diff.keys.added : diff.keys.removed
         const rows = tab === 'added' ? newFile.rows : oldFile.rows
+        const indices = filtered(tab === 'added' ? diff.keys.added : diff.keys.removed, (index) => Object.values(rows[index]))
         const items = indices
           .slice(start, end)
           .map((index): RecordEntry => ({ key: keyRef(rows[index], rules), recordNumber: index + 1, row: rows[index] }))
         return { tab, total: indices.length, offset: start, items }
       }
       case 'ambiguous': {
-        const records = ambiguousRecords()
+        const records = filtered(ambiguousRecords(), (r) => r.parts)
         return { tab, total: records.length, offset: start, items: records.slice(start, end) }
       }
-      case 'emptyKey':
-        return { tab, total: diff.keys.emptyKey.length, offset: start, items: diff.keys.emptyKey.slice(start, end) }
-      case 'warnings':
-        return { tab, total: diff.warnings.length, offset: start, items: diff.warnings.slice(start, end) }
+      case 'emptyKey': {
+        const records = filtered(diff.keys.emptyKey, (r) => r.parts)
+        return { tab, total: records.length, offset: start, items: records.slice(start, end) }
+      }
+      case 'warnings': {
+        const warnings = filtered(diff.warnings, (w) => [w.column, w.message])
+        return { tab, total: warnings.length, offset: start, items: warnings.slice(start, end) }
+      }
     }
   }
 

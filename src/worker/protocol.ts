@@ -126,7 +126,8 @@ export interface Requests {
   checkKeys: { rules: KeyRules }
   compare: { profile: CompareProfile }
   // column narrows the changed tab to records where that column changed.
-  getRows: { resultId: number; tab: ResultTab; offset: number; limit: number; column?: string }
+  // column filters the changed tab; search keeps items whose shown text contains it, case-insensitively.
+  getRows: { resultId: number; tab: ResultTab; offset: number; limit: number; column?: string; search?: string }
   // escapeFormulae applies to the CSV only; defaults to true.
   export: { resultId: number; format: ExportFormat; escapeFormulae?: boolean }
 }

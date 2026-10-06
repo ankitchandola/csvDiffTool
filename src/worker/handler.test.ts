@@ -395,3 +395,46 @@ describe('worker handler .xlsx export', () => {
     await expect(run(10)).rejects.toThrow(/the .xlsx export is limited to 10 cells/)
   })
 })
+
+describe('worker handler result search', () => {
+  async function compared() {
+    const handle = createHandler()
+    const oldText = 'id,name,city\n1,Apple,Pune\n2,Pear,Delhi\n3,Plum,Goa\n4,Fig,Pune\n'
+    const newText = 'id,name,city\n1,Apple,Mumbai\n2,PEAR,Delhi\n3,Plum,Goa\n5,Kiwi,Pune\n'
+    await handle({ id: 1, type: 'parse', side: 'old', file: new File([oldText], 'old.csv'), rules: RULES })
+    await handle({ id: 2, type: 'parse', side: 'new', file: new File([newText], 'new.csv'), rules: RULES })
+    const result = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+    if (!('resultId' in result)) throw new Error('no result')
+    const rows = (tab: 'changed' | 'added' | 'removed', search?: string, column?: string) =>
+      handle({ id: 4, type: 'getRows', resultId: result.resultId, tab, offset: 0, limit: 50, search, column }) as Promise<{
+        total: number
+        items: { key: { parts: string[] } }[]
+      }>
+    return rows
+  }
+
+  const keys = (page: { items: { key: { parts: string[] } }[] }) => page.items.map((item) => item.key.parts[0])
+
+  it('finds changed records by before or after value, ignoring case', async () => {
+    const rows = await compared()
+    expect(keys(await rows('changed', 'mumbai'))).toEqual(['1'])
+    expect(keys(await rows('changed', 'pune'))).toEqual(['1'])
+    expect(keys(await rows('changed', 'pear'))).toEqual(['2'])
+  })
+
+  it('finds by key, column name and any field of added or removed records', async () => {
+    const rows = await compared()
+    expect(keys(await rows('changed', '2'))).toEqual(['2'])
+    expect(keys(await rows('changed', 'city'))).toEqual(['1'])
+    expect(keys(await rows('added', 'kiwi'))).toEqual(['5'])
+    expect(keys(await rows('removed', 'PUNE'))).toEqual(['4'])
+  })
+
+  it('searches the full tab before paging and combines with the column filter', async () => {
+    const rows = await compared()
+    expect((await rows('changed', 'e', 'name')).total).toBe(1)
+    expect((await rows('changed', 'e')).total).toBe(2)
+    expect((await rows('changed', '   ')).total).toBe(2)
+    expect((await rows('changed', 'nothing-matches')).total).toBe(0)
+  })
+})

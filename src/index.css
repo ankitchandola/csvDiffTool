@@ -47,7 +47,8 @@ button:hover:not(:disabled) { background: var(--accent-soft); border-color: #c5a
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
-input[type='text'] {
+input[type='text'],
+input[type='search'] {
   min-height: 40px;
   max-width: 100%;
   border: 1px solid var(--border);
@@ -281,6 +282,8 @@ button.tab:hover:not(:disabled) { background: var(--accent-soft); }
 .active .tab-count { background: var(--accent-soft); color: var(--accent); }
 #result-panel { padding: 0 16px 16px; }
 #result-panel > .row { font-size: 12px; min-height: 40px; }
+.result-search { margin: 12px 0 0; }
+.result-search input { flex: 1; min-width: 12rem; max-width: 28rem; }
 #result-panel > .row .tab { min-height: 40px; }
 #result-panel > .note { margin-top: 16px; }
 #result-panel > .muted { padding: 48px 20px; margin: 0; text-align: center; }
