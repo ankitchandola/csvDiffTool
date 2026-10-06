@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { diffFiles, formatSummary } from './diff'
 import { parsedFixture, profile } from './fixtures.test-helper'
 import { parseCsv } from './parse'
-import type { CompareProfile } from './types'
+import type { CompareProfile, FileFormat } from './types'
 import { RulesError } from './values'
+
+const CSV: FileFormat = { kind: 'csv', delimiter: ',' }
 
 function diff(name: string, p: CompareProfile) {
   return diffFiles(parsedFixture(name, 'old'), parsedFixture(name, 'new'), p)
@@ -24,8 +26,8 @@ describe('diffFiles', () => {
   })
 
   it('reports a key that changes from 0007 to 7 as a removal plus an addition', () => {
-    const oldFile = { headers: ['sku', 'qty'], rows: [{ sku: '0007', qty: '1' }], delimiter: ',' as const }
-    const newFile = { headers: ['sku', 'qty'], rows: [{ sku: '7', qty: '1' }], delimiter: ',' as const }
+    const oldFile = { headers: ['sku', 'qty'], rows: [{ sku: '0007', qty: '1' }], format: CSV, notes: [] }
+    const newFile = { headers: ['sku', 'qty'], rows: [{ sku: '7', qty: '1' }], format: CSV, notes: [] }
     const { summary, keys } = diffFiles(oldFile, newFile, profile({ columns: ['sku'] }))
     expect(summary.counts).toMatchObject({ added: 1, removed: 1, changed: 0, unchanged: 0 })
     expect(keys.removed).toEqual([0])
@@ -91,8 +93,8 @@ describe('diffFiles', () => {
   })
 
   it('does not let key normalisation hide a value change in the key column', () => {
-    const oldFile = { headers: ['sku', 'qty'], rows: [{ sku: 'abc', qty: '1' }], delimiter: ',' as const }
-    const newFile = { headers: ['sku', 'qty'], rows: [{ sku: 'ABC', qty: '1' }], delimiter: ',' as const }
+    const oldFile = { headers: ['sku', 'qty'], rows: [{ sku: 'abc', qty: '1' }], format: CSV, notes: [] }
+    const newFile = { headers: ['sku', 'qty'], rows: [{ sku: 'ABC', qty: '1' }], format: CSV, notes: [] }
     const { summary } = diffFiles(oldFile, newFile, profile({ columns: ['sku'], caseInsensitive: true }))
     expect(summary.changesByColumn).toEqual({ sku: 1 })
   })
@@ -115,8 +117,8 @@ describe('diffFiles', () => {
   })
 
   it('sorts per-column counts in the summary sentence, largest first', () => {
-    const oldFile = { headers: ['id', 'price', 'stock'], rows: [{ id: '1', price: '1', stock: '1' }, { id: '2', price: '1', stock: '1' }], delimiter: ',' as const }
-    const newFile = { headers: ['id', 'price', 'stock'], rows: [{ id: '1', price: '1', stock: '2' }, { id: '2', price: '2', stock: '2' }], delimiter: ',' as const }
+    const oldFile = { headers: ['id', 'price', 'stock'], rows: [{ id: '1', price: '1', stock: '1' }, { id: '2', price: '1', stock: '1' }], format: CSV, notes: [] }
+    const newFile = { headers: ['id', 'price', 'stock'], rows: [{ id: '1', price: '1', stock: '2' }, { id: '2', price: '2', stock: '2' }], format: CSV, notes: [] }
     const { summary } = diffFiles(oldFile, newFile, profile({ columns: ['id'] }))
     expect(formatSummary(summary)).toBe('0 added, 0 removed, 2 changed (stock: 2, price: 1).')
   })

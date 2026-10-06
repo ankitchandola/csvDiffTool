@@ -28,7 +28,7 @@ export const NOT_UTF8_MESSAGE =
 
 const GUESSABLE: Delimiter[] = [',', ';', '\t']
 
-function headerIssues(headers: string[]): ParseIssue[] {
+export function headerIssues(headers: string[]): ParseIssue[] {
   const issues: ParseIssue[] = []
   const seen = new Set<string>()
   headers.forEach((name, i) => {
@@ -112,5 +112,5 @@ export function parseCsv(
   if (tooLarge) return { ok: false, issues: [{ kind: 'file', message: tooManyFieldsMessage(maxFields) }] }
   if (fatal.length > 0) return { ok: false, issues: fatal }
   if (issues.length > 0) return { ok: false, issues }
-  return { ok: true, file: { headers, rows, delimiter } }
+  return { ok: true, file: { headers, rows, format: { kind: 'csv', delimiter }, notes: [] } }
 }

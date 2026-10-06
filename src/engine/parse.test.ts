@@ -13,7 +13,7 @@ describe('parseCsv', () => {
 
   it('strips a BOM, detects a semicolon delimiter and trims headers', () => {
     const file = parsedFixture('bom-semicolon', 'old')
-    expect(file.delimiter).toBe(';')
+    expect(file.format).toEqual({ kind: 'csv', delimiter: ';' })
     expect(file.headers).toEqual(['id', 'name', 'qty'])
     expect(file.rows[1]).toEqual({ id: '2', name: 'b', qty: '4' })
   })

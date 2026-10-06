@@ -35,11 +35,15 @@ export interface CompareProfile {
 // Valid because records with the wrong field count are rejected at parse time.
 export type Row = Record<string, string>
 
+export type FileFormat = { kind: 'csv'; delimiter: Delimiter } | { kind: 'xlsx'; sheet: string; sheets: string[] }
+
 // rows[i] is record number i + 1; the header record is not counted.
 export interface ParsedFile {
   headers: string[]
   rows: Row[]
-  delimiter: Delimiter
+  format: FileFormat
+  // Things read as stored that the user may not expect, such as merged cells.
+  notes: string[]
 }
 
 export interface KeyRef {
