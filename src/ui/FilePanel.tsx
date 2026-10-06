@@ -1,3 +1,5 @@
+import { useId, useState } from 'react'
+import { CheckCircle2, FileSpreadsheet, UploadCloud } from 'lucide-react'
 import type { ParseIssue } from '../engine/parse'
 import type { FileInfo, Preview } from '../worker/protocol'
 import { count, RECORD_NUMBER_NOTE } from './format'
@@ -45,7 +47,8 @@ function RecordPreview({ info }: { info: FileInfo }) {
   return (
     <>
       <p>
-        {count(info.recordCount)} data records · {info.headers.length} columns · {DELIMITER_NAMES[info.delimiter]}-delimited
+        {count(info.recordCount)} data records · {info.headers.length} columns · {DELIMITER_NAMES[info.delimiter]}
+        -delimited
       </p>
       <div className="table-scroll">
         <table>
@@ -76,33 +79,91 @@ function RecordPreview({ info }: { info: FileInfo }) {
   )
 }
 
-export function FilePanel({
-  title,
-  state,
-  onPick,
-}: {
-  title: string
-  state: FileState
-  onPick: (file: File) => void
-}) {
+export function FilePanel({ title, state, onPick }: { title: string; state: FileState; onPick: (file: File) => void }) {
+  const inputId = useId()
+  const [dragging, setDragging] = useState(false)
   return (
-    <section className="panel">
-      <h2>{title}</h2>
-      <input
-        type="file"
-        accept=".csv,.tsv,.txt,text/csv"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          // Cleared so picking the same file again (e.g. after a worker crash) still fires change.
-          e.target.value = ''
+    <section
+      className={`panel file-panel ${dragging ? 'dragging' : ''} ${state.status === 'ready' ? 'file-ready' : ''}`}
+    >
+      <div className="file-heading">
+        <h2>
+          <span className="file-side">{title === 'Old file' ? 'A' : 'B'}</span>
+          {title}
+          <span className="muted">{title === 'Old file' ? 'Baseline' : 'Updated'}</span>
+        </h2>
+        {state.status === 'ready' && (
+          <span className="ready-badge">
+            <CheckCircle2 size={13} /> Ready
+          </span>
+        )}
+      </div>
+      <label
+        className="drop-zone"
+        htmlFor={inputId}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          const file = e.dataTransfer.files[0]
           if (file) onPick(file)
         }}
-      />
-      {state.status === 'loading' && <p className="muted">Reading {state.file.name}…</p>}
-      {state.status === 'ready' && <RecordPreview info={state.info} />}
+      >
+        <span className="upload-icon">
+          {state.status === 'empty' ? <UploadCloud size={24} /> : <FileSpreadsheet size={24} />}
+        </span>
+        <strong>{state.status === 'empty' ? 'Drop your CSV here' : state.file.name}</strong>
+        <span>
+          {state.status === 'empty' ? (
+            <>
+              or <span className="browse-link">browse files</span>
+            </>
+          ) : (
+            <span className="browse-link">Choose a different file</span>
+          )}
+        </span>
+        <small>
+          {state.status === 'empty'
+            ? 'CSV, TSV or delimited text'
+            : `${(state.file.size / 1024).toLocaleString('en-US', { maximumFractionDigits: 1 })} KB`}
+        </small>
+        <input
+          id={inputId}
+          className="file-input"
+          aria-label={`Choose ${title.toLowerCase()}`}
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            e.target.value = ''
+            if (file) onPick(file)
+          }}
+        />
+      </label>
+      {state.status === 'loading' && (
+        <p className="muted" role="status">
+          Reading {state.file.name}…
+        </p>
+      )}
+      {state.status === 'ready' && (
+        <>
+          <p className="file-stats">
+            <strong>{count(state.info.recordCount)}</strong> records <span>·</span>{' '}
+            <strong>{state.info.headers.length}</strong> columns <span>·</span> {DELIMITER_NAMES[state.info.delimiter]}
+          </p>
+          <details className="preview-disclosure">
+            <summary>Preview first {Math.min(20, state.info.recordCount)} records</summary>
+            <RecordPreview info={state.info} />
+          </details>
+        </>
+      )}
       {state.status === 'invalid' && <Issues issues={state.issues} />}
       {state.status === 'failed' && (
-        <p className="error">
+        <p className="error" role="alert">
           {state.message}{' '}
           <button type="button" className="secondary" onClick={() => onPick(state.file)}>
             Read {state.file.name} again

@@ -16,10 +16,11 @@ export function KeyRulesForm({
 }) {
   return (
     <fieldset>
-      <legend>Key columns (which records are the same entity)</legend>
+      <legend>Key columns</legend>
+      <p className="note">Select one unique column, or combine several.</p>
       <div className="chips">
         {columns.map((column) => (
-          <label key={column}>
+          <label key={column} className={rules.columns.includes(column) ? 'key-chip selected' : 'key-chip'}>
             <input
               type="checkbox"
               checked={rules.columns.includes(column)}
@@ -29,18 +30,26 @@ export function KeyRulesForm({
           </label>
         ))}
       </div>
-      <label>
-        <input type="checkbox" checked={rules.trim} onChange={(e) => onChange({ ...rules, trim: e.target.checked })} />
-        Trim spaces around key values
-      </label>
-      <label>
-        <input
-          type="checkbox"
-          checked={rules.caseInsensitive}
-          onChange={(e) => onChange({ ...rules, caseInsensitive: e.target.checked })}
-        />
-        Match keys case-insensitively
-      </label>
+      <details className="key-options">
+        <summary>
+          Key options
+          <span className="muted">
+            {rules.trim ? 'Trim spaces' : 'Keep spaces'}{rules.caseInsensitive ? ', ignore case' : ''}
+          </span>
+        </summary>
+        <label>
+          <input type="checkbox" checked={rules.trim} onChange={(e) => onChange({ ...rules, trim: e.target.checked })} />
+          Trim spaces around key values
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={rules.caseInsensitive}
+            onChange={(e) => onChange({ ...rules, caseInsensitive: e.target.checked })}
+          />
+          Match keys case-insensitively
+        </label>
+      </details>
     </fieldset>
   )
 }
@@ -62,16 +71,19 @@ export function ValueRulesForm({
 
   return (
     <fieldset>
-      <legend>Value rules (whether two fields count as different)</legend>
+      <legend>Field comparison rules</legend>
       <label>
         <input type="checkbox" checked={rules.trim} onChange={(e) => onChange({ ...rules, trim: e.target.checked })} />
         Trim spaces around values in every column
       </label>
-      <p className="note">
-        Numeric columns accept plain decimals such as 1234.5, -0.25 or .5, optionally with comma thousands separators
-        (1,234.5). Decimal commas, exponents (1e5) and surrounding spaces are not numbers; those values are compared as
-        text and reported as warnings. Turn on trimming to ignore surrounding spaces.
-      </p>
+      <details className="numeric-help">
+        <summary>Numeric formats</summary>
+        <p className="note">
+          Numeric columns accept plain decimals such as 1234.5, -0.25 or .5, optionally with comma thousands separators
+          (1,234.5). Decimal commas, exponents (1e5) and surrounding spaces are not numbers; those values are compared as
+          text and reported as warnings. Turn on trimming to ignore surrounding spaces.
+        </p>
+      </details>
       <div className="table-scroll">
         <table>
           <thead>
@@ -94,6 +106,7 @@ export function ValueRulesForm({
                   <td>
                     <input
                       type="checkbox"
+                      aria-label={`Ignore ${column}`}
                       checked={ignored}
                       onChange={(e) =>
                         onChange({ ...rules, ignoredColumns: toggle(rules.ignoredColumns, column, e.target.checked) })
@@ -103,6 +116,7 @@ export function ValueRulesForm({
                   <td>
                     <input
                       type="checkbox"
+                      aria-label={`Ignore case for ${column}`}
                       disabled={ignored || !!numeric}
                       checked={rules.caseInsensitive.includes(column)}
                       onChange={(e) =>
@@ -113,6 +127,7 @@ export function ValueRulesForm({
                   <td>
                     <input
                       type="checkbox"
+                      aria-label={`Compare ${column} numerically`}
                       disabled={ignored}
                       checked={!!numeric}
                       onChange={(e) =>
@@ -126,6 +141,8 @@ export function ValueRulesForm({
                         type="text"
                         inputMode="decimal"
                         size={8}
+                        aria-label={`Tolerance for ${column}`}
+                        disabled={ignored}
                         value={numeric.tolerance}
                         onChange={(e) => setNumeric(column, { ...numeric, tolerance: e.target.value })}
                       />
@@ -135,6 +152,8 @@ export function ValueRulesForm({
                     {numeric && (
                       <input
                         type="checkbox"
+                        aria-label={`Strip thousands separators for ${column}`}
+                        disabled={ignored}
                         checked={numeric.stripThousandsSeparator}
                         onChange={(e) => setNumeric(column, { ...numeric, stripThousandsSeparator: e.target.checked })}
                       />
