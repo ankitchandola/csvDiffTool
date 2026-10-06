@@ -41,6 +41,38 @@ describe('parseXlsx', () => {
     expect(file.format).toEqual({ kind: 'xlsx', sheet: 'Prices', sheets: ['Prices'] })
   })
 
+  it('keeps zeros a number format adds, as displayed', () => {
+    const bytes = workbook({
+      name: 'S',
+      rows: [['code'], [7]],
+      edit: (s) => {
+        s['A2'].z = '0000'
+      },
+    })
+    expect(parsed(bytes).rows).toEqual([{ code: '0007' }])
+  })
+
+  it('reports a formula with no saved result instead of reading it as empty', () => {
+    const bytes = workbook({
+      name: 'S',
+      rows: [['id', 'total'], ['1', 10], ['2', 0]],
+      edit: (s) => {
+        s['B3'] = { t: 'n', f: 'A3*10' }
+      },
+    })
+    expect(parseXlsx(bytes, undefined, DEFAULT_LIMITS)).toEqual({
+      ok: false,
+      issues: [
+        {
+          kind: 'record',
+          recordNumber: 2,
+          message: 'Column "total" has a formula (=A3*10) with no saved result. Open the workbook in Excel and save it so results are stored.',
+          raw: '2, ',
+        },
+      ],
+    })
+  })
+
   it('fills short rows and ignores empty columns past the last header', () => {
     const file = parsed(workbook({ name: 'S', rows: [['id', 'a', 'b', ''], ['1'], ['2', 'x', 'y', '']] }))
     expect(file.headers).toEqual(['id', 'a', 'b'])
@@ -98,8 +130,8 @@ describe('parseXlsx', () => {
 
   it('enforces the field and unpacked-size limits', () => {
     const bytes = workbook({ name: 'S', rows: [['id', 'a'], ['1', 'x'], ['2', 'y']] })
-    expect(parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxFields: 3 }).ok).toBe(false)
-    expect(parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxFields: 4 }).ok).toBe(true)
+    expect(parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxXlsxFields: 3 }).ok).toBe(false)
+    expect(parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxXlsxFields: 4 }).ok).toBe(true)
     const unpacked = parseXlsx(bytes, undefined, { ...DEFAULT_LIMITS, maxUnpackedBytes: 100 })
     expect(unpacked.ok === false && unpacked.issues[0].message).toMatch(/unpacks to more than/)
   })

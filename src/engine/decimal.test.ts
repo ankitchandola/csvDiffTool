@@ -49,6 +49,10 @@ describe('parseDecimal', () => {
     expect(parseDecimal(text, { trailingMinus: true })).toEqual({ units, scale })
   })
 
+  it.each(['₹1,234.50', '$1,234.50', '12%', '1,234.50 USD'])('leaves display-only formats such as %j to text comparison', (text) => {
+    expect(parseDecimal(text, { grouped: true, trailingMinus: true })).toBeNull()
+  })
+
   it('combines Indian grouping with a trailing minus', () => {
     expect(parseDecimal('1,23,456.00-', { grouped: true, trailingMinus: true })).toEqual({ units: -12345600n, scale: 2 })
   })

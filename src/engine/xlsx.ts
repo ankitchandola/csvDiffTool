@@ -11,13 +11,51 @@ export const NOT_XLSX_MESSAGE =
 
 const fail = (kind: 'file' | 'header', message: string): ParseOutcome => ({ ok: false, issues: [{ kind, message }] })
 
-function readWorkbook(bytes: ArrayBuffer, sheet: string | undefined): XLSX.WorkBook | null {
+function readSheetNames(bytes: ArrayBuffer): string[] | null {
   try {
-    // cellStyles is what makes SheetJS read hidden rows and columns.
-    return XLSX.read(bytes, { type: 'array', dense: true, cellStyles: true, sheets: sheet ?? 0 })
+    return XLSX.read(bytes, { type: 'array', bookSheets: true }).SheetNames
   } catch {
     return null
   }
+}
+
+function readWorksheet(bytes: ArrayBuffer, name: string): XLSX.WorkSheet | null {
+  try {
+    // cellStyles is what makes SheetJS read hidden rows and columns.
+    return XLSX.read(bytes, { type: 'array', dense: true, cellStyles: true, sheets: name }).Sheets[name] ?? null
+  } catch {
+    return null
+  }
+}
+
+interface Grid {
+  // Non-blank sheet rows as displayed text; rows[0] is the header.
+  rows: string[][]
+  // Formula cells saved without a result, as [index into rows, column index, formula].
+  uncached: [number, number, string][]
+}
+
+// Walks the used range cell by cell. format_cell gives the displayed text, the same
+// text sheet_to_json produces; walking ourselves also finds formulas with no saved result.
+function readGrid(sheet: XLSX.WorkSheet): Grid {
+  const rows: string[][] = []
+  const uncached: Grid['uncached'] = []
+  if (!sheet['!ref']) return { rows, uncached }
+  const range = XLSX.utils.decode_range(sheet['!ref'])
+  const data = sheet['!data'] ?? []
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    const values: string[] = []
+    const missing: [number, string][] = []
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = data[r]?.[c]
+      if (cell?.f !== undefined && cell.v === undefined) missing.push([c - range.s.c, cell.f])
+      values.push(cell ? XLSX.utils.format_cell(cell) : '')
+    }
+    if (missing.length === 0 && values.every((value) => value === '')) continue
+    for (const [column, formula] of missing) uncached.push([rows.length, column, formula])
+    rows.push(values)
+  }
+  return { rows, uncached }
 }
 
 function hiddenCount(entries: { hidden?: boolean }[] | undefined): number {
@@ -54,15 +92,15 @@ export function parseXlsx(
   if (unpacked === null) return fail('file', NOT_XLSX_MESSAGE)
   if (unpacked > limits.maxUnpackedBytes) return fail('file', unpackedTooLargeMessage(limits.maxUnpackedBytes))
 
-  const workbook = readWorkbook(bytes, sheet)
-  if (!workbook) return fail('file', NOT_XLSX_MESSAGE)
-  const sheets = workbook.SheetNames
+  const sheets = readSheetNames(bytes)
+  if (!sheets) return fail('file', NOT_XLSX_MESSAGE)
   const name = sheet ?? sheets[0]
-  const worksheet = name === undefined ? undefined : workbook.Sheets[name]
-  if (!worksheet) return fail('file', sheet ? `This workbook has no sheet named "${sheet}".` : 'The workbook has no sheets.')
+  if (name === undefined) return fail('file', 'The workbook has no sheets.')
+  if (!sheets.includes(name)) return fail('file', `This workbook has no sheet named "${name}".`)
+  const worksheet = readWorksheet(bytes, name)
+  if (!worksheet) return fail('file', NOT_XLSX_MESSAGE)
 
-  const grid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: false, defval: '', blankrows: false })
-  const cells = grid.map((row) => row.map((value) => String(value ?? '')))
+  const { rows: cells, uncached } = readGrid(worksheet)
   if (cells.length === 0) return fail('header', `Sheet "${name}" is empty`)
 
   const width = namedWidth(cells[0].map((h) => h.trim()))
@@ -70,10 +108,16 @@ export function parseXlsx(
   if (width === 0) return fail('header', `Sheet "${name}" has no header row`)
   const problems = headerIssues(headers)
   if (problems.length > 0) return { ok: false, issues: problems }
-  if ((cells.length - 1) * width > limits.maxFields) return fail('file', tooManyFieldsMessage(limits.maxFields))
+  if ((cells.length - 1) * width > limits.maxXlsxFields) return fail('file', tooManyFieldsMessage(limits.maxXlsxFields))
 
   const rows: Row[] = []
   const issues: ParseIssue[] = []
+  // Treating a formula with no saved result as empty would report a change that isn't there.
+  for (const [index, column, formula] of uncached) {
+    const where = index === 0 ? 'The header' : `Column "${headers[column] ?? column + 1}"`
+    const message = `${where} has a formula (=${formula}) with no saved result. Open the workbook in Excel and save it so results are stored.`
+    issues.push(index === 0 ? { kind: 'header', message } : { kind: 'record', recordNumber: index, message, raw: cells[index].join(', ') })
+  }
   for (let i = 1; i < cells.length; i++) {
     const values = cells[i]
     if (values.slice(width).some((value) => value !== '')) {
