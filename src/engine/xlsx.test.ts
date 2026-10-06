@@ -68,8 +68,7 @@ describe('parseXlsx', () => {
 
   it.each([
     ['no value element', '<c r="B3"><f>A3*10</f></c>'],
-    ['an empty value element', '<c r="B3"><f>A3*10</f><v></v></c>'],
-    ['a self-closing value element', '<c r="B3"><f>A3*10</f><v/></c>'],
+    ['a string type and no value element', '<c r="B3" t="str"><f>A3*10</f></c>'],
     ['a numeric type and an empty value', '<c r="B3" t="n"><f>A3*10</f><v></v></c>'],
   ])('reports a formula saved with %s as having no result', (_, xml) => {
     const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['2', 0]] })
@@ -79,22 +78,42 @@ describe('parseXlsx', () => {
     })
   })
 
+  it.each([
+    ['an empty value element', '<c r="B3"><f>A3*10</f><v></v></c>'],
+    ['a self-closing value element', '<c r="B3"><f>A3*10</f><v/></c>'],
+  ])('reads an untyped formula saved with %s as empty, with a note', (_, xml) => {
+    const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['2', 0]] })
+    const file = parsed(withCellXml(base, 'B3', xml))
+    expect(file.rows[1]).toEqual({ id: '2', total: '' })
+    expect(file.notes).toEqual([expect.stringMatching(/^1 formula cell saved an empty result with no type/)])
+  })
+
   it('reports a row whose only content is a formula with no result instead of skipping it', () => {
     const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['', 0]] })
-    const bytes = withCellXml(withCellXml(base, 'A3', '<c r="A3"/>'), 'B3', '<c r="B3"><f>A3*10</f><v></v></c>')
+    const bytes = withCellXml(withCellXml(base, 'A3', '<c r="A3"/>'), 'B3', '<c r="B3"><f>A3*10</f></c>')
     expect(parseXlsx(bytes, undefined, DEFAULT_LIMITS)).toMatchObject({
       ok: false,
       issues: [{ kind: 'record', recordNumber: 2, message: UNCACHED }],
     })
   })
 
+  it('names a header formula with no result instead of reporting an empty header', () => {
+    const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10]] })
+    expect(parseXlsx(withCellXml(base, 'A1', '<c r="A1" t="str"><f>"id"</f></c>'), undefined, DEFAULT_LIMITS)).toMatchObject({
+      ok: false,
+      issues: [{ kind: 'header', message: expect.stringMatching(/^Header column 1 has a formula \(="id"\) with no saved result/) }],
+    })
+  })
+
   it('reads a saved empty-string result as written by Excel', () => {
     const base = workbook({ name: 'S', rows: [['id', 'total'], ['1', 10], ['2', 0]] })
     const bytes = withCellXml(base, 'B3', '<c r="B3" t="str"><f>""</f><v></v></c>')
-    expect(parsed(bytes).rows).toEqual([
+    const file = parsed(bytes)
+    expect(file.rows).toEqual([
       { id: '1', total: '10' },
       { id: '2', total: '' },
     ])
+    expect(file.notes).toEqual([])
   })
 
   it('reports a formula with no saved result instead of reading it as empty', () => {

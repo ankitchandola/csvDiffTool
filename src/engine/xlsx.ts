@@ -4,6 +4,7 @@ import type { Limits } from './limits'
 import { tooManyFieldsMessage, unpackedTooLargeMessage } from './limits'
 import { headerIssues, type ParseIssue, type ParseOutcome } from './parse'
 import type { ProgressFn, Row } from './types'
+import { savedResults } from './xlsx-xml'
 import { unpackedSize } from './zip'
 
 export const NOT_XLSX_MESSAGE =
@@ -48,41 +49,54 @@ function readWorksheet(bytes: ArrayBuffer, name: string, sheetRows?: number): XL
   }
 }
 
-// A saved result of "", 0 or FALSE is a real value with its own type. A formula saved
-// without one reads as a stub ('z'; SheetJS may still set v to 0) or, from some writers,
-// as a cell with no value.
-function hasNoSavedResult(cell: XLSX.CellObject): boolean {
-  return cell.t === 'z' || cell.v === undefined
-}
-
 interface Grid {
   // Non-blank sheet rows as displayed text; rows[0] is the header.
   rows: string[][]
   // Formula cells saved without a result, as [index into rows, column index, formula].
   uncached: [number, number, string][]
+  // Formula cells saved with an empty, untyped result, read as "" (see SavedResult).
+  untypedEmpty: number
 }
 
 // Walks the used range cell by cell. format_cell gives the displayed text, the same
-// text sheet_to_json produces; walking ourselves also finds formulas with no saved result.
-function readGrid(sheet: XLSX.WorkSheet): Grid {
+// text sheet_to_json produces; walking ourselves also finds formulas with no saved
+// result. A saved 0 or FALSE has a value. Every formula cell that reads as empty (a stub
+// 'z', where SheetJS may still set v to 0; an empty string; no value) is settled from the
+// XML, because a missing result and a saved "" can read the same.
+function readGrid(sheet: XLSX.WorkSheet, bytes: ArrayBuffer, sheetName: string): Grid {
   const rows: string[][] = []
   const uncached: Grid['uncached'] = []
-  if (!sheet['!ref']) return { rows, uncached }
+  const stubs: { index: number; column: number; formula: string; ref: string }[] = []
+  if (!sheet['!ref']) return { rows, uncached, untypedEmpty: 0 }
   const range = XLSX.utils.decode_range(sheet['!ref'])
   const data = sheet['!data'] ?? []
   for (let r = range.s.r; r <= range.e.r; r++) {
     const values: string[] = []
-    const missing: [number, string][] = []
+    let formulas = false
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cell = data[r]?.[c]
-      if (cell?.f !== undefined && hasNoSavedResult(cell)) missing.push([c - range.s.c, cell.f])
+      const column = c - range.s.c
+      if (cell?.f !== undefined && (cell.t === 'z' || cell.v === undefined || cell.v === '')) {
+        stubs.push({ index: rows.length, column, formula: cell.f, ref: XLSX.utils.encode_cell({ r, c }) })
+        formulas = true
+        values.push('')
+        continue
+      }
       values.push(cell ? XLSX.utils.format_cell(cell) : '')
     }
-    if (missing.length === 0 && values.every((value) => value === '')) continue
-    for (const [column, formula] of missing) uncached.push([rows.length, column, formula])
+    if (!formulas && values.every((value) => value === '')) continue
     rows.push(values)
   }
-  return { rows, uncached }
+  let untypedEmpty = 0
+  if (stubs.length > 0) {
+    const results = savedResults(bytes, sheetName, stubs.map((stub) => stub.ref))
+    for (const stub of stubs) {
+      const result = results?.get(stub.ref)
+      if (result === 'untyped-empty') untypedEmpty++
+      if (result === undefined || result === 'none') uncached.push([stub.index, stub.column, stub.formula])
+    }
+  }
+  return { rows, uncached, untypedEmpty }
 }
 
 function hiddenCount(entries: { hidden?: boolean }[] | undefined): number {
@@ -135,7 +149,7 @@ export function parseXlsx(
   const truncated = outline.rows > rowBudget
   let worksheet = readWorksheet(bytes, name, truncated ? rowBudget : undefined)
   if (!worksheet) return failIn('file', NOT_XLSX_MESSAGE)
-  let grid = readGrid(worksheet)
+  let grid = readGrid(worksheet, bytes, name)
   if (grid.rows.length === 0) return failIn('header', `Sheet "${name}" is empty`)
   if (truncated) {
     // The declared width can include empty columns past the last header; recheck at the real width.
@@ -143,10 +157,17 @@ export function parseXlsx(
     if ((outline.rows - 1) * width > limits.maxXlsxFields) return failIn('file', tooManyFieldsMessage(limits.maxXlsxFields))
     worksheet = readWorksheet(bytes, name)
     if (!worksheet) return failIn('file', NOT_XLSX_MESSAGE)
-    grid = readGrid(worksheet)
+    grid = readGrid(worksheet, bytes, name)
   }
-  const { rows: cells, uncached } = grid
+  const { rows: cells, uncached, untypedEmpty } = grid
 
+  const uncachedMessage = (where: string, formula: string) =>
+    `${where} has a formula (=${formula}) with no saved result. Open the workbook in Excel and save it so results are stored.`
+  // Checked before header names: an unsaved header formula otherwise shows as an empty header.
+  const headerFormulas = uncached.filter(([index]) => index === 0)
+  if (headerFormulas.length > 0) {
+    return { ok: false, issues: headerFormulas.map(([, column, formula]) => ({ kind: 'header', message: uncachedMessage(`Header column ${column + 1}`, formula) })), format }
+  }
   const width = namedWidth(cells[0].map((h) => h.trim()))
   const headers = cells[0].slice(0, width).map((h) => h.trim())
   if (width === 0) return failIn('header', `Sheet "${name}" has no header row`)
@@ -158,9 +179,8 @@ export function parseXlsx(
   const issues: ParseIssue[] = []
   // Treating a formula with no saved result as empty would report a change that isn't there.
   for (const [index, column, formula] of uncached) {
-    const where = index === 0 ? 'The header' : `Column "${headers[column] ?? column + 1}"`
-    const message = `${where} has a formula (=${formula}) with no saved result. Open the workbook in Excel and save it so results are stored.`
-    issues.push(index === 0 ? { kind: 'header', message } : { kind: 'record', recordNumber: index, message, raw: cells[index].join(', ') })
+    const message = uncachedMessage(`Column "${headers[column] ?? column + 1}"`, formula)
+    issues.push({ kind: 'record', recordNumber: index, message, raw: cells[index].join(', ') })
   }
   for (let i = 1; i < cells.length; i++) {
     const values = cells[i]
@@ -174,5 +194,11 @@ export function parseXlsx(
   }
   onProgress?.('parse', 1, 1)
   if (issues.length > 0) return { ok: false, issues, format }
-  return { ok: true, file: { headers, rows, format, notes: sheetNotes(worksheet) } }
+  const notes = sheetNotes(worksheet)
+  if (untypedEmpty > 0) {
+    notes.push(
+      `${untypedEmpty} formula cell${untypedEmpty === 1 ? '' : 's'} saved an empty result with no type and ${untypedEmpty === 1 ? 'is' : 'are'} read as empty. Excel types its results; if a script wrote this workbook without calculating it, open and save it in Excel first.`,
+    )
+  }
+  return { ok: true, file: { headers, rows, format, notes } }
 }
