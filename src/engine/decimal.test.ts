@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Decimal, parseDecimal, withinTolerance } from './decimal'
+import { type Decimal, isPlainDecimal, parseDecimal, withinTolerance } from './decimal'
 
 function d(text: string): Decimal {
   const value = parseDecimal(text)
@@ -55,6 +55,16 @@ describe('parseDecimal', () => {
 
   it.each(['-5-', '+5-', '-', '5--', '5 -'])('rejects a malformed trailing minus %j', (text) => {
     expect(parseDecimal(text, { grouped: true, trailingMinus: true })).toBeNull()
+  })
+})
+
+describe('isPlainDecimal', () => {
+  it.each(['-12', '+3.5', '-0.25', '.5', '3.', '0'])('accepts %j', (text) => {
+    expect(isPlainDecimal(text)).toBe(true)
+  })
+
+  it.each(['', '.', '-', '+.', '1,234', '1234.50-', '1e5', '1.2.3', '-1+1', ' 1'])('rejects %j', (text) => {
+    expect(isPlainDecimal(text)).toBe(false)
   })
 })
 

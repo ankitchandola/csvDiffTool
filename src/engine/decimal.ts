@@ -5,24 +5,74 @@ export interface Decimal {
   scale: number
 }
 
-const PLAIN = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/
-// Western thousands (1,234,567) or Indian lakh/crore grouping (12,34,567).
-const GROUPED = /^[+-]?(?:\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})+,\d{3})(?:\.\d*)?$/
-
 export interface DecimalFormat {
+  // Comma grouping in the whole part: Western (1,234,567) or Indian lakh/crore (12,34,567).
   grouped?: boolean
   // Accounting/ERP exports (SAP among them) write negatives as 1234.50-.
   trailingMinus?: boolean
 }
 
+interface Signed {
+  negative: boolean
+  body: string
+}
+
+interface Parts {
+  whole: string
+  fraction: string
+}
+
+function isDigits(text: string): boolean {
+  if (text.length === 0) return false
+  for (const ch of text) if (ch < '0' || ch > '9') return false
+  return true
+}
+
+function readSign(raw: string, trailingMinus: boolean): Signed {
+  if (raw.startsWith('+') || raw.startsWith('-')) return { negative: raw.startsWith('-'), body: raw.slice(1) }
+  if (trailingMinus && raw.endsWith('-')) return { negative: true, body: raw.slice(0, -1) }
+  return { negative: false, body: raw }
+}
+
+function splitAtPoint(body: string): Parts {
+  const point = body.indexOf('.')
+  return point === -1 ? { whole: body, fraction: '' } : { whole: body.slice(0, point), fraction: body.slice(point + 1) }
+}
+
+// At least one digit overall: 3. and .5 are numbers, a lone point is not.
+function plainParts({ whole, fraction }: Parts): boolean {
+  if (whole === '' && fraction === '') return false
+  return (whole === '' || isDigits(whole)) && (fraction === '' || isDigits(fraction))
+}
+
+function ungroup(whole: string): string | null {
+  const groups = whole.split(',')
+  if (!groups.every(isDigits)) return null
+  const [first, ...rest] = groups
+  const middle = rest.slice(0, -1)
+  const last = rest[rest.length - 1]
+  const western = first.length <= 3 && rest.every((g) => g.length === 3)
+  const indian = first.length <= 2 && last.length === 3 && middle.every((g) => g.length === 2)
+  return western || indian ? groups.join('') : null
+}
+
+// An optional leading sign and digits with at most one point: 1234.5, -0.25, +7, .5, 3.
+// No grouping, no trailing minus. Formula protection relies on exactly this set.
+export function isPlainDecimal(text: string): boolean {
+  return plainParts(splitAtPoint(readSign(text, false).body))
+}
+
 export function parseDecimal(raw: string, { grouped = false, trailingMinus = false }: DecimalFormat = {}): Decimal | null {
-  const signed = trailingMinus && raw.endsWith('-') && !/^[+-]/.test(raw) ? `-${raw.slice(0, -1)}` : raw
-  const text = grouped && GROUPED.test(signed) ? signed.replaceAll(',', '') : signed
-  if (!PLAIN.test(text)) return null
-  const negative = text.startsWith('-')
-  const [intPart, fracPart = ''] = text.replace(/^[+-]/, '').split('.')
-  const units = BigInt((intPart || '0') + fracPart)
-  return { units: negative ? -units : units, scale: fracPart.length }
+  const { negative, body } = readSign(raw, trailingMinus)
+  const parts = splitAtPoint(body)
+  if (grouped && parts.whole.includes(',')) {
+    const whole = ungroup(parts.whole)
+    if (whole === null) return null
+    parts.whole = whole
+  }
+  if (!plainParts(parts)) return null
+  const units = BigInt((parts.whole || '0') + parts.fraction)
+  return { units: negative ? -units : units, scale: parts.fraction.length }
 }
 
 function atScale(d: Decimal, scale: number): bigint {
