@@ -2,14 +2,18 @@ import { useState } from 'react'
 import { ArrowDownToLine, FileJson, FileSpreadsheet, TriangleAlert } from 'lucide-react'
 import type { CompareResult, ExportFormat } from '../worker/protocol'
 import { count, counted } from './format'
+import { comparisonLine, ruleDetails } from './rules-summary'
 
 export function SummaryView({
   result,
+  sources,
   exporting,
   exportError,
   onExport,
 }: {
   result: CompareResult
+  // File names, with worksheet names for .xlsx, as "old → new".
+  sources: string
   exporting: boolean
   exportError: string | null
   onExport: (format: ExportFormat, escapeFormulae: boolean) => void
@@ -46,6 +50,18 @@ export function SummaryView({
           </button>
         </div>
       </div>
+      <details className="rules-summary">
+        <summary>
+          {comparisonLine(summary.rulesUsed.key, summary.rulesUsed.value)}
+          <span className="muted"> · {sources}</span>
+        </summary>
+        <ul>
+          {ruleDetails(summary.rulesUsed.key, summary.rulesUsed.value).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+          <li>Compared: {sources}.</li>
+        </ul>
+      </details>
       {(counts.ambiguous > 0 || counts.emptyKey > 0 || summary.warningCount > 0) && (
         <div className="warning result-warning" role="status">
           <TriangleAlert size={19} aria-hidden="true" />
@@ -95,7 +111,7 @@ export function SummaryView({
           imports can remove leading zeros from CSV values; JSON preserves the original strings.
         </p>
         <details className="audit-details">
-          <summary>Rules used for this comparison</summary>
+          <summary>Raw rules (JSON)</summary>
           <pre>{JSON.stringify(summary.rulesUsed, null, 2)}</pre>
         </details>
       </details>

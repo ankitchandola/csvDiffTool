@@ -360,3 +360,7 @@ button.tab:hover:not(:disabled) { background: var(--accent-soft); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
 }
+
+.rules-summary { margin: 12px 0; font-size: 13px; }
+.rules-summary summary { cursor: pointer; }
+.rules-summary ul { margin: 8px 0 0; padding-left: 20px; }

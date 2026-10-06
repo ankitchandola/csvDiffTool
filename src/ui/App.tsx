@@ -21,6 +21,7 @@ import { CancelledError, createCompareClient } from '../worker/client'
 import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
 import { type Activity, ActivityBar, type Task } from './ActivityBar'
 import { fileLabel, type FileState, sheetOf } from './file-state'
+import { valueRulesLine } from './rules-summary'
 import { FilePanel } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
@@ -475,14 +476,7 @@ export function App() {
                 <details className="value-disclosure">
                   <summary>
                     Value comparison{' '}
-                    <span className="muted">
-                      {valueRules.ignoredColumns.length +
-                        valueRules.caseInsensitive.length +
-                        Object.keys(valueRules.numeric).length >
-                        0 || valueRules.trim
-                        ? 'Custom rules active'
-                        : 'Exact comparison by default'}
-                    </span>
+                    <span className="muted">{valueRulesLine(valueRules)}</span>
                   </summary>
                   <ValueRulesForm columns={schema.shared} rules={valueRules} onChange={setValueRules} />
                 </details>
@@ -505,6 +499,7 @@ export function App() {
               <SummaryView
                 key={currentComparison.value.resultId}
                 result={currentComparison.value}
+                sources={`${fileLabel(files.old)} → ${fileLabel(files.new)}`}
                 exporting={'export' in activity}
                 exportError={exportError}
                 onExport={(format, escape) => exportResult(currentComparison.value, format, escape)}
