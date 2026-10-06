@@ -74,7 +74,7 @@ Browser test screenshots and failure traces are written to ignored `test-results
 
 Current guardrails reject files over **200 MiB** or **6,000,000 fields**
 (data records × columns); `.xlsx` files at **25 MiB**, **256 MiB** declared unpacked
-and **2,000,000 fields**, provisionally, from [Node measurements](docs/benchmarks.md#xlsx). Chrome 154 on an M4 / 16 GiB machine completed two
+and **2,000,000 fields**, provisionally; these are chosen around [Node measurements](docs/benchmarks.md#xlsx), not measured at those values. Chrome 154 on an M4 / 16 GiB machine completed two
 197.30 MiB files with 6,000,000 fields each through scrolling and both exports.
 These are enforced caps and one measured configuration, not guaranteed capacity
 across browsers/hardware. [Browser measurements](docs/browser-verification.md);

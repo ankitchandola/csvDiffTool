@@ -4,10 +4,10 @@
 // two files peak around 1.1 GB, a quarter of V8's 4 GB heap.
 export const MAX_FILE_BYTES = 200 * 2 ** 20
 export const MAX_FIELDS = 6_000_000
-// Provisional, from the .xlsx benchmarks in docs/benchmarks.md (Node, not a browser).
-// Reading a workbook peaks far higher than CSV: 100,000 × 11 fields per file took 1.15 GB
-// for the whole run and 100,000 × 51 took 2.4 GB. Sheets that aren't compared still
-// cost memory, so the byte cap covers the whole workbook.
+// Provisional and chosen, not measured at these values: see docs/benchmarks.md#xlsx for the
+// Node runs they are set around (two files of 100,000 × 11 fields, 22.6 MiB and 48.4 MiB
+// unpacked each, peaked at 1.04 GB). Sheets that aren't compared still cost memory, so the
+// byte caps cover the whole workbook.
 export const MAX_XLSX_BYTES = 25 * 2 ** 20
 export const MAX_UNPACKED_BYTES = 256 * 2 ** 20
 export const MAX_XLSX_FIELDS = 2_000_000

@@ -16,9 +16,9 @@ reading (keys, rules, results, exports, profiles) is unchanged.
 | Locale | SheetJS formats with its own rules, not the user's Excel locale. Locale-dependent formats (dates especially) may display differently from the user's Excel. | SheetJS can't know the locale the file was viewed in. |
 | Numeric rules | Unchanged. Displayed text such as `₹1,234.50`, `$1,234.50` or `12%` is not a number to the numeric rules: it is compared as text and reported as a numeric warning, exactly as the same text in a CSV would be. `.xlsx` support adds no numeric conversions. | Keeps one numeric syntax for every input. |
 | Leading zeros | Kept whenever the displayed text has them: a text cell `0007`, or the number 7 with number format `0000`. Lost only when neither the stored value nor its format contains them (the number 7 in General format reads `7`). | Displayed text carries the zeros a format adds. |
-| Formulas | The result Excel last saved with the file. Nothing is recalculated. A formula cell **with no saved result** is reported as a problem (header or record), and the file is rejected until it is saved from Excel; it is never read as empty. | Reading it as empty would report a change that isn't there. |
-| Sheet | Sheet names are read first; the first sheet is used by default, and a picker per file appears when there is more than one. Only the selected worksheet is parsed into comparison records. | Most exports have one sheet. The rest of the workbook is still opened (shared strings, styles, other sheets' zip entries), so unread sheets still cost memory: see Limits. |
-| Header | Row 1 of the sheet's used range. | Same rule as CSV. |
+| Formulas | The result Excel last saved with the file. Nothing is recalculated. A saved result of `""`, `0` or `FALSE` is a value like any other (displayed as empty, `0` and `FALSE`). A formula cell with **no saved result at all** (no stored value) is a different case: it is reported as a problem (header or record) and the file is rejected until it is saved from Excel. It is never read as empty. | Reading a missing result as empty would report a change that isn't there; an empty-string result is a real value. |
+| Sheet | A first one-row read gives the sheet names and the selected sheet's declared size; then only the selected worksheet is parsed into comparison records. The first sheet is used by default. A picker per file appears whenever there is more than one sheet, including when the selected sheet failed to load, so another can be chosen. Re-reads keep the selected sheet: after Cancel, after a worker failure, and after a delimiter change. | Most exports have one sheet. The rest of the workbook is still opened (shared strings, styles, other sheets' zip entries), so unread sheets still cost memory: see Limits. |
+| Header | The first non-blank row of the worksheet's used range (the range the file declares). Blank rows above it are skipped. It need not be worksheet row 1. | Same rule as CSV, where blank lines before the header are skipped. |
 | Short rows | Missing trailing cells are empty values. | Excel doesn't store empty cells; that is not an error, unlike a short CSV record. |
 | Cells beyond the header | Reported as record problems and the file is rejected, like a CSV record with too many fields. Empty columns past the last header are ignored. | A value with no column name can't be compared. |
 | Blank rows | Skipped and not counted, as in CSV. A row whose only content is an unsaved formula is not blank. | Same record numbering as CSV. |
@@ -30,11 +30,22 @@ reading (keys, rules, results, exports, profiles) is unchanged.
 | --- | --- | --- |
 | File size | 25 MiB per `.xlsx` | Before reading |
 | Declared unpacked size | 256 MiB | From the zip's central directory, before SheetJS runs |
-| Fields | 2,000,000 per file (records × columns) | After reading the sheet |
+| Fields | 2,000,000 per file (records × columns) | While parsing: see below |
 
-Set from the `.xlsx` benchmarks in [`benchmarks.md`](benchmarks.md#xlsx). Reading a
-workbook peaks far higher than reading the same data as CSV, and every sheet in the
-file counts toward memory, not just the compared one.
+These values are chosen around Node measurements, not measured at the values
+themselves; [`benchmarks.md`](benchmarks.md#what-is-measured-and-what-is-chosen)
+lists which number each one rests on. Every sheet in the file counts toward memory,
+not just the compared one.
+
+**How the field limit bounds parsing.** The first, one-row read gives the sheet's
+declared range. The full read is then capped with SheetJS's `sheetRows` at the field
+limit divided by the declared width (plus the header row), so SheetJS stops parsing
+cells there. If the sheet declares more rows than that, the count is rechecked at the
+header's real width (the declared width can include empty columns): over the limit,
+the file is rejected without the full read; under it, the sheet is read in full.
+Declared rows include blank rows, so a sheet with many blank rows can be rejected
+slightly early. This bounds the cells SheetJS parses, not the memory for unzipping
+the archive or its shared strings, which the byte caps cover.
 
 **The unpacked-size check is a guardrail, not zip-bomb proof.** It sums the sizes the
 archive *declares*. SheetJS's decompression is not bounded by those declarations, so
@@ -58,7 +69,6 @@ Before calling `.xlsx` supported:
 
 - Profiles remembering the sheet name.
 - A "header on row N" setting.
-- "Read again" after Cancel keeping the chosen sheet (it reopens on the first sheet).
 
 ## Explicitly skipped
 
