@@ -19,7 +19,7 @@ Explicitly skipped).
 | Layout | One sheet per section (table below), not the CSV's single long table. | Each section has its own natural columns, and it covers the deferred "split the CSV into three files" request inside one file. |
 | Composite keys | One column per key column, named after it (`Key: warehouse`, `Key: sku`), not a JSON array. | Filterable in a spreadsheet; covers the deferred "separate key columns" request. The CSV keeps its JSON-array key. |
 | Key values shown | As written in the file (the same parts the CSV and JSON use); the JSON report remains the place with both old and new key parts. | Keeps the sheets narrow. |
-| Library | SheetJS, already loaded in the worker for `.xlsx` input; its writer ships in the same lazy chunk, so CSV-only users still download nothing extra. | No new dependency. |
+| Library | SheetJS, already used in the worker for `.xlsx` input. It stays in a lazy chunk, loaded only for `.xlsx` input or export, so users who never touch `.xlsx` download nothing extra. Including the writer grew that chunk from 364 kB to 486 kB (minified). | No new dependency. |
 | Styling | Column widths and an autofilter on each table's header row. No bold, colours or frozen panes. | SheetJS Community Edition doesn't write cell styles; widths and autofilters it does write. |
 | Where it's built | In the worker, from the stored result, like the other exports. Built from the full result, never from the UI's pages. | Same rule as CSV and JSON: the export covers everything, not what was scrolled. |
 
@@ -45,7 +45,16 @@ names.
 | --- | --- | --- |
 | Rows per sheet | 1,048,575 data rows (Excel's 1,048,576 minus the header) | The `.xlsx` export is refused with a message pointing to the CSV and JSON, which have no row limit. A sheet is never silently cut short. |
 | Characters per cell | 32,767 (Excel's limit) | The export is refused, naming the sheet, column and record of the first long value. Excel would otherwise truncate or need to repair the file. |
-| Memory | SheetJS Community Edition has no streaming `.xlsx` writer, so the workbook is built in memory. A cap on total exported cells is set from a benchmark (see Release checks), provisional like the other caps. | The export is refused with the same pointer to CSV and JSON. |
+| Cells in the workbook | 1,000,000 (provisional) | The export is refused with the same pointer to CSV and JSON. |
+
+SheetJS Community Edition has no streaming `.xlsx` writer, so the workbook is built
+whole in memory: about 0.9 KB per cell in the Node benchmarks
+([`benchmarks.md`](benchmarks.md#xlsx-export)). A result near the sheet row limit
+(about 5.7 million cells) ran out of a 4 GB heap, so in practice the cell cap, not
+Excel's row limit, decides how large a result can be exported. The 1,000,000 cap was
+chosen from those runs and then checked at about 940,000 cells. Results above it still
+export as CSV and JSON. A writer that streams sheet XML into the zip would lift this
+cap; it is listed under Later.
 
 ## Release checks
 
@@ -53,11 +62,16 @@ names.
 - [ ] `0007`, a 16-digit ID, `2026-01-05`, `=SUM(A1)` and `-12` appear exactly as
   compared, as text, in Excel.
 - [ ] Composite-key columns filter correctly; autofilters work on every sheet.
-- [ ] Benchmark: export time and peak memory for large results: the 250,000-row,
-  90%-changed case (about 225,000 changed fields, 5,000 added and 5,000 removed
-  records of 11 columns) and a case near the 1,048,575-row sheet limit, to set the
-  cell cap.
+- [x] Node benchmark: export time and peak memory for large results (done; see
+  [`benchmarks.md`](benchmarks.md#xlsx-export)). The case near the sheet row limit
+  ran out of memory, which set the cell cap.
+- [ ] Browser check of an export near the cell cap.
 - [ ] Rows-per-sheet and characters-per-cell refusals tested with small injected limits.
+
+## Later
+
+- A streaming writer (sheet XML written row by row into the zip), to export results
+  beyond the cell cap.
 
 ## Explicitly skipped
 

@@ -67,6 +67,12 @@ Browser test screenshots and failure traces are written to ignored `test-results
   Automatic spreadsheet import can still remove leading zeros from ordinary
   values: Numbers 14.4 imported `00123` as `123`. Composite-key JSON cells retained
   their parts; see the [spreadsheet checks](docs/browser-verification.md).
+- **Excel workbook** (`.xlsx`): a sheet each for the summary, added, removed and
+  changed records, ambiguous keys, empty keys and numeric warnings, with one column per
+  key column. Every cell is text, exactly as compared, so leading zeros stay and
+  formula-like values never run. Limited to 1,000,000 cells (provisional, from
+  [Node measurements](docs/benchmarks.md#xlsx-export)); larger results export as CSV
+  and JSON. Details: [`docs/xlsx-export-spec.md`](docs/xlsx-export-spec.md).
 - **JSON report**: starts with the rules used, then the file names, the summary, and
   every added, removed and changed record, ambiguous key, empty key and warning.
 

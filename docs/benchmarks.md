@@ -109,3 +109,21 @@ Reading .xlsx is roughly 25× slower than CSV and peaks about twice as high for 
 same data. Sheets that aren't compared still cost memory, which is why the byte caps
 cover the whole workbook. Browser runs are a release check in
 [`xlsx-spec.md`](xlsx-spec.md#release-checks).
+
+## .xlsx export
+
+The `XLSX ms (MB)` column of `npm run bench` (cell cap lifted). Apple M4, 16 GB RAM,
+Node v24.15.0, one sample each, each case in its own process. Peak heap includes the
+held comparison; the export builds the whole workbook in memory.
+
+| Scenario | Workbook cells | Export ms | File MB | Peak heap MB | Max RSS MB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 160,000 rows, 90% changed (`xlsx export at cell cap`) | about 940,000 | 3,117 | 18.3 | 1,065 | 1,516 |
+| 250,000 rows, 90% changed | about 1,470,000 | 7,795 | 28.7 | 1,801 | 1,819 |
+| 500,000 rows, 5% changed | about 390,000 | 2,755 | 9.0 | 1,090 | 1,549 |
+| 980,000 rows × 6 columns, 96% changed | about 5,700,000 | out of memory (4 GB heap) | — | — | — |
+
+The second row ran in the same process as the 1%-changed case, so its Max RSS is the
+higher of the two. Peak heap minus the held comparison is roughly 0.8–1.3 GB for 1 to
+1.5 million cells, about 0.9 KB per cell. That set the export cap at 1,000,000 cells.
+The 500,000-row case's peak is mostly the comparison itself (5.5 million fields held).
