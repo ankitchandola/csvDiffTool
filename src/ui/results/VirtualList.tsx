@@ -11,6 +11,7 @@ export function VirtualList<T>({
   estimateSize,
   minWidth,
   empty,
+  label = 'Comparison records, scroll to browse',
 }: {
   fetchPage: (offset: number, limit: number) => Promise<Page<T>>
   header?: ReactNode
@@ -18,6 +19,7 @@ export function VirtualList<T>({
   estimateSize: number
   minWidth?: string
   empty: string
+  label?: string
 }) {
   const [, setVersion] = useState(0)
   const [loader] = useState(() => createPageLoader(fetchPage, () => setVersion((v) => v + 1)))
@@ -42,7 +44,7 @@ export function VirtualList<T>({
   if (loader.total === 0) return <p className="muted">{empty}</p>
 
   return (
-    <div ref={scrollRef} className="vlist" tabIndex={0} role="region" aria-label="Comparison records, scroll to browse">
+    <div ref={scrollRef} className="vlist" tabIndex={0} role="region" aria-label={label}>
       <div style={{ minWidth }}>
         {header && <div className="vlist-header">{header}</div>}
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>

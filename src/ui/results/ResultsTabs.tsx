@@ -12,12 +12,12 @@ import type {
 } from '../../worker/protocol'
 import { count, counted, formatKey, formatValue, noun, RECORD_NUMBER_NOTE } from '../format'
 import type { Page } from './page-loader'
+import { firstRelevantTab, type Tab } from './tabs'
 import { VirtualList } from './VirtualList'
 import { Select } from '../Select'
 
 const TAB_ICONS = { added: Plus, removed: Minus, changed: ArrowRightLeft, problems: TriangleAlert }
 
-type Tab = 'added' | 'removed' | 'changed' | 'problems'
 type Problem = 'ambiguous' | 'emptyKey' | 'warnings'
 
 const PROBLEM_LABELS: Record<Problem, string> = {
@@ -244,7 +244,8 @@ export function ResultsTabs({
   }
   const ambiguousRecordCount = result.ambiguousRecordCount
   const problemTotal = problemCounts.ambiguous + problemCounts.emptyKey + problemCounts.warnings
-  const [tab, setTab] = useState<Tab>('changed')
+  const differences = counts.added + counts.removed + counts.changed
+  const [tab, setTab] = useState<Tab>(() => firstRelevantTab(counts, problemTotal))
   const [column, setColumn] = useState('')
   const [problem, setProblem] = useState<Problem>('ambiguous')
   const filterColumn = column !== '' && Object.hasOwn(changesByColumn, column) ? column : undefined
@@ -258,6 +259,12 @@ export function ResultsTabs({
 
   return (
     <section className="panel results-panel">
+      {differences === 0 && (
+        <p className="note" role="status">
+          No differences under the current rules.
+          {problemTotal > 0 && ` ${counted(problemTotal, 'problem')} still need${problemTotal === 1 ? 's' : ''} review: see Problems.`}
+        </p>
+      )}
       <div className="tabs" role="tablist" aria-label="Comparison results">
         {tabs.map(([id, label, n]) => {
           const Icon = TAB_ICONS[id]

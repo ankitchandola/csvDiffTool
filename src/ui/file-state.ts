@@ -10,6 +10,13 @@ export type FileState =
   // sheet: the worksheet to read again, so recovery doesn't fall back to the first one.
   | { status: 'failed'; file: File; message: string; sheet?: string }
 
+// The file name, plus the worksheet for .xlsx, so two sheets of one workbook stay distinct.
+export function fileLabel(state: FileState): string {
+  if (state.status === 'empty') return ''
+  const sheet = sheetOf(state)
+  return sheet === undefined ? state.file.name : `${state.file.name} (sheet “${sheet}”)`
+}
+
 // The worksheet this state was reading or read, if any.
 export function sheetOf(state: FileState): string | undefined {
   if (state.status === 'loading' || state.status === 'failed') return state.sheet

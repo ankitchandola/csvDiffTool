@@ -6,6 +6,8 @@ import type { FileState } from './file-state'
 import type { FileInfo, Preview } from '../worker/protocol'
 import { count, counted, noun, RECORD_NUMBER_NOTE } from './format'
 import { Select } from './Select'
+import type { Page } from './results/page-loader'
+import { VirtualList } from './results/VirtualList'
 import { ShowingNote } from './ShowingNote'
 
 function SheetPicker({ title, format, onPickSheet }: { title: string; format?: FileFormat; onPickSheet: (sheet: string) => void }) {
@@ -23,36 +25,63 @@ function SheetPicker({ title, format, onPickSheet }: { title: string; format?: F
   )
 }
 
+type IssuePager = (offset: number, limit: number) => Promise<Page<ParseIssue>>
+
 const DELIMITER_NAMES: Record<Delimiter, string> = { ',': 'comma', ';': 'semicolon', '\t': 'tab' }
 
 function formatName(format: FileFormat): string {
   return format.kind === 'csv' ? `${DELIMITER_NAMES[format.delimiter]}-delimited` : `sheet “${format.sheet}”`
 }
 
-function Issues({ issues }: { issues: Preview<ParseIssue> }) {
+function IssueItem({ issue }: { issue: ParseIssue }) {
+  return issue.kind === 'record' ? (
+    <>
+      Data record {issue.recordNumber}: {issue.message}
+      <pre>{issue.raw}</pre>
+    </>
+  ) : (
+    <>
+      {issue.kind === 'header' ? 'Header: ' : ''}
+      {issue.message}
+    </>
+  )
+}
+
+function Issues({ issues, fetchIssues }: { issues: Preview<ParseIssue>; fetchIssues: IssuePager }) {
+  const [showAll, setShowAll] = useState(false)
   const hasRecords = issues.items.some((issue) => issue.kind === 'record')
+  const more = issues.total > issues.items.length
   return (
     <div className="error">
       <p>
         {counted(issues.total, 'problem')} found. Fix the export and load it again; nothing is
         compared until the file is clean.
       </p>
-      <ul>
-        {issues.items.map((issue, i) =>
-          issue.kind === 'record' ? (
-            <li key={i}>
-              Data record {issue.recordNumber}: {issue.message}
-              <pre>{issue.raw}</pre>
-            </li>
-          ) : (
-            <li key={i}>
-              {issue.kind === 'header' ? 'Header: ' : ''}
-              {issue.message}
-            </li>
-          ),
-        )}
-      </ul>
-      <ShowingNote shown={issues.items.length} total={issues.total} />
+      {showAll ? (
+        <VirtualList<ParseIssue>
+          fetchPage={fetchIssues}
+          estimateSize={56}
+          empty="No problems."
+          label="File problems, scroll to browse"
+          renderRow={(issue) => <div className="issue-row">{issue ? <IssueItem issue={issue} /> : '…'}</div>}
+        />
+      ) : (
+        <>
+          <ul>
+            {issues.items.map((issue, i) => (
+              <li key={i}>
+                <IssueItem issue={issue} />
+              </li>
+            ))}
+          </ul>
+          <ShowingNote shown={issues.items.length} total={issues.total} />
+        </>
+      )}
+      {more && (
+        <button type="button" className="secondary" onClick={() => setShowAll((v) => !v)}>
+          {showAll ? 'Show the first few' : `View all ${count(issues.total)} problems`}
+        </button>
+      )}
       {hasRecords && <p className="note">{RECORD_NUMBER_NOTE}</p>}
     </div>
   )
@@ -98,11 +127,13 @@ export function FilePanel({
   state,
   onPick,
   onPickSheet,
+  fetchIssues,
 }: {
   title: string
   state: FileState
   onPick: (file: File, sheet?: string) => void
   onPickSheet: (sheet: string) => void
+  fetchIssues: IssuePager
 }) {
   const inputId = useId()
   const [dragging, setDragging] = useState(false)
@@ -198,7 +229,7 @@ export function FilePanel({
       {state.status === 'invalid' && (
         <>
           <SheetPicker title={title} format={state.format} onPickSheet={onPickSheet} />
-          <Issues issues={state.issues} />
+          <Issues issues={state.issues} fetchIssues={fetchIssues} />
         </>
       )}
       {state.status === 'failed' && (

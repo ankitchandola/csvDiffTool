@@ -20,7 +20,7 @@ import { browserStorage, createProfileStore } from '../profiles/store'
 import { CancelledError, createCompareClient } from '../worker/client'
 import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
 import { type Activity, ActivityBar, type Task } from './ActivityBar'
-import { type FileState, sheetOf } from './file-state'
+import { fileLabel, type FileState, sheetOf } from './file-state'
 import { FilePanel } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
@@ -207,6 +207,8 @@ export function App() {
       )
   }
 
+  const isWorkbook = (state: FileState) => state.status === 'ready' && state.info.format.kind === 'xlsx'
+  const bothWorkbooks = isWorkbook(files.old) && isWorkbook(files.new)
   const oldInfo = files.old.status === 'ready' ? files.old.info : null
   const newInfo = files.new.status === 'ready' ? files.new.info : null
   const schema = useMemo(
@@ -348,7 +350,7 @@ export function App() {
               </details>
               <details>
                 <summary>File formats and limits</summary>
-                <p>Use UTF-8 CSV, not .xlsx. Headers are trimmed automatically. Leading zeros can be lost when a spreadsheet opens a CSV; JSON preserves the original strings.</p>
+                <p>Use a UTF-8 CSV (or TSV) or an .xlsx workbook; for a workbook, one sheet per file is compared, as Excel displays it. Headers are trimmed automatically. Leading zeros can be lost when a spreadsheet opens a CSV; the JSON report and the Excel workbook export keep the original text.</p>
                 <p>
                   Per-file limits: CSV {MAX_FILE_BYTES / 2 ** 20} MiB and {MAX_FIELDS.toLocaleString('en-US')} fields; .xlsx{' '}
                   {MAX_XLSX_BYTES / 2 ** 20} MiB and {MAX_XLSX_FIELDS.toLocaleString('en-US')} fields. Capacity depends on your
@@ -388,7 +390,7 @@ export function App() {
               <p className="muted">
                 {step === 'files' ? 'Add your baseline and updated export.'
                   : step === 'rules' ? 'Choose the columns that identify the same record in both files.'
-                  : `${files.old.status === 'ready' ? files.old.file.name : ''} → ${files.new.status === 'ready' ? files.new.file.name : ''}`}
+                  : `${fileLabel(files.old)} → ${fileLabel(files.new)}`}
               </p>
             </div>
             {step === 'results' && <button type="button" onClick={() => setStep('rules')}>Edit comparison</button>}
@@ -406,14 +408,16 @@ export function App() {
                       const state = files[side]
                       if (state.status !== 'empty') load(side, state.file, delimiter, sheet)
                     }}
+                    fetchIssues={(offset, limit) => client.call('getIssues', { side, offset, limit })}
                   />
                 ))}
               </div>
 
+              {!bothWorkbooks && (
               <div className="parse-toolbar">
-                <span>Delimiter</span>
+                <span>CSV delimiter</span>
                 <Select<ParseRules['delimiter']>
-                  label="Delimiter"
+                  label="CSV delimiter"
                   value={delimiter}
                   onChange={changeDelimiter}
                   options={[
@@ -424,6 +428,7 @@ export function App() {
                   ]}
                 />
               </div>
+              )}
             </section>
           )}
           {step === 'rules' && schema && (
