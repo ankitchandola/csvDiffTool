@@ -28,7 +28,7 @@ import { ProfileBar, type ProfileMessage } from './ProfileBar'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
 import { ResultsTabs } from './results/ResultsTabs'
 import { SummaryView } from './SummaryView'
-import { counted } from './format'
+import { count, counted } from './format'
 import { Select } from './Select'
 
 type Step = 'files' | 'rules' | 'results'
@@ -437,6 +437,21 @@ export function App() {
                 {schema.shared.length === 0 && (
                   <p className="warning">No shared columns. Go back and choose files with at least one matching header.</p>
                 )}
+                <details className={`column-differences ${schema.added.length + schema.removed.length > 0 ? 'warning' : 'note'}`}>
+                  <summary>
+                    Columns: {count(schema.shared.length)} shared · {count(schema.added.length)} new-only ·{' '}
+                    {count(schema.removed.length)} old-only
+                  </summary>
+                  {schema.added.length + schema.removed.length === 0 ? (
+                    <p>Both files have the same columns.</p>
+                  ) : (
+                    <>
+                      <p>Only shared columns are compared; the others are left out.</p>
+                      {schema.added.length > 0 && <p>New file only: {schema.added.join(', ')}</p>}
+                      {schema.removed.length > 0 && <p>Old file only: {schema.removed.join(', ')}</p>}
+                    </>
+                  )}
+                </details>
                 <KeyRulesForm columns={schema.shared} rules={keyRules} onChange={setKeyRules} />
                 {missingKeyColumns.length > 0 && (
                   <div className="error">
