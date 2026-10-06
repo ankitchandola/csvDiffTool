@@ -341,6 +341,8 @@ setting generally supported limits.
   real Chrome same-file selection and cancellation recovery.
   **Not yet verified:** runtime-crash recovery and all remaining browser scenarios;
   there is no claim that all bugs are resolved.
+- **Not yet verified, release checks:** mobile layouts, Safari and Firefox, a full
+  accessibility pass, and cancelling during an export.
 - **Not implemented, deliberately excluded:** JSON/nested input, column mapping,
   fuzzy matching, cleaning/editing, optional key components, accounts/backend/DB,
   Electron, split CSVs and separate exported key columns.
