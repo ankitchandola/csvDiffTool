@@ -5,12 +5,16 @@
 //   npm run bench               full matrix
 //   npm run bench -- --quick    small matrix, for checking the script itself
 //   npm run bench -- --write    also write docs/benchmark-results.md
-import { writeFileSync } from 'node:fs'
-import { cpus, totalmem } from 'node:os'
+//   npm run bench -- --only="xlsx wide"  one named scenario, in a fresh process (see Max RSS)
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpus, tmpdir, totalmem } from 'node:os'
+import { join } from 'node:path'
 import { getHeapStatistics } from 'node:v8'
 import type { Phase } from '../../src/engine/types'
+import { DEFAULT_LIMITS } from '../../src/engine/limits'
 import { createHandler } from '../../src/worker/handler'
-import { generatePair, type PairSpec } from './generate'
+import { type GeneratedPair, generatePair, type PairSpec } from './generate'
 
 const gc = (globalThis as { gc?: () => void }).gc
 if (!gc) throw new Error('Run with node --expose-gc (npm run bench does this)')
@@ -22,6 +26,8 @@ const RULES = { delimiter: 'auto', trimHeaders: true } as const
 interface Scenario {
   name: string
   spec: Omit<PairSpec, 'seed' | 'addRatio' | 'removeRatio'>
+  // Write each file as an .xlsx whose compared sheet "Data" follows this many other sheets of the same size.
+  xlsx?: { otherSheets: number }
 }
 
 const BASE = { columns: 10, fieldLength: 12, changeRatio: 0.05 }
@@ -31,12 +37,31 @@ const FULL: Scenario[] = [
   ...[5, 20, 50].map((columns) => ({ name: 'width', spec: { ...BASE, rows: 100_000, columns } })),
   ...[4, 64].map((fieldLength) => ({ name: 'field length', spec: { ...BASE, rows: 100_000, fieldLength } })),
   ...[0.01, 0.9].map((changeRatio) => ({ name: 'change ratio', spec: { ...BASE, rows: 250_000, changeRatio } })),
+  { name: 'xlsx', spec: { ...BASE, rows: 100_000 }, xlsx: { otherSheets: 0 } },
+  { name: 'xlsx wide', spec: { ...BASE, rows: 100_000, columns: 50 }, xlsx: { otherSheets: 0 } },
+  { name: 'xlsx 4 sheets', spec: { ...BASE, rows: 100_000 }, xlsx: { otherSheets: 3 } },
 ]
 
 const QUICK: Scenario[] = [
   { name: 'rows', spec: { ...BASE, rows: 10_000 } },
   { name: 'change ratio', spec: { ...BASE, rows: 10_000, changeRatio: 0.9 } },
+  { name: 'xlsx 2 sheets', spec: { ...BASE, rows: 10_000 }, xlsx: { otherSheets: 1 } },
 ]
+
+function csvPair(spec: PairSpec) {
+  const pair = generatePair(spec)
+  return { oldFile: new File([pair.oldText], 'old.csv'), newFile: new File([pair.newText], 'new.csv'), expected: pair.expected }
+}
+
+function xlsxPair(spec: PairSpec, otherSheets: number) {
+  const dir = mkdtempSync(join(tmpdir(), 'csv-diff-bench-'))
+  execFileSync(process.execPath, ['--import', 'tsx', 'scripts/bench/write-xlsx.ts', JSON.stringify(spec), String(otherSheets), dir])
+  const read = (name: string) => new File([readFileSync(join(dir, name))], name)
+  const files = { oldFile: read('old.xlsx'), newFile: read('new.xlsx') }
+  const expected = JSON.parse(readFileSync(join(dir, 'expected.json'), 'utf8')) as GeneratedPair['expected']
+  rmSync(dir, { recursive: true })
+  return { ...files, expected }
+}
 
 function memory(): number {
   const m = process.memoryUsage()
@@ -50,7 +75,9 @@ interface Stage {
 }
 
 // Peak is sampled at each progress report (every 2,048 records) and at the end, so it
-// is a lower bound on the true peak; retained is measured after a forced GC.
+// is a lower bound on the true peak; retained is measured after a forced GC. .xlsx parsing
+// reports progress only at the end, so for it Max RSS (the process's high-water mark so far)
+// is the better peak; run one scenario per process (--only=) to read it per scenario.
 async function measure<T>(baseline: number, run: (sample: () => void) => Promise<T>): Promise<[T, Stage]> {
   collect()
   let peak = memory()
@@ -78,27 +105,32 @@ interface Row {
   jsonMB: number
   peakMB: number
   retainedMB: number
+  maxRssMB: number
 }
 
 async function runScenario(scenario: Scenario): Promise<Row> {
   const spec: PairSpec = { ...scenario.spec, addRatio: 0.02, removeRatio: 0.02, seed: 42 }
-  let pair: ReturnType<typeof generatePair> | null = generatePair(spec)
-  const expected = pair.expected
-  const oldFile = new File([pair.oldText], 'old.csv')
-  const newFile = new File([pair.newText], 'new.csv')
-  pair = null
+  const { oldFile, newFile, expected } = scenario.xlsx ? xlsxPair(spec, scenario.xlsx.otherSheets) : csvPair(spec)
+  const sheet = scenario.xlsx ? 'Data' : undefined
   collect()
   const baseline = memory()
-  const handle = createHandler()
+  // .xlsx caps are what these runs are meant to set, so they don't apply here.
+  const handle = createHandler(scenario.xlsx ? { ...DEFAULT_LIMITS, maxXlsxBytes: Infinity, maxUnpackedBytes: Infinity, maxXlsxFields: Infinity } : DEFAULT_LIMITS)
   const stages: Stage[] = []
   const progress = (sample: () => void) => (_phase: Phase) => sample()
 
-  const [, parseOld] = await measure(baseline, (s) =>
-    handle({ id: 1, type: 'parse', side: 'old', file: oldFile, rules: RULES }, progress(s)),
+  const parsed = (result: unknown) => {
+    const outcome = result as { ok: boolean; issues?: { items: { message: string }[] } }
+    if (!outcome.ok) throw new Error(`${scenario.name}: ${outcome.issues?.items[0]?.message}`)
+  }
+  const [oldResult, parseOld] = await measure(baseline, (s) =>
+    handle({ id: 1, type: 'parse', side: 'old', file: oldFile, rules: RULES, sheet }, progress(s)),
   )
-  const [, parseNew] = await measure(baseline, (s) =>
-    handle({ id: 2, type: 'parse', side: 'new', file: newFile, rules: RULES }, progress(s)),
+  const [newResult, parseNew] = await measure(baseline, (s) =>
+    handle({ id: 2, type: 'parse', side: 'new', file: newFile, rules: RULES, sheet }, progress(s)),
   )
+  parsed(oldResult)
+  parsed(newResult)
   stages.push(parseOld, parseNew)
 
   // diffFiles always reports the compare phase (at least once, when it finishes), so these get set.
@@ -164,26 +196,28 @@ async function runScenario(scenario: Scenario): Promise<Row> {
     jsonMB: jsonBytes / MB,
     peakMB: Math.max(...stages.map((s) => s.peak)) / MB,
     retainedMB: compare.retained / MB,
+    maxRssMB: process.resourceUsage().maxRSS / 1024,
   }
 }
 
 function table(rows: Row[]): string {
   const f = (n: number) => (n >= 100 ? n.toFixed(0) : n.toFixed(1))
   const lines = [
-    '| Varying | Rows | Cols | Field | Changed | Input MB | Parse ms | Index ms | Compare ms | Page ms | CSV ms (MB) | JSON ms (MB) | Peak MB | Held MB |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| Varying | Rows | Cols | Field | Changed | Input MB | Parse ms | Index ms | Compare ms | Page ms | CSV ms (MB) | JSON ms (MB) | Peak MB | Held MB | Max RSS MB |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ]
   for (const r of rows) {
     const s = r.scenario.spec
     lines.push(
-      `| ${r.scenario.name} | ${s.rows.toLocaleString('en-US')} | ${s.columns} | ${s.fieldLength} | ${s.changeRatio * 100}% | ${f(r.inputMB)} | ${f(r.parseMs)} | ${f(r.indexMs)} | ${f(r.compareMs)} | ${f(r.pageMs)} | ${f(r.csvMs)} (${f(r.csvMB)}) | ${f(r.jsonMs)} (${f(r.jsonMB)}) | ${f(r.peakMB)} | ${f(r.retainedMB)} |`,
+      `| ${r.scenario.name} | ${s.rows.toLocaleString('en-US')} | ${s.columns} | ${s.fieldLength} | ${s.changeRatio * 100}% | ${f(r.inputMB)} | ${f(r.parseMs)} | ${f(r.indexMs)} | ${f(r.compareMs)} | ${f(r.pageMs)} | ${f(r.csvMs)} (${f(r.csvMB)}) | ${f(r.jsonMs)} (${f(r.jsonMB)}) | ${f(r.peakMB)} | ${f(r.retainedMB)} | ${f(r.maxRssMB)} |`,
     )
   }
   return lines.join('\n')
 }
 
 const args = new Set(process.argv.slice(2))
-const scenarios = args.has('--quick') ? QUICK : FULL
+const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length)
+const scenarios = (args.has('--quick') ? QUICK : FULL).filter((s) => !only || s.name === only)
 const results: Row[] = []
 for (const scenario of scenarios) {
   const row = await runScenario(scenario)
