@@ -75,3 +75,34 @@ the whole pipeline is measured in a browser.
 - The browser itself: Node runs the same worker code and engine, but a real tab adds
   the page, the worker's own isolate and the browser's limits per tab.
 - Machines with less than 16 GB of RAM.
+
+## .xlsx
+
+`npm run bench -- --only="<scenario>"` runs one scenario per process. Workbooks are
+generated in a child process (`scripts/bench/write-xlsx.ts`) so SheetJS's writing
+memory doesn't count, and the .xlsx caps are lifted so the runs can measure past
+them. Cells are text, as in an export of IDs and codes; random 12-character values
+compress poorly, so these files are larger than typical real exports of the same
+shape. SheetJS reports no progress while reading, so the sampled peak misses the
+read; **Max RSS** (the process's memory high-water mark) is the peak to use.
+
+Apple M4, 16 GB RAM, Node v24.15.0. One sample each.
+
+| Scenario | Rows per file | Columns | Both files MB | Parse ms (both) | Compare ms | Peak heap MB | Max RSS MB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| CSV, for reference | 100,000 | 11 | 25.9 | 288 | 52 | 208 | 505 |
+| xlsx | 100,000 | 11 | 45.2 | 6,871 | 58 | 462 | 1,148 |
+| xlsx, data sheet after 3 others of the same size | 100,000 | 11 | 181 | 10,224 | 56 | 579 | 1,840 |
+| xlsx wide | 100,000 | 51 | 204 | 32,349 | 233 | 2,077 | 2,423 |
+
+What this sets:
+
+- Reading .xlsx is about 20× slower than CSV and peaks over twice as high for the
+  same data, so the .xlsx field cap is 2,000,000 per file (the base case is 1.1
+  million), not CSV's 6,000,000.
+- Sheets that aren't compared still cost memory (1.15 GB → 1.84 GB with three extra
+  sheets), so the byte cap applies to the whole workbook: 25 MiB per file, about the
+  size of the base case's files.
+- The wide case (5.1 million fields per file) is over the field cap on purpose.
+
+These are Node numbers. Browser runs are a release check in [`xlsx-spec.md`](xlsx-spec.md#release-checks).

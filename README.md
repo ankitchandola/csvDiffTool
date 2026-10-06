@@ -39,7 +39,8 @@ Browser test screenshots and failure traces are written to ignored `test-results
 
 - **Formats:** CSV/TSV/delimited text, or an `.xlsx` workbook on either side. For
   `.xlsx`, one sheet is compared (the first, or the one picked), using each cell's
-  displayed text, so a workbook and its "CSV UTF-8" export compare as equal. `.xls`
+  displayed text. This is designed to match the sheet's "CSV UTF-8" export for
+  supported formats; verifying that against Excel-made files is a release check. `.xls`
   and password-protected workbooks are rejected. Details: [`docs/xlsx-spec.md`](docs/xlsx-spec.md).
 - **Encoding (CSV):** UTF-8 only (a BOM is fine). Any other encoding is rejected with a
   message to re-export as UTF-8; there is no encoding detection.
@@ -72,8 +73,8 @@ Browser test screenshots and failure traces are written to ignored `test-results
 ## Size limits
 
 Current guardrails reject files over **200 MiB** or **6,000,000 fields**
-(data records × columns); `.xlsx` files are capped at **50 MiB** and **512 MiB
-unpacked**, provisionally, until measured. Chrome 154 on an M4 / 16 GiB machine completed two
+(data records × columns); `.xlsx` files at **25 MiB**, **256 MiB** declared unpacked
+and **2,000,000 fields**, provisionally, from [Node measurements](docs/benchmarks.md#xlsx). Chrome 154 on an M4 / 16 GiB machine completed two
 197.30 MiB files with 6,000,000 fields each through scrolling and both exports.
 These are enforced caps and one measured configuration, not guaranteed capacity
 across browsers/hardware. [Browser measurements](docs/browser-verification.md);
