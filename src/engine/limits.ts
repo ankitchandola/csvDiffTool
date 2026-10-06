@@ -4,16 +4,20 @@
 // two files peak around 1.1 GB, a quarter of V8's 4 GB heap.
 export const MAX_FILE_BYTES = 200 * 2 ** 20
 export const MAX_FIELDS = 6_000_000
-// Provisional until the benchmark has an .xlsx case: a workbook holds far more bytes per
-// cell in memory than CSV, and its zipped size says little about its unpacked size.
-export const MAX_XLSX_BYTES = 50 * 2 ** 20
-export const MAX_UNPACKED_BYTES = 512 * 2 ** 20
+// Provisional, from the .xlsx benchmarks in docs/benchmarks.md (Node, not a browser).
+// Reading a workbook peaks far higher than CSV: 100,000 × 11 fields per file took 1.15 GB
+// for the whole run and 100,000 × 51 took 2.4 GB. Sheets that aren't compared still
+// cost memory, so the byte cap covers the whole workbook.
+export const MAX_XLSX_BYTES = 25 * 2 ** 20
+export const MAX_UNPACKED_BYTES = 256 * 2 ** 20
+export const MAX_XLSX_FIELDS = 2_000_000
 
 export interface Limits {
   maxFileBytes: number
   maxXlsxBytes: number
   maxUnpackedBytes: number
   maxFields: number
+  maxXlsxFields: number
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -21,6 +25,7 @@ export const DEFAULT_LIMITS: Limits = {
   maxXlsxBytes: MAX_XLSX_BYTES,
   maxUnpackedBytes: MAX_UNPACKED_BYTES,
   maxFields: MAX_FIELDS,
+  maxXlsxFields: MAX_XLSX_FIELDS,
 }
 
 function mebibytes(bytes: number): string {

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
-import { MAX_FIELDS, MAX_FILE_BYTES } from '../engine/limits'
+import { MAX_FIELDS, MAX_FILE_BYTES, MAX_XLSX_BYTES, MAX_XLSX_FIELDS } from '../engine/limits'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
 import {
   exportProfile,
@@ -346,7 +346,11 @@ export function App() {
               <details>
                 <summary>File formats and limits</summary>
                 <p>Use UTF-8 CSV, not .xlsx. Headers are trimmed automatically. Leading zeros can be lost when a spreadsheet opens a CSV; JSON preserves the original strings.</p>
-                <p>Per-file limits: {MAX_FILE_BYTES / 2 ** 20} MiB and {MAX_FIELDS.toLocaleString('en-US')} fields. Capacity depends on your browser and device.</p>
+                <p>
+                  Per-file limits: CSV {MAX_FILE_BYTES / 2 ** 20} MiB and {MAX_FIELDS.toLocaleString('en-US')} fields; .xlsx{' '}
+                  {MAX_XLSX_BYTES / 2 ** 20} MiB and {MAX_XLSX_FIELDS.toLocaleString('en-US')} fields. Capacity depends on your
+                  browser and device.
+                </p>
               </details>
               <p className="note">Files stay in this browser. Saved profiles contain rules, never file contents.</p>
             </div>
