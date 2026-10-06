@@ -112,18 +112,20 @@ cover the whole workbook. Browser runs are a release check in
 
 ## .xlsx export
 
-The `XLSX ms (MB)` column of `npm run bench` (cell cap lifted). Apple M4, 16 GB RAM,
-Node v24.15.0, one sample each, each case in its own process. Peak heap includes the
-held comparison; the export builds the whole workbook in memory.
+The `XLSX ms (MB)` column of `npm run bench` (export caps lifted). Apple M4, 16 GB
+RAM, Node v24.15.0, one sample each, each case in its own process, shared strings on.
+Export memory is peak heap minus the held comparison; the export builds the whole
+workbook in memory. Cell and character counts are computed from the generated shape.
 
-| Scenario | Workbook cells | Export ms | File MB | Peak heap MB | Max RSS MB |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 160,000 rows, 90% changed (`xlsx export at cell cap`) | about 940,000 | 3,117 | 18.3 | 1,065 | 1,516 |
-| 250,000 rows, 90% changed | about 1,470,000 | 7,795 | 28.7 | 1,801 | 1,819 |
-| 500,000 rows, 5% changed | about 390,000 | 2,755 | 9.0 | 1,090 | 1,549 |
-| 980,000 rows × 6 columns, 96% changed | about 5,700,000 | out of memory (4 GB heap) | — | — | — |
+| Scenario | Workbook cells | Characters | Export ms | File MB | Export memory MB | Max RSS MB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 160,000 rows, 12-char values, 90% changed | ~941,000 | ~7.6M | 3,549 | 18.3 | 755 | 1,413 |
+| same, 1-char values (repeated text) | ~941,000 | ~3.7M | 2,278 | 11.8 | 624 | 1,128 |
+| 100,000 rows, unique 64-char values, 90% changed | ~588,000 | ~16M | 2,738 | 17.9 | 825 | 1,489 |
+| 20,000 rows, unique 1,000-char values, 90% changed | ~118,000 | ~44M | 2,438 | 27.0 | 1,016 | 1,497 |
+| 980,000 rows × 6 columns, 96% changed | ~5,700,000 | — | out of memory (4 GB heap) | — | — | — |
 
-The second row ran in the same process as the 1%-changed case, so its Max RSS is the
-higher of the two. Peak heap minus the held comparison is roughly 0.8–1.3 GB for 1 to
-1.5 million cells, about 0.9 KB per cell. That set the export cap at 1,000,000 cells.
-The 500,000-row case's peak is mostly the comparison itself (5.5 million fields held).
+Fitting these gives roughly 580 bytes per cell plus 21 bytes per character (within
+about 20%). The caps, 1,000,000 cells and 25,000,000 characters, put a result at both
+at about 1.1 GB, near the 1,000-character case; the 44-million-character case itself
+is over the text cap and would now be refused.
