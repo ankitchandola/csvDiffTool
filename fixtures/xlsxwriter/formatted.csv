@@ -1,0 +1,5 @@
+id,text_id,padded_id,amount,date,percent,currency,zero,false,empty,note
+1,0007,0007,"1,234.50",2026-01-05,12%,"$1,234.50",0,FALSE,,"comma, newline
+Unicode ₹"
+2,0007,0007,"1,234.50",2026-01-05,12%,"$1,234.50",0,FALSE,,"comma, newline
+Unicode ₹"
