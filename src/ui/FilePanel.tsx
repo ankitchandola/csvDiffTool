@@ -2,7 +2,7 @@ import { useId, useState } from 'react'
 import { CheckCircle2, FileSpreadsheet, UploadCloud } from 'lucide-react'
 import type { ParseIssue } from '../engine/parse'
 import type { FileInfo, Preview } from '../worker/protocol'
-import { count, RECORD_NUMBER_NOTE } from './format'
+import { count, counted, noun, RECORD_NUMBER_NOTE } from './format'
 import { ShowingNote } from './ShowingNote'
 
 export type FileState =
@@ -19,7 +19,7 @@ function Issues({ issues }: { issues: Preview<ParseIssue> }) {
   return (
     <div className="error">
       <p>
-        {count(issues.total)} problem{issues.total === 1 ? '' : 's'} found. Fix the export and load it again; nothing is
+        {counted(issues.total, 'problem')} found. Fix the export and load it again; nothing is
         compared until the file is clean.
       </p>
       <ul>
@@ -47,7 +47,7 @@ function RecordPreview({ info }: { info: FileInfo }) {
   return (
     <>
       <p>
-        {count(info.recordCount)} data records · {info.headers.length} columns · {DELIMITER_NAMES[info.delimiter]}
+        {counted(info.recordCount, 'data record')} · {counted(info.headers.length, 'column')} · {DELIMITER_NAMES[info.delimiter]}
         -delimited
       </p>
       <div className="table-scroll">
@@ -152,11 +152,11 @@ export function FilePanel({ title, state, onPick }: { title: string; state: File
       {state.status === 'ready' && (
         <>
           <p className="file-stats">
-            <strong>{count(state.info.recordCount)}</strong> records <span>·</span>{' '}
-            <strong>{state.info.headers.length}</strong> columns <span>·</span> {DELIMITER_NAMES[state.info.delimiter]}
+            <strong>{count(state.info.recordCount)}</strong> {noun(state.info.recordCount, 'record')} <span>·</span>{' '}
+            <strong>{state.info.headers.length}</strong> {noun(state.info.headers.length, 'column')} <span>·</span> {DELIMITER_NAMES[state.info.delimiter]}
           </p>
           <details className="preview-disclosure">
-            <summary>Preview first {Math.min(20, state.info.recordCount)} records</summary>
+            <summary>Preview first {counted(Math.min(20, state.info.recordCount), 'record')}</summary>
             <RecordPreview info={state.info} />
           </details>
         </>

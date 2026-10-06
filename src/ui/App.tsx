@@ -26,6 +26,7 @@ import { ProfileBar, type ProfileMessage } from './ProfileBar'
 import { KeyRulesForm, ValueRulesForm } from './RulesForm'
 import { ResultsTabs } from './results/ResultsTabs'
 import { SummaryView } from './SummaryView'
+import { counted } from './format'
 import { Select } from './Select'
 
 type Step = 'files' | 'rules' | 'results'
@@ -439,8 +440,8 @@ export function App() {
                     {(report.value.ambiguous.total > 0 || report.value.emptyKey.total > 0) && (
                       <details className="key-problems">
                         <summary>
-                          Review key problems: {report.value.ambiguous.total}{' '}
-                          ambiguous keys · {report.value.emptyKey.total} empty-key records
+                          Review key problems: {counted(report.value.ambiguous.total, 'ambiguous key')} ·{' '}
+                          {counted(report.value.emptyKey.total, 'empty-key record')}
                         </summary>
                         <KeyProblemsList problems={report.value} />
                       </details>

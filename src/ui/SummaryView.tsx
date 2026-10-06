@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ArrowDownToLine, FileJson, TriangleAlert } from 'lucide-react'
 import type { CompareResult, ExportFormat } from '../worker/protocol'
-import { count } from './format'
+import { count, counted } from './format'
 
 export function SummaryView({
   result,
@@ -48,8 +48,9 @@ export function SummaryView({
           <TriangleAlert size={19} aria-hidden="true" />
           <div>
             <p>
-              {count(counts.ambiguous)} ambiguous keys and {count(counts.emptyKey)} empty-key records were excluded;{' '}
-              {count(summary.warningCount)} numeric warnings. Review the Problems tab for details.
+              {counted(counts.ambiguous, 'ambiguous key')} and {counted(counts.emptyKey, 'empty-key record')}{' '}
+              {counts.ambiguous + counts.emptyKey === 1 ? 'was' : 'were'} excluded;{' '}
+              {counted(summary.warningCount, 'numeric warning')}. Review the Problems tab for details.
             </p>
           </div>
         </div>

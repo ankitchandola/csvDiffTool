@@ -2,6 +2,14 @@ export function count(n: number): string {
   return n.toLocaleString('en-US')
 }
 
+export function noun(n: number, singular: string, plural = `${singular}s`): string {
+  return n === 1 ? singular : plural
+}
+
+export function counted(n: number, singular: string, plural?: string): string {
+  return `${count(n)} ${noun(n, singular, plural)}`
+}
+
 export const RECORD_NUMBER_NOTE = 'Record numbers count data records only: the header and skipped blank lines are not counted.'
 
 // Key parts as typed, quoting only values whose edges or emptiness would otherwise be invisible.

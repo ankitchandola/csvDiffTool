@@ -10,7 +10,7 @@ import type {
   RecordEntry,
   ResultTab,
 } from '../../worker/protocol'
-import { count, formatKey, formatValue, RECORD_NUMBER_NOTE } from '../format'
+import { count, counted, formatKey, formatValue, noun, RECORD_NUMBER_NOTE } from '../format'
 import type { Page } from './page-loader'
 import { VirtualList } from './VirtualList'
 import { Select } from '../Select'
@@ -351,7 +351,7 @@ export function ResultsTabs({
                   onClick={() => setProblem(p)}
                 >
                   {PROBLEM_LABELS[p]} ({count(problemCounts[p])}
-                  {p === 'ambiguous' && problemCounts.ambiguous > 0 && ` keys, ${count(ambiguousRecordCount)} records`})
+                  {p === 'ambiguous' && problemCounts.ambiguous > 0 && ` ${noun(problemCounts.ambiguous, 'key')}, ${counted(ambiguousRecordCount, 'record')}`})
                 </button>
               ))}
             </div>

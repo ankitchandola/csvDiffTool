@@ -1,5 +1,5 @@
 import type { KeyProblems } from '../worker/protocol'
-import { count, RECORD_NUMBER_NOTE } from './format'
+import { count, counted, RECORD_NUMBER_NOTE } from './format'
 import { ShowingNote } from './ShowingNote'
 
 function parts(values: string[]) {
@@ -14,7 +14,7 @@ export function KeyProblemsList({ problems }: { problems: KeyProblems }) {
       {ambiguous.total > 0 && (
         <>
           <h4>
-            {count(ambiguous.total)} ambiguous key{ambiguous.total === 1 ? '' : 's'} (left out of the comparison on both
+            {counted(ambiguous.total, 'ambiguous key')} (left out of the comparison on both
             sides)
           </h4>
           <ul>
@@ -35,7 +35,7 @@ export function KeyProblemsList({ problems }: { problems: KeyProblems }) {
       {emptyKey.total > 0 && (
         <>
           <h4>
-            {count(emptyKey.total)} record{emptyKey.total === 1 ? '' : 's'} with an empty key part (left out of the
+            {counted(emptyKey.total, 'record')} with an empty key part (left out of the
             comparison)
           </h4>
           <ul>
