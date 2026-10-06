@@ -204,8 +204,9 @@ import workflows.
 
 **Implemented:** protection defaults ON and can be disabled per CSV export.
 Cells beginning with `=`, `+`, `-`, `@`, tab or CR gain a leading apostrophe,
-except plain signed decimals such as `-12`. The exact regex does not match LF
-or whitespace-prefixed triggers. Protection changes only the exported CSV;
+except plain signed decimals such as `-12` (the same `isPlainDecimal` check the
+numeric parser starts from, without grouping or trailing minus, so `-1,234` is
+escaped). LF and whitespace-prefixed triggers are not escaped. Protection changes only the exported CSV;
 comparison values and JSON are unchanged.
 
 **Tested:** listed prefixes, formula-like single keys, numeric exceptions,

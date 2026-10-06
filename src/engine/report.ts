@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { isPlainDecimal } from './decimal'
 import type { DiffResult } from './diff'
 import { keyParts } from './keys'
 import { type ParsedFile, PROGRESS_EVERY, type ProgressFn } from './types'
@@ -41,15 +42,19 @@ function chunkWriter() {
   }
 }
 
-// A value starting with =, +, -, @, tab or CR can run as a formula when the CSV is opened in a
-// spreadsheet; Papa Parse prefixes it with an apostrophe. Plain signed numbers such as -12 can't,
-// so they're left alone and stay numbers in Excel.
-export const FORMULA_PATTERN = /^(?![+-]?(?:\d+(?:\.\d*)?|\.\d+)$)[=+\-@\t\r]/
+// A value starting with one of these can run as a formula when the CSV is opened in a spreadsheet.
+const FORMULA_STARTS = new Set(['=', '+', '-', '@', '\t', '\r'])
+
+// Plain signed numbers such as -12 can't run, so they stay unescaped and remain numbers in Excel.
+export function escapeFormula(value: string): string {
+  return FORMULA_STARTS.has(value.charAt(0)) && !isPlainDecimal(value) ? `'${value}` : value
+}
 
 const ROWS_PER_BATCH = 1000
 
 function csvRows(write: (text: string) => void, escapeFormulae: boolean) {
-  const config = { newline: '\r\n', escapeFormulae: escapeFormulae ? FORMULA_PATTERN : false }
+  const config = { newline: '\r\n' }
+  const cell = escapeFormulae ? escapeFormula : (value: string) => value
   let batch: string[][] = []
   const flush = () => {
     if (batch.length === 0) return
@@ -58,7 +63,7 @@ function csvRows(write: (text: string) => void, escapeFormulae: boolean) {
   }
   return {
     row(fields: string[]) {
-      batch.push(fields)
+      batch.push(fields.map(cell))
       if (batch.length >= ROWS_PER_BATCH) flush()
     },
     flush,

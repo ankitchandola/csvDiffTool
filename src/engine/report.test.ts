@@ -126,8 +126,8 @@ describe('buildChangesCsv key column', () => {
 })
 
 describe('buildChangesCsv formula escaping', () => {
-  const RISKY = ['=1+1', '+cmd|calc', '-1+1', '@SUM(A1)', '\tx', '\rx']
-  const SAFE = ['-12', '+3.5', '-0.25', '.5', 'plain', '12-3', '1=1', "'quoted"]
+  const RISKY = ['=1+1', '+cmd|calc', '-1+1', '@SUM(A1)', '\tx', '\rx', '-1,234']
+  const SAFE = ['-12', '+3.5', '-0.25', '.5', 'plain', '12-3', '1=1', "'quoted", '1234.50-', '1,23,456.00']
 
   function changed(values: string[]) {
     const oldText = 'id,v\n' + values.map((_, i) => `${i},old`).join('\n') + '\n'
