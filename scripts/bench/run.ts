@@ -43,6 +43,12 @@ const FULL: Scenario[] = [
   // About 940,000 .xlsx export cells, just under the export cap. A result near an .xlsx
   // sheet's 1,048,575-row limit (about 5.7 million cells) ran out of Node's 4 GB heap.
   { name: 'xlsx export at cell cap', spec: { ...BASE, rows: 160_000, changeRatio: 0.9 } },
+  // Same cells, but one-character values: few distinct strings for the shared-string table.
+  { name: 'xlsx export repeated text', spec: { ...BASE, rows: 160_000, changeRatio: 0.9, fieldLength: 1 } },
+  // Mostly unique 64-character values.
+  { name: 'xlsx export unique text', spec: { ...BASE, rows: 100_000, changeRatio: 0.9, fieldLength: 64 } },
+  // Few cells, long unique values: isolates the cost of text from the cost of cells.
+  { name: 'xlsx export long text', spec: { ...BASE, rows: 20_000, changeRatio: 0.9, fieldLength: 1000 } },
 ]
 
 const QUICK: Scenario[] = [
@@ -124,6 +130,7 @@ async function runScenario(scenario: Scenario): Promise<Row> {
     ...DEFAULT_LIMITS,
     // The .xlsx export cell cap is one of the numbers these runs are meant to set.
     maxXlsxExportCells: Infinity,
+    maxXlsxExportText: Infinity,
     ...(scenario.xlsx && { maxXlsxBytes: Infinity, maxUnpackedBytes: Infinity, maxXlsxFields: Infinity }),
   })
   const stages: Stage[] = []
