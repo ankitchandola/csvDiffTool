@@ -111,7 +111,7 @@ export function App() {
     }
   }
 
-  function load(side: Side, file: File, delim: ParseRules['delimiter']) {
+  function load(side: Side, file: File, delim: ParseRules['delimiter'], sheet?: string) {
     setStep('files')
     const token = ++loadTokens.current[side]
     const isCurrent = () => token === loadTokens.current[side]
@@ -120,7 +120,7 @@ export function App() {
     setFiles((prev) => ({ ...prev, [side]: { status: 'loading', file } }))
     setDataVersion((v) => v + 1)
     client
-      .call('parse', { side, file, rules: { delimiter: delim, trimHeaders: true } }, task.progress)
+      .call('parse', { side, file, sheet, rules: { delimiter: delim, trimHeaders: true } }, task.progress)
       .then((result) => {
         if (!isCurrent()) return
         const next: FileState = result.ok
@@ -139,7 +139,8 @@ export function App() {
     setDelimiter(next)
     for (const side of ['old', 'new'] as const) {
       const state = files[side]
-      if (state.status !== 'empty') load(side, state.file, next)
+      if (state.status === 'empty' || (state.status === 'ready' && state.info.format.kind === 'xlsx')) continue
+      load(side, state.file, next)
     }
   }
 
@@ -388,8 +389,18 @@ export function App() {
           {step === 'files' && (
             <section id="files" aria-label="Source files">
               <div className="files">
-                <FilePanel title="Old file" state={files.old} onPick={(file) => load('old', file, delimiter)} />
-                <FilePanel title="New file" state={files.new} onPick={(file) => load('new', file, delimiter)} />
+                {(['old', 'new'] as const).map((side) => (
+                  <FilePanel
+                    key={side}
+                    title={side === 'old' ? 'Old file' : 'New file'}
+                    state={files[side]}
+                    onPick={(file) => load(side, file, delimiter)}
+                    onPickSheet={(sheet) => {
+                      const state = files[side]
+                      if (state.status !== 'empty') load(side, state.file, delimiter, sheet)
+                    }}
+                  />
+                ))}
               </div>
 
               <div className="parse-toolbar">

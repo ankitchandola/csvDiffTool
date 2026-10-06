@@ -1,7 +1,8 @@
+import * as XLSX from 'xlsx'
 import { describe, expect, it } from 'vitest'
 import { fixtureText, profile } from '../engine/fixtures.test-helper'
-import { createHandler } from './handler'
-import { fileTooLargeMessage, tooManyFieldsMessage } from '../engine/limits'
+import { createHandler, LEGACY_EXCEL_MESSAGE } from './handler'
+import { DEFAULT_LIMITS, fileTooLargeMessage, tooManyFieldsMessage } from '../engine/limits'
 import { NOT_UTF8_MESSAGE } from '../engine/parse'
 import {
   MAX_GROUP_MEMBERS,
@@ -23,7 +24,7 @@ describe('worker handler', () => {
     const handle = createHandler()
     const rows = Array.from({ length: 50 }, (_, i) => `${i},x`).join('\n')
     const result = await handle({ id: 1, type: 'parse', side: 'old', file: new File([`id,v\n${rows}\n`], 'a.csv'), rules: RULES })
-    expect(result).toMatchObject({ ok: true, info: { headers: ['id', 'v'], recordCount: 50, delimiter: ',' } })
+    expect(result).toMatchObject({ ok: true, info: { headers: ['id', 'v'], recordCount: 50, format: { kind: 'csv', delimiter: ',' }, notes: [] } })
     if ('ok' in result && result.ok) expect(result.info.preview).toHaveLength(PREVIEW_RECORDS)
   })
 
@@ -308,7 +309,7 @@ describe('worker handler formula escaping', () => {
 
 describe('worker handler size limits', () => {
   it('rejects a file over the byte limit without reading it', async () => {
-    const handle = createHandler({ maxFileBytes: 10, maxFields: 1_000 })
+    const handle = createHandler({ ...DEFAULT_LIMITS, maxFileBytes: 10, maxFields: 1_000 })
     const file = new File(['id,v\n1,abcdefgh\n'], 'big.csv')
     let read = false
     Object.defineProperty(file, 'arrayBuffer', {
@@ -327,8 +328,48 @@ describe('worker handler size limits', () => {
   })
 
   it('rejects a file over the field limit', async () => {
-    const handle = createHandler({ maxFileBytes: 1_000, maxFields: 3 })
+    const handle = createHandler({ ...DEFAULT_LIMITS, maxFileBytes: 1_000, maxFields: 3 })
     const result = await handle({ id: 1, type: 'parse', side: 'old', file: new File(['a,b\n1,2\n3,4\n'], 'f.csv'), rules: RULES })
     expect(result).toMatchObject({ ok: false, issues: { items: [{ kind: 'file', message: tooManyFieldsMessage(3) }] } })
+  })
+})
+
+describe('worker handler .xlsx input', () => {
+  function xlsx(rows: unknown[][], edit?: (sheet: XLSX.WorkSheet) => void): File {
+    const book = XLSX.utils.book_new()
+    const sheet = XLSX.utils.aoa_to_sheet(rows)
+    edit?.(sheet)
+    XLSX.utils.book_append_sheet(book, sheet, 'Data')
+    return new File([XLSX.write(book, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer], 'book.xlsx')
+  }
+
+  it('compares an .xlsx against a CSV export of the same sheet as equal', async () => {
+    const handle = createHandler()
+    const book = xlsx([['id', 'price'], ['1', 1234.5]], (s) => {
+      s['B2'].z = '#,##0.00'
+    })
+    const parsed = await handle({ id: 1, type: 'parse', side: 'old', file: book, rules: RULES })
+    expect(parsed).toMatchObject({ ok: true, info: { format: { kind: 'xlsx', sheet: 'Data', sheets: ['Data'] } } })
+    await handle({ id: 2, type: 'parse', side: 'new', file: new File(['id,price\n1,"1,234.50"\n'], 'new.csv'), rules: RULES })
+    const compared = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+    expect(compared).toMatchObject({ summary: { counts: { changed: 0, unchanged: 1 } } })
+  })
+
+  it('rejects an old .xls or encrypted workbook with a save-as hint', async () => {
+    const handle = createHandler()
+    const ole = new File([new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])], 'old.xls')
+    expect(await handle({ id: 1, type: 'parse', side: 'old', file: ole, rules: RULES })).toEqual({
+      ok: false,
+      issues: { total: 1, items: [{ kind: 'file', message: LEGACY_EXCEL_MESSAGE }] },
+    })
+  })
+
+  it('applies the smaller .xlsx byte limit', async () => {
+    const handle = createHandler({ ...DEFAULT_LIMITS, maxXlsxBytes: 10 })
+    const book = xlsx([['id'], ['1']])
+    expect(await handle({ id: 1, type: 'parse', side: 'old', file: book, rules: RULES })).toEqual({
+      ok: false,
+      issues: { total: 1, items: [{ kind: 'file', message: fileTooLargeMessage(book.size, 10) }] },
+    })
   })
 })

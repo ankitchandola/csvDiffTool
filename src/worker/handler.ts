@@ -1,9 +1,9 @@
 import { type ChangedRecord, checkKeyColumns, diffFiles, type DiffResult, schemaDiff } from '../engine/diff'
 import { classifyKeys, encodeKey, type KeyClassification, keyParts, normaliseKeyPart } from '../engine/keys'
 import { DEFAULT_LIMITS, fileTooLargeMessage, type Limits } from '../engine/limits'
-import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, parseCsv } from '../engine/parse'
+import { decodeUtf8, NOT_UTF8_MESSAGE, type ParseIssue, type ParseOutcome, parseCsv } from '../engine/parse'
 import { buildChangesCsv, buildJsonReport } from '../engine/report'
-import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ProgressFn, Row, Side } from '../engine/types'
+import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ParseRules, ProgressFn, Row, Side } from '../engine/types'
 import {
   type AmbiguousKeyPreview,
   type AmbiguousRecord,
@@ -20,6 +20,24 @@ import {
   type Results,
   type WorkerRequest,
 } from './protocol'
+
+export const LEGACY_EXCEL_MESSAGE =
+  'This looks like an old .xls or a password-protected workbook, which are not supported. Open it in Excel and save it as .xlsx (without a password) or CSV UTF-8.'
+
+const failed = (kind: 'file', message: string): ParseOutcome => ({ ok: false, issues: [{ kind, message }] })
+
+function isXlsxName(name: string): boolean {
+  return name.toLowerCase().endsWith('.xlsx')
+}
+
+// Zip archives start PK\x03\x04; old .xls and encrypted workbooks are OLE files, D0 CF 11 E0.
+function sniff(bytes: ArrayBuffer): 'zip' | 'legacy' | 'text' {
+  const head = new Uint8Array(bytes, 0, Math.min(4, bytes.byteLength))
+  const starts = (...expected: number[]) => expected.every((b, i) => head[i] === b)
+  if (starts(0x50, 0x4b, 0x03, 0x04)) return 'zip'
+  if (starts(0xd0, 0xcf, 0x11, 0xe0)) return 'legacy'
+  return 'text'
+}
 
 function preview<T>(items: T[], size: number): Preview<T> {
   return { items: items.slice(0, size), total: items.length }
@@ -76,31 +94,39 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
     return [files.old, files.new]
   }
 
-  async function parse({ side, file, rules }: Requests['parse'], onProgress?: ProgressFn): Promise<Results['parse']> {
+  async function read(file: File, rules: ParseRules, sheet: string | undefined, isCurrent: () => boolean, onProgress?: ProgressFn): Promise<ParseOutcome> {
+    const xlsxName = isXlsxName(file.name)
+    const maxBytes = xlsxName ? limits.maxXlsxBytes : limits.maxFileBytes
+    if (file.size > maxBytes) return failed('file', fileTooLargeMessage(file.size, maxBytes))
+    const bytes = await file.arrayBuffer()
+    // A newer file for this side was picked while this one was being read.
+    if (!isCurrent()) throw new Error('Superseded by a newer file')
+    const kind = sniff(bytes)
+    if (kind === 'legacy') return failed('file', LEGACY_EXCEL_MESSAGE)
+    if (kind === 'zip' || xlsxName) {
+      if (file.size > limits.maxXlsxBytes) return failed('file', fileTooLargeMessage(file.size, limits.maxXlsxBytes))
+      const { parseXlsx } = await import('../engine/xlsx')
+      if (!isCurrent()) throw new Error('Superseded by a newer file')
+      return parseXlsx(bytes, sheet, limits, onProgress)
+    }
+    const text = decodeUtf8(bytes)
+    return text === null ? failed('file', NOT_UTF8_MESSAGE) : parseCsv(text, rules, onProgress, limits.maxFields)
+  }
+
+  async function parse({ side, file, rules, sheet }: Requests['parse'], onProgress?: ProgressFn): Promise<Results['parse']> {
     delete files[side]
     delete issues[side]
     latest = null
     const generation = ++generations[side]
-    if (file.size > limits.maxFileBytes) {
-      const tooBig: ParseIssue[] = [{ kind: 'file', message: fileTooLargeMessage(file.size, limits.maxFileBytes) }]
-      issues[side] = tooBig
-      return { ok: false, issues: preview(tooBig, PREVIEW_ISSUES) }
-    }
-    const text = decodeUtf8(await file.arrayBuffer())
-    // A newer file for this side was picked while this one was being read.
-    if (generation !== generations[side]) throw new Error('Superseded by a newer file')
-    const outcome =
-      text === null
-        ? { ok: false as const, issues: [{ kind: 'file' as const, message: NOT_UTF8_MESSAGE }] }
-        : parseCsv(text, rules, onProgress, limits.maxFields)
+    const outcome = await read(file, rules, sheet, () => generation === generations[side], onProgress)
     if (!outcome.ok) {
       issues[side] = outcome.issues
       return { ok: false, issues: preview(outcome.issues, PREVIEW_ISSUES) }
     }
     files[side] = outcome.file
     fileNames[side] = file.name
-    const { headers, rows, delimiter } = outcome.file
-    return { ok: true, info: { headers, delimiter, recordCount: rows.length, preview: rows.slice(0, PREVIEW_RECORDS) } }
+    const { headers, rows, format, notes } = outcome.file
+    return { ok: true, info: { headers, format, notes, recordCount: rows.length, preview: rows.slice(0, PREVIEW_RECORDS) } }
   }
 
   function getIssues({ side, offset, limit }: Requests['getIssues']): Results['getIssues'] {

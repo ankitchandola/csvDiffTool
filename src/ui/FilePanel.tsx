@@ -1,8 +1,10 @@
 import { useId, useState } from 'react'
 import { CheckCircle2, FileSpreadsheet, UploadCloud } from 'lucide-react'
 import type { ParseIssue } from '../engine/parse'
+import type { Delimiter, FileFormat } from '../engine/types'
 import type { FileInfo, Preview } from '../worker/protocol'
 import { count, counted, noun, RECORD_NUMBER_NOTE } from './format'
+import { Select } from './Select'
 import { ShowingNote } from './ShowingNote'
 
 export type FileState =
@@ -12,7 +14,11 @@ export type FileState =
   | { status: 'invalid'; file: File; issues: Preview<ParseIssue> }
   | { status: 'failed'; file: File; message: string }
 
-const DELIMITER_NAMES: Record<FileInfo['delimiter'], string> = { ',': 'comma', ';': 'semicolon', '\t': 'tab' }
+const DELIMITER_NAMES: Record<Delimiter, string> = { ',': 'comma', ';': 'semicolon', '\t': 'tab' }
+
+function formatName(format: FileFormat): string {
+  return format.kind === 'csv' ? `${DELIMITER_NAMES[format.delimiter]}-delimited` : `sheet “${format.sheet}”`
+}
 
 function Issues({ issues }: { issues: Preview<ParseIssue> }) {
   const hasRecords = issues.items.some((issue) => issue.kind === 'record')
@@ -47,8 +53,7 @@ function RecordPreview({ info }: { info: FileInfo }) {
   return (
     <>
       <p>
-        {counted(info.recordCount, 'data record')} · {counted(info.headers.length, 'column')} · {DELIMITER_NAMES[info.delimiter]}
-        -delimited
+        {counted(info.recordCount, 'data record')} · {counted(info.headers.length, 'column')} · {formatName(info.format)}
       </p>
       <div className="table-scroll">
         <table>
@@ -79,7 +84,17 @@ function RecordPreview({ info }: { info: FileInfo }) {
   )
 }
 
-export function FilePanel({ title, state, onPick }: { title: string; state: FileState; onPick: (file: File) => void }) {
+export function FilePanel({
+  title,
+  state,
+  onPick,
+  onPickSheet,
+}: {
+  title: string
+  state: FileState
+  onPick: (file: File) => void
+  onPickSheet: (sheet: string) => void
+}) {
   const inputId = useId()
   const [dragging, setDragging] = useState(false)
   return (
@@ -116,7 +131,7 @@ export function FilePanel({ title, state, onPick }: { title: string; state: File
         <span className="upload-icon">
           {state.status === 'empty' ? <UploadCloud size={24} /> : <FileSpreadsheet size={24} />}
         </span>
-        <strong>{state.status === 'empty' ? 'Drop your CSV here' : state.file.name}</strong>
+        <strong>{state.status === 'empty' ? 'Drop your CSV or .xlsx here' : state.file.name}</strong>
         <span>
           {state.status === 'empty' ? (
             <>
@@ -128,7 +143,7 @@ export function FilePanel({ title, state, onPick }: { title: string; state: File
         </span>
         <small>
           {state.status === 'empty'
-            ? 'CSV, TSV or delimited text'
+            ? 'CSV, TSV, delimited text or an .xlsx workbook'
             : `${(state.file.size / 1024).toLocaleString('en-US', { maximumFractionDigits: 1 })} KB`}
         </small>
         <input
@@ -136,7 +151,7 @@ export function FilePanel({ title, state, onPick }: { title: string; state: File
           className="file-input"
           aria-label={`Choose ${title.toLowerCase()}`}
           type="file"
-          accept=".csv,.tsv,.txt,text/csv"
+          accept=".csv,.tsv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           onChange={(e) => {
             const file = e.target.files?.[0]
             e.target.value = ''
@@ -153,8 +168,28 @@ export function FilePanel({ title, state, onPick }: { title: string; state: File
         <>
           <p className="file-stats">
             <strong>{count(state.info.recordCount)}</strong> {noun(state.info.recordCount, 'record')} <span>·</span>{' '}
-            <strong>{state.info.headers.length}</strong> {noun(state.info.headers.length, 'column')} <span>·</span> {DELIMITER_NAMES[state.info.delimiter]}
+            <strong>{state.info.headers.length}</strong> {noun(state.info.headers.length, 'column')} <span>·</span>{' '}
+            {formatName(state.info.format)}
           </p>
+          {state.info.format.kind === 'xlsx' && state.info.format.sheets.length > 1 && (
+            <div className="parse-toolbar">
+              <span>Sheet</span>
+              <Select<string>
+                label={`Sheet in ${title.toLowerCase()}`}
+                value={state.info.format.sheet}
+                onChange={onPickSheet}
+                options={state.info.format.sheets.map((sheet) => ({ value: sheet, label: sheet }))}
+              />
+            </div>
+          )}
+          {state.info.format.kind === 'xlsx' && (
+            <p className="note">Cells are compared as Excel displays them; a formula gives the value Excel last saved.</p>
+          )}
+          {state.info.notes.map((note) => (
+            <p key={note} className="note">
+              {note}
+            </p>
+          ))}
           <details className="preview-disclosure">
             <summary>Preview first {counted(Math.min(20, state.info.recordCount), 'record')}</summary>
             <RecordPreview info={state.info} />

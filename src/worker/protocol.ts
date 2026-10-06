@@ -4,7 +4,7 @@ import type {
   CompareProfile,
   CompareSummary,
   CompareWarning,
-  Delimiter,
+  FileFormat,
   EmptyKeyRecord,
   FieldChange,
   KeyRef,
@@ -31,7 +31,8 @@ export interface Preview<T> {
 export interface FileInfo {
   headers: string[]
   recordCount: number
-  delimiter: Delimiter
+  format: FileFormat
+  notes: string[]
   preview: Row[]
 }
 
@@ -117,7 +118,8 @@ export interface Progress {
 export type ExportFormat = 'csv' | 'json'
 
 export interface Requests {
-  parse: { side: Side; file: File; rules: ParseRules }
+  // sheet picks a worksheet in an .xlsx; omitted means the first sheet.
+  parse: { side: Side; file: File; rules: ParseRules; sheet?: string }
   getIssues: { side: Side; offset: number; limit: number }
   checkKeys: { rules: KeyRules }
   compare: { profile: CompareProfile }
