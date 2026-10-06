@@ -191,12 +191,24 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
     return latest
   }
 
-  function exportResult({ resultId, format, escapeFormulae }: Requests['export'], onProgress?: ProgressFn): Results['export'] {
+  async function exportResult({ resultId, format, escapeFormulae }: Requests['export'], onProgress?: ProgressFn): Promise<Results['export']> {
     const { diff, oldFile, newFile, oldName, newName } = current(resultId)
     const input = { diff, oldFile, newFile, oldName, newName, generatedAt: new Date().toISOString() }
-    return format === 'csv'
-      ? new Blob(buildChangesCsv(input, { escapeFormulae }, onProgress), { type: 'text/csv;charset=utf-8' })
-      : new Blob(buildJsonReport(input, onProgress), { type: 'application/json' })
+    switch (format) {
+      case 'csv':
+        return new Blob(buildChangesCsv(input, { escapeFormulae }, onProgress), { type: 'text/csv;charset=utf-8' })
+      case 'json':
+        return new Blob(buildJsonReport(input, onProgress), { type: 'application/json' })
+      case 'xlsx': {
+        const { buildXlsxReport, MAX_CELL_CHARS, MAX_SHEET_ROWS } = await import('../engine/xlsx-report')
+        const bytes = buildXlsxReport(
+          input,
+          { maxSheetRows: MAX_SHEET_ROWS, maxCellChars: MAX_CELL_CHARS, maxCells: limits.maxXlsxExportCells },
+          onProgress,
+        )
+        return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      }
+    }
   }
 
   function getRows({ resultId, tab, offset, limit, column }: Requests['getRows']): Results['getRows'] {

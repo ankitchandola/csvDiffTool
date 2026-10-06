@@ -11,6 +11,10 @@ export const MAX_FIELDS = 6_000_000
 export const MAX_XLSX_BYTES = 25 * 2 ** 20
 export const MAX_UNPACKED_BYTES = 256 * 2 ** 20
 export const MAX_XLSX_FIELDS = 2_000_000
+// SheetJS Community Edition builds an .xlsx export whole in memory, about 0.9 KB per cell
+// in the Node benchmarks (docs/benchmarks.md); 5.7 million cells ran out of a 4 GB heap.
+// Provisional: chosen from those runs, then checked by the at-cap benchmark.
+export const MAX_XLSX_EXPORT_CELLS = 1_000_000
 
 export interface Limits {
   maxFileBytes: number
@@ -18,6 +22,7 @@ export interface Limits {
   maxUnpackedBytes: number
   maxFields: number
   maxXlsxFields: number
+  maxXlsxExportCells: number
 }
 
 export const DEFAULT_LIMITS: Limits = {
@@ -26,6 +31,7 @@ export const DEFAULT_LIMITS: Limits = {
   maxUnpackedBytes: MAX_UNPACKED_BYTES,
   maxFields: MAX_FIELDS,
   maxXlsxFields: MAX_XLSX_FIELDS,
+  maxXlsxExportCells: MAX_XLSX_EXPORT_CELLS,
 }
 
 function mebibytes(bytes: number): string {

@@ -117,7 +117,7 @@ export interface Progress {
   total: number
 }
 
-export type ExportFormat = 'csv' | 'json'
+export type ExportFormat = 'csv' | 'json' | 'xlsx'
 
 export interface Requests {
   // sheet picks a worksheet in an .xlsx; omitted means the first sheet.

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowDownToLine, FileJson, TriangleAlert } from 'lucide-react'
+import { ArrowDownToLine, FileJson, FileSpreadsheet, TriangleAlert } from 'lucide-react'
 import type { CompareResult, ExportFormat } from '../worker/protocol'
 import { count, counted } from './format'
 
@@ -37,6 +37,9 @@ export function SummaryView({
         <div className="export-actions">
           <button type="button" className="primary" disabled={exporting} onClick={() => onExport('csv', escapeFormulae)}>
             <ArrowDownToLine size={16} aria-hidden="true" /> Changes CSV
+          </button>
+          <button type="button" disabled={exporting} onClick={() => onExport('xlsx', escapeFormulae)}>
+            <FileSpreadsheet size={16} aria-hidden="true" /> Excel workbook
           </button>
           <button type="button" disabled={exporting} onClick={() => onExport('json', escapeFormulae)}>
             <FileJson size={16} aria-hidden="true" /> Full JSON
@@ -81,6 +84,11 @@ export function SummaryView({
           The CSV contains one row per field: change_type, key, column, before, after. Added and removed records include
           every field. Composite keys use a JSON array in one cell. Problems and unchanged records are not included in
           CSV.
+        </p>
+        <p className="note">
+          The Excel workbook has a sheet each for the summary, added, removed and changed records, ambiguous keys,
+          empty keys and numeric warnings, with one column per key column. Every cell is text, exactly as compared, so
+          leading zeros stay and formula-like values never run; formula protection is not needed there.
         </p>
         <p className="note">
           The JSON report includes rules, changes, ambiguous keys, empty-key records, and numeric warnings. Spreadsheet

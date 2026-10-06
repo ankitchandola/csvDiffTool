@@ -373,3 +373,25 @@ describe('worker handler .xlsx input', () => {
     })
   })
 })
+
+describe('worker handler .xlsx export', () => {
+  it('builds the workbook from the stored result and refuses past the cell cap', async () => {
+    const run = async (maxXlsxExportCells: number) => {
+      const handle = createHandler({ ...DEFAULT_LIMITS, maxXlsxExportCells })
+      await handle({ id: 1, type: 'parse', side: 'old', file: new File(['id,v\n1,0007\n'], 'old.csv'), rules: RULES })
+      await handle({ id: 2, type: 'parse', side: 'new', file: new File(['id,v\n1,0008\n'], 'new.csv'), rules: RULES })
+      const compared = await handle({ id: 3, type: 'compare', profile: profile({ columns: ['id'] }) })
+      if (!('resultId' in compared)) throw new Error('no result')
+      return handle({ id: 4, type: 'export', resultId: compared.resultId, format: 'xlsx' })
+    }
+    const blob = await run(DEFAULT_LIMITS.maxXlsxExportCells)
+    if (!(blob instanceof Blob)) throw new Error('expected a Blob')
+    expect(blob.type).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    const book = XLSX.read(await blob.arrayBuffer(), { type: 'array' })
+    expect(XLSX.utils.sheet_to_json(book.Sheets.Changed, { header: 1 })).toEqual([
+      ['Key: id', 'Old record', 'New record', 'Column', 'Before', 'After'],
+      ['1', '1', '1', 'v', '0007', '0008'],
+    ])
+    await expect(run(10)).rejects.toThrow(/the .xlsx export is limited to 10 cells/)
+  })
+})

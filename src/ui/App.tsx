@@ -55,6 +55,8 @@ function failIfLoaded(state: FileState, reason: string): FileState {
     : { status: 'failed', file: state.file, message: `${reason}. Load the file again.`, sheet: sheetOf(state) }
 }
 
+const EXPORT_NAMES: Record<ExportFormat, string> = { csv: 'changes.csv', json: 'report.json', xlsx: 'report.xlsx' }
+
 export function App() {
   const [requestedStep, setStep] = useState<Step>('files')
   const [delimiter, setDelimiter] = useState<ParseRules['delimiter']>('auto')
@@ -267,7 +269,7 @@ export function App() {
       : 'csv-diff'
     client
       .call('export', { resultId: result.resultId, format, escapeFormulae }, task.progress)
-      .then((blob) => download(blob, format === 'csv' ? `${base}-changes.csv` : `${base}-report.json`))
+      .then((blob) => download(blob, `${base}-${EXPORT_NAMES[format]}`))
       .catch((error: unknown) => {
         if (!(error instanceof CancelledError)) setExportError(message(error))
       })
