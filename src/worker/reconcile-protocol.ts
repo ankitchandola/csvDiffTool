@@ -1,6 +1,8 @@
 import type { Layout, ParseIssue } from '../engine/parse'
 import type { Delimiter, FileFormat, Span } from '../engine/types'
+import type { DecisionEvent, PairCheck, TxnKey } from '../reconciliation/decisions'
 import type { Tier } from '../reconciliation/match'
+import type { TransactionSnapshot } from '../reconciliation/session'
 import type { Direction, MatchingRules, ProblemField, ReconSide, SessionContext, SideMapping } from '../reconciliation/types'
 import type { FileInfo, IssuesPage, Preview } from './protocol'
 
@@ -86,6 +88,7 @@ export interface MatchSummary {
 }
 
 export interface TransactionView extends Location {
+  key: TxnKey
   date: string
   amount: string
   direction: Direction
@@ -114,9 +117,34 @@ export interface ProblemItem extends Location {
   original: OriginalValues
 }
 
+export interface ConfirmedItem {
+  bank: TransactionView
+  books: TransactionView
+  event: DecisionEvent
+  // Set when the pair is also a current suggestion.
+  tier: Tier | null
+  gap: number
+}
+
+export interface UnmatchedItem extends TransactionView {
+  // Current suggestions this transaction still appears in.
+  suggestions: number
+}
+
+// Views are null when the transaction is no longer valid in the current files.
+export interface RejectedItem {
+  bankKey: TxnKey
+  booksKey: TxnKey
+  bank: TransactionView | null
+  books: TransactionView | null
+  event: DecisionEvent
+}
+
 export interface ReviewItems {
   suggested: SuggestionItem
-  unmatched: TransactionView
+  confirmed: ConfirmedItem
+  unmatched: UnmatchedItem
+  rejected: RejectedItem
   problems: ProblemItem
 }
 
@@ -126,6 +154,32 @@ export type ReviewPage = {
   [K in ReviewTab]: { tab: K; total: number; offset: number; items: ReviewItems[K][] }
 }[ReviewTab]
 
+export interface LapsedView {
+  event: DecisionEvent
+  reason: string
+}
+
+// Units: candidate pairs for suggested, confirmed pairs, transactions for unmatched,
+// rejected pairs, decisions for lapsed.
+export interface DecisionSummary {
+  suggested: number
+  confirmed: number
+  unmatched: Record<ReconSide, number>
+  rejected: number
+  lapsed: LapsedView[]
+}
+
+export type DecisionInput = Omit<DecisionEvent, 'seq' | 'at'>
+
+export type DecideResult =
+  | { ok: true; event: DecisionEvent; snapshots: TransactionSnapshot[]; summary: DecisionSummary }
+  | { ok: false; reason: string }
+
+export interface PairCheckResult extends PairCheck {
+  bank: TransactionView | null
+  books: TransactionView | null
+}
+
 export interface ReconRequests {
   parse: { side: ReconSide; file: File; delimiter: 'auto' | Delimiter; sheet?: string; layout: Layout }
   getIssues: { side: ReconSide; offset: number; limit: number }
@@ -133,6 +187,11 @@ export interface ReconRequests {
   match: { revision: number; rules: MatchingRules }
   // search keeps items whose shown text contains it, case-insensitively; direction keeps one cash direction.
   getReview: { matchId: number; tab: ReviewTab; offset: number; limit: number; search?: string; direction?: Direction }
+  // Replaces the worker's history with the session's, replayed against the current files and rules.
+  setDecisions: { matchId: number; events: DecisionEvent[] }
+  // seq must be the next in the history, so a decision can't be applied out of order.
+  decide: { matchId: number; seq: number; at: string; decision: DecisionInput }
+  checkPair: { matchId: number; bank: TxnKey; books: TxnKey }
 }
 
 export interface ReconResults {
@@ -141,6 +200,9 @@ export interface ReconResults {
   normalize: NormalizeResult
   match: MatchSummary
   getReview: ReviewPage
+  setDecisions: DecisionSummary
+  decide: DecideResult
+  checkPair: PairCheckResult
 }
 
 export type ReconRequest = {

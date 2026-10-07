@@ -1,0 +1,59 @@
+import { expect, type Page } from '@playwright/test'
+
+export const BANK = [
+  'Account,1234',
+  'Period,Sep 2026',
+  'Date,Details,Credit,Debit,Ref',
+  '01/09/2026,Salary,"50,000.00",,',
+  '02/09/2026,Rent,,"12,000.00",CHQ-101',
+  '02/09/2026,Subscription,,9.99,',
+  '03/09/2026,Bad row,,abc,',
+  'Closing balance,,,,',
+].join('\n')
+
+export const BOOKS = ['date,memo,amount,ref', '2026-08-31,Salary in,50000,', '2026-09-02,Rent cheque,-12000,CHQ-101', '2026-09-03,Sub,-9.99,', '2026-09-03,Sub dup,-9.99,', '2026-09-20,Unpaid,-75,'].join('\n')
+
+// The dropdown closes when the page scrolls, and the scroll event from Playwright's
+// scroll-into-view arrives a frame after its click; scroll first and let that event pass.
+export async function choose(page: Page, label: string, option: string) {
+  const trigger = page.getByRole('combobox', { name: label, exact: true })
+  await trigger.scrollIntoViewIfNeeded()
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await trigger.click()
+  await page.getByRole('option', { name: option, exact: true }).click()
+}
+
+export async function loadAndMap(page: Page, booksFile: string | Buffer = BOOKS) {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Reconcile/ }).click()
+  await expect(page.getByRole('heading', { name: 'Reconcile a bank statement' })).toBeVisible()
+  await expect(page.locator('.experimental-note')).toContainText('You confirm every match')
+  const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
+  await bank.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(BANK) })
+  await expect(bank.getByText(/Expected 5 fields|problem/).first()).toBeVisible()
+  await bank.getByLabel('Header is record').fill('3')
+  await bank.getByLabel('Skip records at the end').fill('1')
+  await expect(bank.locator('.file-stats')).toContainText('4 records')
+  await expect(bank.getByText(/Skipped 2 records above the header and 1 record at the end/)).toBeVisible()
+  const books = page.locator('section.file-panel', { hasText: 'Your ledger' })
+  await books.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: typeof booksFile === 'string' ? Buffer.from(booksFile) : booksFile })
+  await expect(books.locator('.file-stats')).toBeVisible({ timeout: 60_000 })
+  await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+  await expect(page.getByRole('heading', { name: 'Map dates and amounts' })).toBeFocused()
+
+  await page.getByLabel('Currency').fill('INR')
+  await choose(page, 'Bank statement date column', 'Date')
+  await choose(page, 'Bank statement date format', 'DD/MM/YYYY')
+  await page.getByRole('radiogroup', { name: 'Bank statement amount layout' }).getByLabel(/Separate/).check()
+  await choose(page, 'Bank statement money-in column', 'Credit')
+  await choose(page, 'Bank statement money-out column', 'Debit')
+  await page.locator('fieldset', { hasText: 'Bank statement' }).getByLabel(/thousands separators/).check()
+  await choose(page, 'Bank statement reference column', 'Ref')
+  await choose(page, 'Bank statement description column', 'Details')
+  await choose(page, 'Books date column', 'date')
+  await choose(page, 'Books date format', 'YYYY-MM-DD')
+  await choose(page, 'Books amount column', 'amount')
+  await choose(page, 'Books reference column', 'ref')
+  await choose(page, 'Books description column', 'memo')
+}
+
