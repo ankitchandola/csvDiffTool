@@ -110,6 +110,10 @@ describe('reconcile handler', () => {
     expect(searched.total).toBe(1)
     const incoming: { total: number } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10, direction: 'in' })
     expect(incoming.total).toBe(1)
+    const spanning: { total: number } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10, search: '2026-09-0150000' })
+    expect(spanning.total).toBe(0)
+    const unmatchedIn: { total: number } = await call('getReview', { matchId, tab: 'unmatched', offset: 0, limit: 10, direction: 'in' })
+    expect(unmatchedIn.total).toBe(2)
     const problems: { items: { kind: string; recordNumber: number }[] } = await call('getReview', { matchId, tab: 'problems', offset: 0, limit: 10 })
     expect(problems.items.map((p) => [p.kind, p.recordNumber])).toEqual([
       ['invalid', 4],

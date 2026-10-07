@@ -79,6 +79,8 @@ interface Normalized {
   sides: Record<ReconSide, NormalizedSide>
   // Problems grouped per source row, in row order, with zero-value rows interleaved.
   problemRows: ProblemItem[] | null
+  // Lower-cased searchable text per transaction position, built on first search.
+  searchTexts?: Record<ReconSide, (string | undefined)[]>
   // Each side's transaction position by source row index.
   positions?: Record<ReconSide, Map<number, number>>
 }
@@ -310,6 +312,18 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return [v.date, v.amount, o.date, ...o.amount, o.reference ?? '', o.description ?? '']
   }
 
+  // Joined with NUL, which a trimmed search never contains, so a match can't span two values.
+  function searchText(state: Normalized, side: ReconSide, position: number): string {
+    state.searchTexts ??= { bank: [], books: [] }
+    const cache = state.searchTexts[side]
+    cache[position] ??= texts(view(state.sides[side].transactions[position], state.mappings[side])).join('\u0000').toLowerCase()
+    return cache[position] as string
+  }
+
+  function directionOf(t: Transaction): Direction {
+    return t.amount.units > 0n ? 'in' : 'out'
+  }
+
   function positions(state: Normalized): Record<ReconSide, Map<number, number>> {
     state.positions ??= {
       bank: new Map(state.sides.bank.transactions.map((t, position) => [t.index, position])),
@@ -478,11 +492,10 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         const ok = available(state)
         const all = filtered(
           () => outcome.candidates.filter(ok),
-          (c) => {
-            const bank = view(sides.bank.transactions[c.bank], mappings.bank)
-            const books = view(sides.books.transactions[c.books], mappings.books)
-            return ok(c) && isDirection(bank.direction) && (needle === '' || matches(both(bank, books), needle))
-          },
+          (c) =>
+            ok(c) &&
+            isDirection(directionOf(sides.bank.transactions[c.bank])) &&
+            (needle === '' || searchText(data, 'bank', c.bank).includes(needle) || searchText(data, 'books', c.books).includes(needle)),
         )
         const items = all.slice(start, end).map((c): SuggestionItem => {
           const group = groups[c.group]
@@ -516,10 +529,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         const per = counts(state, outcome, data)
         const all = filtered(
           () => RECON_SIDES.flatMap((side) => sides[side].transactions.filter((_, p) => !state.used[side][p])),
-          (t) => {
-            const v = view(t, mappings[t.side])
-            return isDirection(v.direction) && (needle === '' || matches(texts(v), needle))
-          },
+          (t) => isDirection(directionOf(t)) && (needle === '' || searchText(data, t.side, position(t)).includes(needle)),
         )
         const items = all.slice(start, end).map((t): UnmatchedItem => ({ ...view(t, mappings[t.side]), suggestions: per[t.side][position(t)] }))
         return { tab, total: all.length, offset: start, items }
