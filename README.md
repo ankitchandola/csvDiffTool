@@ -9,9 +9,9 @@ Plan and scope: [`docs/build-plan.md`](docs/build-plan.md).
 Current behavior and verification: [`docs/v1-implementation-spec.md`](docs/v1-implementation-spec.md).
 Browser measurements and spreadsheet observations: [`docs/browser-verification.md`](docs/browser-verification.md).
 
-Proposed reconciliation mode and implementation milestones:
-[`docs/reconciliation-spec.md`](docs/reconciliation-spec.md). This is a plan, not
-a shipped feature.
+Reconciliation mode: [`docs/reconciliation-spec.md`](docs/reconciliation-spec.md).
+Milestones 0-2 are implemented as an experimental, suggestion-only mode; nothing is
+confirmed or saved, and later milestones are still a plan.
 
 ## UI redesign
 

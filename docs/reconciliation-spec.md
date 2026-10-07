@@ -1,11 +1,13 @@
 # Reconciliation: product spec and implementation plan
 
-Status: proposed, not implemented.  
+Status: milestones 0-2 implemented as an experimental, suggestion-only mode on
+branch `feat/reconciliation`; milestones 3-6 proposed. See
+[Implementation status](#15-implementation-status-milestones-0-2).  
 Date: 2026-10-07.
 
 This document defines a new reconciliation mode alongside the existing comparison
-tool. It is not evidence that any reconciliation feature has shipped or passed
-verification.
+tool. Apart from section 15, it is a specification, not evidence that a feature
+has shipped or passed verification.
 
 ## 1. Purpose and product boundaries
 
@@ -733,3 +735,46 @@ Preserve the project's existing test/build/lint checks throughout development.
 
 These are implementation gates, not silent defaults. Record each accepted decision
 and its tests in this spec as milestones begin.
+
+## 15. Implementation status (milestones 0-2)
+
+Snapshot: branch `feat/reconciliation`, 2026-10-07. Labels as in the
+[V1 implementation spec](v1-implementation-spec.md): implemented, tested, not yet
+verified, not implemented.
+
+### Implemented and tested
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Exact decimal add, subtract, compare, rescale, format | `src/engine/decimal.ts` | Unit tests |
+| Header record and trailing-record skip, counted in logical records; CSV line spans and `.xlsx` row numbers; skipped records kept as raw text; Compare unchanged without a layout | `src/engine/parse.ts`, `src/engine/xlsx.ts` | Unit tests, including a quoted multi-line preamble, an unterminated quote, an unsaved formula in a skipped row |
+| File reading shared by both workers | `src/worker/read-source.ts` | Existing Compare handler tests |
+| Missing `.xlsx` formula results, in the browser | `e2e/xlsx-formula-cache.spec.ts` | Playwright, Chrome, with the XlsxWriter fixtures: missing result, formula-only row, header formula, saved zero/FALSE/empty string |
+| Strict dates in the seven accepted formats, calendar-day numbers without `Date` | `src/reconciliation/dates.ts` | Unit tests: leap days, impossible dates, wrong format, two-digit years |
+| Normalization: signed or money-in/money-out amounts, currency scale, negative/conflicting/blank split amounts as problems, zero-value rows kept apart, missing columns blocking | `src/reconciliation/normalize.ts` | Unit tests |
+| 1:1 candidates: exact signed amount, inclusive asymmetric window, shared-reference tier 1, conflicting references excluded, conflict groups across both sides, candidate budget reported as incomplete | `src/reconciliation/match.ts` | Unit tests, including 20 shuffled input orders giving identical suggestions |
+| Reconcile worker: per-side layouts, SHA-256 fingerprints, revisions, stale-request rejection, worker-side search, direction filter and paging | `src/worker/reconcile-handler.ts` | Unit tests |
+| Files -> Map -> Review UI, experimental banner, mode switch keeping both modes' state | `src/ui/reconcile/`, `src/ui/Root.tsx` | Playwright: full flow, search, tabs, stale-setup gating, mode switching, no horizontal overflow at 390 and 768 px |
+
+At this snapshot: `npm test` 334 passed; `npm run lint` clean; `npm run build`
+passed; `npm run test:ui` 17 passed and 2 failed. Both failures are in
+`e2e/workspace.spec.ts` and also fail on `main` before this work: a stale
+"1 ambiguous keys" assertion and a 1440 px page height of 981 px against a 900 px
+check. Neither is caused or changed by the reconciliation work.
+
+### Not implemented in this snapshot
+
+- Any decision: confirm, reject, manual pair, unmatch, interchangeable-set bulk
+  confirm (milestone 3). The UI has no confirm control.
+- Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
+- Two-digit-year pivots: such dates are always problems.
+- Saving reconciliation profiles or sessions; reloading clears the session.
+- Exports, balances, completion statuses, carry-forward, grouped matching.
+- Per-file worksheet preferences beyond the existing sheet picker.
+
+### Not yet verified
+
+- Real bank and accounting-system exports; Excel-generated workbooks.
+- Large inputs: no reconciliation benchmark has been run, and the 2,000,000
+  candidate budget is chosen, not measured.
+- Other browsers, screen readers and touch use of the new forms.
