@@ -38,8 +38,8 @@ No accounts, backend or bank connections are required.
 | --- | --- |
 | Initial matching milestone | Independent mappings, normalization preview, conservative 1:1 suggestions, ambiguity and input diagnostics |
 | Initial usable release | Confirm/reject/unmatch, explicit manual 1:1 pairing, bulk confirm of interchangeable sets, session save/load, balance checks, outstanding-item export/import, reconciliation reports |
-| Subsequent release | Opt-in bounded 1:N and N:1 suggestions |
-| Deferred | N:M matching, partial allocations, mixed-currency sessions, FX conversion, automatic fee/write-off adjustments, fuzzy descriptions, source-data editing, cloud sync |
+| Subsequent release | Grouping by a mapped payout or batch ID; then opt-in bounded 1:N and N:1 subset search; description similarity as a ranking signal within a tier |
+| Deferred | N:M matching, partial allocations, mixed-currency sessions, FX conversion, automatic fee/write-off adjustments, fee netting across directions, percentage confidence scores, source-data editing, cloud sync |
 
 Carry-forward and balance checks are part of the usable monthly workflow, not
 prerequisites for testing the first matching engine.
@@ -194,9 +194,32 @@ current re-export message; an explicit encoding option is deferred.
 ### Format policy
 
 Reuse the current plain-decimal, grouping and trailing-minus parser where
-applicable. Additional currency-symbol, parentheses or decimal-comma support needs
-an explicit, tested format policy; do not strip arbitrary characters until a
-string happens to parse.
+applicable. Further syntax needs an explicit, tested format policy; do not strip
+arbitrary characters until a string happens to parse.
+
+**Bracketed negatives** are an explicit per-side option: `(1,234.50)` reads as
+−1234.50. The brackets must enclose the whole value; a sign inside them
+(`(-100)`), a trailing minus with them (`(100)-`) or an unbalanced bracket is a
+Problem. In money-in/money-out columns a bracketed value is negative and is
+therefore reported as a reversal, like any negative there. Compare's numeric
+rules are unchanged. Currency symbols and decimal commas remain undecided.
+
+### Processor payouts and fees
+
+A payment processor deposits the net amount: a 100.00 sale with a 3.00 fee arrives
+as 97.00. Fees are never absorbed through amount tolerance: they vary per payment,
+and a tolerance wide enough to hide them would also pair unrelated transactions.
+
+- When a source carries the net amount (processor payout and balance reports
+  usually do), map that column.
+- When it carries gross and fee columns instead, the amount mapping may be
+  **gross minus fee**, computed exactly per row under the same parsing rules. The
+  fee stays available as a mapped field and is shown with the transaction. A
+  blank or invalid fee is a Problem, not zero.
+- When the books record the gross receipt and the fee as two separate entries in
+  opposite directions, pairing them with one bank deposit is cross-direction
+  netting, which stays deferred. Until then those entries remain unmatched and
+  visible rather than forced into a pair.
 
 An invalid number in Compare may fall back to text equality with a warning.
 Reconcile must instead exclude that transaction from matching and report why.
@@ -292,6 +315,23 @@ Within a tier, smaller amount variance then closer dates may order suggestions.
 Ordering suggestions is not permission to confirm them. UI must explain the
 precedence rather than imply statistically calibrated probabilities.
 
+**No percentage confidence scores.** A figure such as "95% match" claims a
+measured probability that a suggestion is right; nothing measures that. Evidence
+is shown as the rules a pair met ("same reference, exact amount, 2 days apart").
+A percentage may be considered only after it is calibrated against labeled
+reconciliations, with the calibration data and method documented.
+
+### Description similarity (subsequent release)
+
+Descriptions rarely match exactly across sources ("STRIPE PAYMENTS INC" against
+"Stripe Payout Oct 5"). Similarity may later order suggestions **within a tier**,
+after amount and date ordering, and appear as evidence ("descriptions share
+'stripe'"). It is never sufficient on its own to make a pair eligible, never moves
+a pair between tiers and never contributes to confirmation. It is computed only for
+candidates that already passed the amount and date rules, so it adds no
+all-pairs work. The method (for example case-folded word tokens with common
+words removed) must be deterministic, documented and tested.
+
 ### Ambiguity and automatic confirmation
 
 Build conflict groups across both sides. Detect competition for the same
@@ -361,6 +401,13 @@ may appear in several candidate suggestions, but only one confirmed group.
 Use a row inspector for original rows, normalized fields, alternatives, variance
 and copy actions. Provide key/reference search and date/direction filters through
 worker-side queries before paging; never search only loaded rows.
+
+Every review action is a visible button and also has a keyboard shortcut,
+listed in the help and in each button's accessible description. Proposed:
+↓/↑ or J/K move between rows, Enter opens the inspector, C confirms, X rejects,
+O classifies as outstanding. Shortcuts are ignored while focus is in a text
+field, go through exactly the same validation as the buttons, and never act on
+a row the reviewer has not focused.
 
 Support confirm, reject, manual 1:1 pair and unmatch. Manual exceptions to soft
 amount/date/reference constraints require a reason and remain visibly labeled.
@@ -591,8 +638,24 @@ remain outstanding.
 
 ## 10. Bounded grouped matching
 
-Add opt-in 1:N and N:1 after the monthly 1:1 workflow is reliable. Start with a
-maximum group size of four; increasing it requires new measurements.
+Add grouped suggestions after the monthly 1:1 workflow is reliable, in this order.
+
+### Grouping by a payout or batch ID first
+
+A processor payout often settles dozens of charges, far beyond any feasible subset
+search. Processor reports carry the payout (or batch, settlement) ID on each
+member row. When a side maps such a column, its rows are grouped by that ID. Each
+group's exact signed sum, at the latest member date, becomes one aggregate
+transaction matched 1:1 against the other side under the normal rules. This is
+exact and linear in the number of rows. The review shows every member; members
+with invalid amounts make the whole group a Problem rather than a smaller sum. A
+group whose members differ in direction is shown with its parts and needs review.
+
+### Bounded subset search as the fallback
+
+For rows without a group ID, add opt-in 1:N and N:1 subset search. Start with a
+maximum group size of four; increasing it requires new measurements. Large
+settlements are expected to use ID grouping, not this search.
 
 Search only residual transactions, within the same account/currency/direction and
 configured date window. Confirmed 1:1 matches are excluded. Tentative suggestions
@@ -649,9 +712,9 @@ Do not silently alter `csv-diff-report` or `csv-diff-profile` for new domains.
 | 0. Baseline and contracts | Committed Playwright check of missing formula caches using `fixtures/xlsxwriter`; file reading extracted from the Compare handler for reuse; exact-decimal add/subtract/compare/format; header-row and trailing-row reading; fixtures, schemas and policies | Formula-cache browser check passes in the committed suite; Compare tests unchanged; inherited limitations recorded |
 | 1. Mode and mapping | Files/Map UI, independent mappings, normalization/problems | Equivalent supported CSV/XLSX values normalize identically; invalid fields cannot match |
 | 2. Candidate engine | Indexed 1:1 suggestions and conflicts | Input-order independence, boundary correctness and no hidden ambiguity |
-| 3. Durable review | Decisions, manual pairing, save/load and opt-in autosave | Reload/cancel/rerun/import preserve valid decisions; incompatible revisions blocked |
+| 3. Durable review | Decisions with buttons and keyboard shortcuts, manual pairing, save/load and opt-in autosave | Reload/cancel/rerun/import preserve valid decisions; incompatible revisions blocked |
 | 4. Monthly reconciliation | Balance bridge, completion statuses, outstanding-item continuation and reports | The section 9 worked example passes as a fixture before the continuation UI is built; two-month fixtures conserve money and prevent duplicate carry-forward; a balanced bridge alone never yields "completed" |
-| 5. Grouped suggestions | Bounded 1:N/N:1 residual search | Conflict and budget exhaustion tests pass; cancellation remains usable |
+| 5. Grouped suggestions | Payout/batch-ID grouping, then bounded 1:N/N:1 residual search | Conflict and budget exhaustion tests pass; cancellation remains usable |
 | 6. Release and naming | Documentation, browser/spreadsheet verification, optional rename | Compare regressions pass; release claims match evidence |
 
 Do not enable grouped matching before milestone 4. The mode may be labeled
@@ -723,11 +786,16 @@ Preserve the project's existing test/build/lint checks throughout development.
 | Default matching rules | Amount tolerance 0; date window 3 days before and 3 after, inclusive, adjustable per bound. Tolerance is fixed at 0 during milestones 1-3; tiers 2 and 4 are not implemented until a nonzero tolerance is offered | Window boundaries on both sides, exact amounts at differing scales |
 | Automatic confirmation | None in the initial usable release; every match is confirmed manually. The mode is labeled experimental and suggestion-only through milestone 2 | No code path creates a confirmed match without a reviewer action |
 | Conflicting references | Pairs whose shared-identifier references conflict are not suggested | Conflict excluded at every tier; context-only references ignored |
+| Bracketed negatives | Explicit per-side option in Reconcile; Compare unchanged | Grouped and plain values, misplaced signs, unbalanced brackets, reversal in split columns |
+| Fees | Map net, or gross minus fee; never tolerance. Cross-direction fee netting deferred | Gross-minus-fee exactness, invalid or blank fee as a Problem (with the fee mapping) |
+| Confidence | Rule-based evidence; no percentage scores without documented calibration | No percentage appears in suggestions or reports |
+| Grouped matching order | Payout/batch-ID grouping before subset search | Large ID groups, mixed directions, invalid members (with milestone 5) |
+| Description similarity | Ranking within a tier only, never eligibility or confirmation | Same candidate set with and without similarity (with its release) |
 | Source layout | Explicit header row and trailing rows to skip in Reconcile; strict UTF-8 retained | Preamble/footer CSV and `.xlsx`, original record locations, Compare unchanged |
 
 ### Still to settle before coding the relevant milestone
 
-- Additional amount syntax (currency symbols, parentheses, decimal comma).
+- Additional amount syntax (currency symbols, decimal comma).
 - Whether a later opt-in automatic confirmation is offered, and its uniqueness rule.
 - Session backup contents and autosave retention/deletion policy.
 - Exact accounting treatment and UI for imported opening items.
