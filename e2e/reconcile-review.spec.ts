@@ -41,6 +41,11 @@ test('confirm, unmatch, reject and restore with buttons and keys', async ({ page
   await suggestion(page, 'Salary in').getByRole('button', { name: 'Confirm' }).click()
   await expect(tabCount(page, 'Confirmed')).toHaveText('1')
   await expect(tabCount(page, 'Suggested')).toHaveText('3')
+  await page.getByRole('tab', { name: /^Confirmed/ }).click()
+  await page.getByLabel('Search this tab').fill('Salary')
+  await expect(page.getByRole('status').filter({ hasText: '1 match shown for these filters.' })).toBeVisible()
+  await page.getByLabel('Search this tab').fill('')
+  await page.getByRole('tab', { name: /^Suggested/ }).click()
 
   // Keyboard: J moves to the first row, X rejects it.
   await page.locator('.review-row').first().focus()
@@ -64,6 +69,9 @@ test('confirm, unmatch, reject and restore with buttons and keys', async ({ page
   await page.getByLabel('Search this tab').fill('')
 
   await page.getByRole('tab', { name: /^Confirmed/ }).click()
+  await page.getByLabel('Search this tab').fill('s')
+  await expect(page.getByRole('status').filter({ hasText: '2 matches shown for these filters.' })).toBeVisible()
+  await page.getByLabel('Search this tab').fill('')
   await page.locator('.review-row', { hasText: 'Salary in' }).getByRole('button', { name: 'Unmatch' }).click()
   await expect(tabCount(page, 'Confirmed')).toHaveText('1')
 
@@ -121,6 +129,7 @@ test('a session backup restores decisions after a reload, and a different file l
   await findSuggestions(page)
   await expect(tabCount(page, 'Confirmed')).toHaveText('1')
   await expect(page.locator('.lapsed')).toHaveCount(0)
+  await expect(page.getByText('Load the same files, then find suggestions to apply them.', { exact: false })).toHaveCount(0)
 
   // Replace the books file: its decisions no longer apply but stay in the history.
   await page.getByRole('button', { name: 'Files', exact: true }).click()
@@ -152,7 +161,10 @@ test('saving in this browser survives a reload and refuses a stale tab', async (
   await loadFilesAgain(other)
   await findSuggestions(other)
   await suggestion(other, 'Rent').getByRole('button', { name: 'Confirm' }).click()
-  await expect(other.locator('.save-status')).toContainText(`Not saved: Another tab saved this session at revision ${saved + 1}. Reload it before saving here. (last saved revision ${saved})`)
+  await expect(other.locator('.save-status')).toContainText(`Not saved: A newer revision is saved in this browser (revision ${saved + 1}). Resume the saved session before saving here. (last saved revision ${saved})`)
+  await other.getByRole('button', { name: 'Resume the saved session' }).click()
+  await expect(other.getByText(`Loaded a session at revision ${saved + 1} with 2 decisions.`)).toBeVisible()
+  await expect(other.getByRole('button', { name: 'Resume the saved session' })).toHaveCount(0)
 
   await page.reload()
   await page.getByRole('button', { name: /Reconcile/ }).click()

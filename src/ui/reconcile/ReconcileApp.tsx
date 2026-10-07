@@ -326,6 +326,12 @@ export function ReconcileApp() {
       const summary = await client.call('match', { revision: normalized.revision, rules: effectiveRules }, task.progress)
       // The worker keeps no history of its own: send it after every run.
       const decisions = await client.call('setDecisions', { matchId: summary.matchId, events: session.eventsRef.current })
+      if (session.expected && sources && RECON_SIDES.every((side) =>
+        sources[side].fingerprint === session.expected?.[side].fingerprint &&
+        sources[side].sheet === session.expected?.[side].sheet,
+      )) {
+        setSessionMessage((current) => current?.kind === 'info' ? null : current)
+      }
       setReview({ inputs, status: 'done', value: { summary, decisions } })
       setDecisionVersion((v) => v + 1)
       setDecideError(null)
@@ -460,6 +466,7 @@ export function ReconcileApp() {
           storageAvailable={session.available}
           stored={session.stored}
           ownId={session.id}
+          conflict={session.conflict}
           canExport={config !== null}
           message={sessionMessage}
           onExport={() => {

@@ -20,7 +20,7 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
   await expect(page.getByText(/1 bank transaction and 2 books transactions compete through 2 pairs/).first()).toBeVisible()
 
   await page.getByLabel('Search this tab').fill('chq-101')
-  await expect(page.getByText('1 pair match.')).toBeVisible()
+  await expect(page.getByText('1 pair shown for these filters.')).toBeVisible()
   await page.getByLabel('Search this tab').fill('')
 
   await page.getByRole('tab', { name: /Unmatched/ }).click()

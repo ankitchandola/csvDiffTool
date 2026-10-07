@@ -13,6 +13,7 @@ export function SessionBar({
   storageAvailable,
   stored,
   ownId,
+  conflict,
   canExport,
   message,
   onExport,
@@ -30,6 +31,8 @@ export function SessionBar({
   // What browser storage holds, if anything.
   stored: SavedRef | null
   ownId: string
+  // A newer revision of this session is saved than this page has seen.
+  conflict: boolean
   canExport: boolean
   message: { kind: 'error' | 'info'; text: string } | null
   onExport: () => void
@@ -39,6 +42,7 @@ export function SessionBar({
   onDelete: () => void
 }) {
   const otherSaved = stored !== null && stored.id !== ownId
+  const newerSaved = stored !== null && stored.id === ownId && conflict
   return (
     <section className="session-bar" aria-label="Session">
       <p className="save-status" role="status">
@@ -87,6 +91,15 @@ export function SessionBar({
           This browser holds a saved session (revision {count(stored.revision)}).{' '}
           <button type="button" className="secondary" onClick={onResume}>
             Resume it
+          </button>
+        </p>
+      )}
+      {newerSaved && (
+        <p className="note">
+          This browser holds a newer revision of this session (revision {count(stored.revision)}). Resuming replaces this page's session
+          with it; export a backup first to keep this page's decisions.{' '}
+          <button type="button" className="secondary" onClick={onResume}>
+            Resume the saved session
           </button>
         </p>
       )}

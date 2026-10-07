@@ -364,7 +364,7 @@ export function ReviewView({
       .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}) })
       .then((page) => ({ total: page.total, items: page.items as ReviewItems[T][] }))
   const listKey = `${summary.matchId}-${version}-${tab}-${search}-${direction}`
-  const filteredNote = (unit: string) => (total: number) => (search || direction ? `${counted(total, unit)} match.` : null)
+  const filteredNote = (unit: string, plural?: string) => (total: number) => (search || direction ? `${counted(total, unit, plural)} shown for these filters.` : null)
   const placeholder = <div className="cell">…</div>
 
   return (
@@ -476,7 +476,7 @@ export function ReviewView({
               estimateSize={170}
               empty="Nothing confirmed yet."
               label="Confirmed matches, scroll to browse"
-              summary={filteredNote('match')}
+              summary={filteredNote('match', 'matches')}
               renderRow={(item) => (item ? <ConfirmedRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
           </>
@@ -549,7 +549,7 @@ export function ReviewView({
               estimateSize={90}
               empty="No problems."
               label="Problem rows, scroll to browse"
-              summary={(total) => (search ? `${counted(total, 'row')} match.` : null)}
+              summary={(total) => (search ? `${counted(total, 'row')} shown for this search.` : null)}
               renderRow={(p) => (p ? <div className="cell"><ProblemRow item={p} formats={formats} /></div> : placeholder)}
             />
           </>

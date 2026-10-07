@@ -30,7 +30,7 @@ export function checkWrite(stored: SavedRef | null, session: SessionFile, lastSa
     throw new StorageConflictError('This browser holds a different saved session. Delete it or export it before saving this one.')
   }
   if (lastSaved === null || stored.revision > lastSaved.revision) {
-    throw new StorageConflictError(`Another tab saved this session at revision ${stored.revision}. Reload it before saving here.`)
+    throw new StorageConflictError(`A newer revision is saved in this browser (revision ${stored.revision}). Resume the saved session before saving here.`)
   }
 }
 
