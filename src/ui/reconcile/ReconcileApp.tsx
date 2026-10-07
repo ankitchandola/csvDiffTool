@@ -89,12 +89,13 @@ function SourceCheck({ expected, files }: { expected: Record<ReconSide, SourceDe
   )
 }
 
+// The worker's state is gone, so a file with problems must be read again too: its full
+// problem list lived in the worker.
 function failIfLoaded(state: SourceState, reason: string): SourceState {
-  if (state.status === 'loading' || state.status === 'ready') {
-    const sheet = state.status === 'ready' && state.info.format.kind === 'xlsx' ? state.info.format.sheet : state.status === 'loading' ? state.sheet : undefined
-    return { status: 'failed', file: state.file, message: reason, sheet }
-  }
-  return state
+  if (state.status === 'empty' || state.status === 'failed') return state
+  const format = state.status === 'ready' ? state.info.format : state.status === 'invalid' ? state.format : undefined
+  const sheet = state.status === 'loading' ? state.sheet : format?.kind === 'xlsx' ? format.sheet : undefined
+  return { status: 'failed', file: state.file, message: reason, sheet }
 }
 
 function SkippedRecords({ info }: { info: SourceInfo }) {
@@ -274,10 +275,13 @@ export function ReconcileApp() {
           books: { fileName: files.books.file.name, fingerprint: files.books.info.fingerprint, sheet: sheetOf(files.books) ?? null, recordCount: files.books.info.recordCount },
         }
       : null
-  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules, sources } : null
+  // References can only be compared when both sides map a reference column.
+  const bothReferences = drafts.bank.reference !== '' && drafts.books.reference !== ''
+  const effectiveRules: MatchingRules = bothReferences ? rules : { ...rules, referencesShared: false, referenceCaseInsensitive: false }
+  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules: effectiveRules, sources } : null
   const session = useSession(store, config)
   const checkInputs = JSON.stringify({ dataVersion, context, mappings })
-  const reviewInputs = JSON.stringify({ checkInputs, rules })
+  const reviewInputs = JSON.stringify({ checkInputs, rules: effectiveRules })
   const currentCheck = check?.inputs === checkInputs ? check : null
   const currentReview = review?.inputs === reviewInputs ? review : null
 
@@ -318,7 +322,7 @@ export function ReconcileApp() {
     task.show()
     setReview({ inputs, status: 'pending' })
     try {
-      const summary = await client.call('match', { revision: normalized.revision, rules }, task.progress)
+      const summary = await client.call('match', { revision: normalized.revision, rules: effectiveRules }, task.progress)
       // The worker keeps no history of its own: send it after every run.
       const decisions = await client.call('setDecisions', { matchId: summary.matchId, events: session.eventsRef.current })
       setReview({ inputs, status: 'done', value: { summary, decisions } })
@@ -570,7 +574,7 @@ export function ReconcileApp() {
               <label className="choice">
                 <input
                   type="checkbox"
-                  checked={rules.referencesShared}
+                  checked={effectiveRules.referencesShared}
                   disabled={!drafts.bank.reference || !drafts.books.reference}
                   onChange={(e) => setRules({ ...rules, referencesShared: e.target.checked })}
                 />{' '}
@@ -579,8 +583,8 @@ export function ReconcileApp() {
               <label className="choice">
                 <input
                   type="checkbox"
-                  checked={rules.referenceCaseInsensitive}
-                  disabled={!rules.referencesShared}
+                  checked={effectiveRules.referenceCaseInsensitive}
+                  disabled={!effectiveRules.referencesShared}
                   onChange={(e) => setRules({ ...rules, referenceCaseInsensitive: e.target.checked })}
                 />{' '}
                 Ignore case when comparing references
