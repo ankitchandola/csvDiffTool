@@ -1,7 +1,17 @@
 import Papa from 'papaparse'
 import { emptyDict } from './dict'
 import { MAX_FIELDS, tooManyFieldsMessage } from './limits'
-import { type Delimiter, type FileFormat, type ParsedFile, type ParseRules, PROGRESS_EVERY, type ProgressFn, type Row } from './types'
+import {
+  type Delimiter,
+  type FileFormat,
+  type ParsedFile,
+  type ParseRules,
+  PROGRESS_EVERY,
+  type ProgressFn,
+  type Row,
+  type SkippedRecords,
+  type Span,
+} from './types'
 
 export type ParseIssue =
   | { kind: 'file'; message: string }
@@ -43,24 +53,90 @@ export function headerIssues(headers: string[]): ParseIssue[] {
   return issues
 }
 
+// Bank statements put account details above the table and totals below it. Both
+// settings count non-blank records as parsed, never physical lines, so the header always
+// starts at a record boundary.
+export interface Layout {
+  // 1-based: the header is this non-blank record.
+  headerRecord: number
+  // This many final non-blank records are excluded.
+  skipTrailing: number
+}
+
+export const DEFAULT_LAYOUT: Layout = { headerRecord: 1, skipTrailing: 0 }
+
+export function layoutIssues({ headerRecord, skipTrailing }: Layout): string[] {
+  const issues: string[] = []
+  if (!Number.isInteger(headerRecord) || headerRecord < 1) issues.push('The header record must be a whole number of at least 1')
+  if (!Number.isInteger(skipTrailing) || skipTrailing < 0) issues.push('Trailing records to skip must be a whole number of at least 0')
+  return issues
+}
+
+export function tooFewRecordsMessage(found: number, headerRecord: number): string {
+  return `The header is set to record ${headerRecord}, but the file has only ${found} non-blank record${found === 1 ? '' : 's'}`
+}
+
+interface Pending {
+  data: string[]
+  errors: string[]
+  raw: string
+  span: Span
+}
+
+// A CRLF pair is one line break; a lone CR or LF is one too. Looks one character past end
+// so a CRLF split across two calls is counted once.
+function lineBreaks(text: string, start: number, end: number): number {
+  let count = 0
+  for (let i = start; i < end; i++) {
+    const ch = text.charCodeAt(i)
+    if (ch === 10 || (ch === 13 && text.charCodeAt(i + 1) !== 10)) count++
+  }
+  return count
+}
+
+// Without a layout this is Compare's reader: the first non-blank record is the header and
+// no spans or skipped records are kept.
 export function parseCsv(
   text: string,
   rules: ParseRules,
   onProgress?: ProgressFn,
   maxFields: number = MAX_FIELDS,
+  layout?: Layout,
 ): ParseOutcome {
-  const input = text.startsWith('﻿') ? text.slice(1) : text
+  const input = text.startsWith('\uFEFF') ? text.slice(1) : text
+  const { headerRecord, skipTrailing } = layout ?? DEFAULT_LAYOUT
   let headers: string[] | null = null
   let delimiter: Delimiter = ','
   let fatal: ParseIssue[] = []
   let tooLarge = false
   const rows: Row[] = []
+  const spans: Span[] = []
+  const skipped: SkippedRecords = { before: [], after: [] }
   const issues: ParseIssue[] = []
+  const pending: Pending[] = []
+  let seen = 0
   let recordNumber = 0
   let previousCursor = 0
+  let breaksBefore = 0
 
-  function reportRecord(message: string, raw: string) {
-    issues.push({ kind: 'record', recordNumber, message, raw })
+  function accept({ data, errors, raw, span }: Pending): boolean {
+    const width = (headers as string[]).length
+    recordNumber++
+    if (recordNumber * width > maxFields) {
+      tooLarge = true
+      return false
+    }
+    if (errors.length > 0) {
+      issues.push({ kind: 'record', recordNumber, message: errors.join('; '), raw })
+    } else if (data.length !== width) {
+      issues.push({ kind: 'record', recordNumber, message: `Expected ${width} fields, found ${data.length}`, raw })
+    } else if (issues.length === 0) {
+      const row: Row = emptyDict()
+      for (let i = 0; i < width; i++) row[(headers as string[])[i]] = data[i]
+      rows.push(row)
+      if (layout) spans.push(span)
+    }
+    return true
   }
 
   Papa.parse<string[]>(input, {
@@ -69,10 +145,27 @@ export function parseCsv(
     dynamicTyping: false,
     skipEmptyLines: true,
     step(result, parser) {
-      const raw = input.slice(previousCursor, result.meta.cursor).replace(/^[\r\n]+|[\r\n]+$/g, '')
-      previousCursor = result.meta.cursor
+      const cursor = result.meta.cursor
+      const segment = input.slice(previousCursor, cursor)
+      const leading = segment.length - segment.replace(/^[\r\n]+/, '').length
+      const raw = segment.replace(/^[\r\n]+|[\r\n]+$/g, '')
+      const first = breaksBefore + lineBreaks(input, previousCursor, previousCursor + leading) + 1
+      const span = { first, last: first + lineBreaks(raw, 0, raw.length) }
+      breaksBefore += lineBreaks(input, previousCursor, cursor)
+      previousCursor = cursor
       // A single-column file has no delimiter to detect; that is not an error.
       const errors = result.errors.filter((e) => e.code !== 'UndetectableDelimiter')
+      seen++
+
+      if (seen < headerRecord) {
+        if (errors.length > 0) {
+          fatal = errors.map((e): ParseIssue => ({ kind: 'header', message: `Record ${seen}, before the header: ${e.message}` }))
+          parser.abort()
+          return
+        }
+        skipped.before.push(raw)
+        return
+      }
 
       if (headers === null) {
         delimiter = (GUESSABLE as string[]).includes(result.meta.delimiter)
@@ -87,31 +180,25 @@ export function parseCsv(
         return
       }
 
-      recordNumber++
-      if (recordNumber * headers.length > maxFields) {
-        tooLarge = true
+      pending.push({ data: result.data, errors: errors.map((e) => e.message), raw, span })
+      if (pending.length > skipTrailing && !accept(pending.shift() as Pending)) {
         parser.abort()
         return
       }
-      if (onProgress && recordNumber % PROGRESS_EVERY === 0) onProgress('parse', result.meta.cursor, input.length)
-      if (errors.length > 0) {
-        reportRecord(errors.map((e) => e.message).join('; '), raw)
-      } else if (result.data.length !== headers.length) {
-        reportRecord(`Expected ${headers.length} fields, found ${result.data.length}`, raw)
-      } else if (issues.length === 0) {
-        const row: Row = emptyDict()
-        for (let i = 0; i < headers.length; i++) row[headers[i]] = result.data[i]
-        rows.push(row)
-      }
+      if (onProgress && recordNumber > 0 && recordNumber % PROGRESS_EVERY === 0) onProgress('parse', cursor, input.length)
     },
   })
 
   onProgress?.('parse', input.length, input.length)
   if (headers === null) {
-    return { ok: false, issues: [{ kind: 'header', message: 'The file is empty' }] }
+    if (fatal.length > 0) return { ok: false, issues: fatal }
+    const message = layout && seen > 0 ? tooFewRecordsMessage(seen, headerRecord) : 'The file is empty'
+    return { ok: false, issues: [{ kind: 'header', message }] }
   }
   if (tooLarge) return { ok: false, issues: [{ kind: 'file', message: tooManyFieldsMessage(maxFields) }] }
   if (fatal.length > 0) return { ok: false, issues: fatal }
   if (issues.length > 0) return { ok: false, issues }
-  return { ok: true, file: { headers, rows, format: { kind: 'csv', delimiter }, notes: [] } }
+  skipped.after = pending.map((p) => p.raw)
+  const file: ParsedFile = { headers, rows, format: { kind: 'csv', delimiter }, notes: [] }
+  return { ok: true, file: layout ? { ...file, spans, skipped } : file }
 }

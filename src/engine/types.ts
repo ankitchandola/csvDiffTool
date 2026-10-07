@@ -37,6 +37,19 @@ export type Row = Record<string, string>
 
 export type FileFormat = { kind: 'csv'; delimiter: Delimiter } | { kind: 'xlsx'; sheet: string; sheets: string[] }
 
+// Where a record sits in the original file, inclusive and 1-based: physical lines for a
+// CSV (a quoted field can span several), worksheet rows for an .xlsx.
+export interface Span {
+  first: number
+  last: number
+}
+
+// Records outside the table that a layout excluded, as raw text.
+export interface SkippedRecords {
+  before: string[]
+  after: string[]
+}
+
 // rows[i] is record number i + 1; the header record is not counted.
 export interface ParsedFile {
   headers: string[]
@@ -44,6 +57,9 @@ export interface ParsedFile {
   format: FileFormat
   // Things read as stored that the user may not expect, such as merged cells.
   notes: string[]
+  // Present only when the file was read with a layout; spans[i] locates rows[i].
+  spans?: Span[]
+  skipped?: SkippedRecords
 }
 
 export interface KeyRef {
