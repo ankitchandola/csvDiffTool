@@ -1,7 +1,7 @@
 # Reconciliation: product spec and implementation plan
 
-Status: milestones 0-2 implemented as an experimental, suggestion-only mode on
-`main` (`84aa1b5`, PR #2); milestones 3-6 proposed. See
+Status: milestones 0-2 on `main` (`84aa1b5`, PR #2); milestone 3 (durable review)
+implemented on branch `feat/reconcile-review`, not yet merged; milestones 4-6 proposed. See
 [Implementation status](#15-implementation-status-milestones-0-2).  
 Date: 2026-10-07.
 
@@ -839,7 +839,7 @@ Preserve the project's existing test/build/lint checks throughout development.
 These are implementation gates, not silent defaults. Record each accepted decision
 and its tests in this spec as milestones begin.
 
-## 15. Implementation status (milestones 0-2)
+## 15. Implementation status
 
 Labels as in the [V1 implementation spec](v1-implementation-spec.md):
 implemented, tested, not yet verified, not implemented. Each snapshot lists its
@@ -896,13 +896,36 @@ At the 2,000,000-pair budget, finding suggestions took 0.8-1.0 s and peaked roug
 report an incomplete search in the same time. The budget stays at 2,000,000. The gate
 is met for this device only; lower-memory devices and other browsers are unmeasured.
 
+### Milestone 3: durable review (branch `feat/reconcile-review`, not yet merged)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Decision events keyed by source fingerprint and record number; replay with one active match per transaction, rejections kept across rule changes, lapsing on source replacement or when a suggested confirm no longer meets the rules; direction never overridable; manual pairs need the exact broken rules and a reason | `src/reconciliation/decisions.ts` | Unit tests |
+| Versioned session file: id, revision, context, mappings, rules, source descriptors, complete ordered history, snapshots with decimal text; import validates everything and replays the history structurally before use | `src/reconciliation/session.ts` | Unit tests: exact round trip, unsupported versions, gaps, contradictions, wrong-side keys, numeric amounts, reasons |
+| Worker validation of each decision against the current files (`decide`, `checkPair`), replay after every run (`setDecisions`), Confirmed/Unmatched/Rejected tabs filtered by decisions | `src/worker/reconcile-handler.ts` | Unit tests, including lapsing after a file is replaced |
+| History, revision and snapshots kept on the page, outside the worker; opt-in IndexedDB saving that checks and writes in one transaction and refuses a different session or a revision another tab advanced; separate browser-storage and backup indicators | `src/ui/reconcile/use-session.ts`, `session-store.ts`, `save-status.ts` | Unit tests for the store rules and indicators; Playwright for real IndexedDB |
+| Review UI: confirm, reject, restore, unmatch, manual pair with reason; J/K/↓/↑, C, X on focused rows only; lapsed notices; decision history; session bar | `src/ui/reconcile/` | Playwright: buttons and keys, typing never triggers a key, manual pair blocked across directions and gated on a reason, backup export then reload and import, a replaced file lapsing a decision, browser saving with resume after reload, a stale second tab refused, cancel then reread keeping decisions |
+
+The session revision advances with every decision and with every change to files,
+mappings or rules once the setup is complete. Checks run locally at this branch's
+head: `npm test` 377 passed; `npm run lint` clean; `npm run build` passed;
+`npm run test:ui` 26 passed in each of two repeated runs (Chrome).
+
+Not implemented in milestone 3: bulk confirmation of interchangeable sets, the row
+inspector, and the O (classify as outstanding) shortcut, which belongs with
+outstanding-item classification in milestone 4. Confirm atomicity is enforced by
+the worker's sequence check and validation before the page records the event; a
+failure between the two (the page closing in between) leaves the worker ahead of
+the page until the next run, when the page's history is replayed.
+
 ### Not implemented in this snapshot
 
-- Any decision: confirm, reject, manual pair, unmatch, interchangeable-set bulk
-  confirm (milestone 3). The UI has no confirm control.
+- In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above), except
+  bulk confirmation of interchangeable sets.
 - Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
 - Two-digit-year pivots: such dates are always problems.
-- Saving reconciliation profiles or sessions; reloading clears the session.
+- Saving reconciliation profiles separately from sessions (milestone 3 saves the
+  mapping inside a session only).
 - Exports, balances, completion statuses, carry-forward, grouped matching.
 - Per-file worksheet preferences beyond the existing sheet picker.
 
