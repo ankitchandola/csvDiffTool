@@ -1,6 +1,6 @@
 import type { Layout, ParseIssue } from '../engine/parse'
 import type { Delimiter, FileFormat, Span } from '../engine/types'
-import type { DecisionEvent, PairCheck, TxnKey } from '../reconciliation/decisions'
+import type { DecisionEvent, Pair, PairCheck, TxnKey } from '../reconciliation/decisions'
 import type { Tier } from '../reconciliation/match'
 import type { TransactionSnapshot } from '../reconciliation/session'
 import type { Direction, MatchingRules, ProblemField, ReconSide, SessionContext, SideMapping } from '../reconciliation/types'
@@ -108,6 +108,35 @@ export interface SuggestionItem {
   gap: number
   bank: TransactionView
   books: TransactionView
+  // Set when the pair's group is a repeated, identical transaction on each side.
+  set: SetKind | null
+}
+
+// 'interchangeable': on each side every member has the same date, amount, direction,
+// reference and description, so any pairing is economically the same.
+// 'different-descriptions': the same except for descriptions; reviewed pair by pair.
+export type SetKind = 'interchangeable' | 'different-descriptions'
+
+// Members still available for bulk confirmation, in source order.
+export interface SetView {
+  group: number
+  kind: SetKind
+  bank: TransactionView[]
+  books: TransactionView[]
+  // Why the set can't be confirmed in one action now, if it can't.
+  blocked: string | null
+}
+
+export interface InspectDetail {
+  view: TransactionView
+  // The whole source row, in the file's column order.
+  headers: string[]
+  values: string[]
+  match: { other: TransactionView; event: DecisionEvent } | null
+  // Open suggestions this transaction is in, first few of total.
+  alternatives: SuggestionItem[]
+  alternativesTotal: number
+  rejectedPairs: number
 }
 
 export interface ProblemItem extends Location {
@@ -175,6 +204,10 @@ export type DecideResult =
   | { ok: true; event: DecisionEvent; snapshots: TransactionSnapshot[]; summary: DecisionSummary }
   | { ok: false; reason: string }
 
+export type DecideSetResult =
+  | { ok: true; events: DecisionEvent[]; snapshots: TransactionSnapshot[]; summary: DecisionSummary }
+  | { ok: false; reason: string }
+
 export interface PairCheckResult extends PairCheck {
   bank: TransactionView | null
   books: TransactionView | null
@@ -192,6 +225,11 @@ export interface ReconRequests {
   // seq must be the next in the history, so a decision can't be applied out of order.
   decide: { matchId: number; seq: number; at: string; decision: DecisionInput }
   checkPair: { matchId: number; bank: TxnKey; books: TxnKey }
+  getSet: { matchId: number; group: number }
+  // All pairs are validated before any is recorded: the set is confirmed whole or not at all.
+  decideSet: { matchId: number; group: number; seq: number; at: string; pairs: Pair[] }
+  // Null for a key that is not a valid transaction in the current files.
+  inspect: { matchId: number; keys: TxnKey[] }
 }
 
 export interface ReconResults {
@@ -203,6 +241,9 @@ export interface ReconResults {
   setDecisions: DecisionSummary
   decide: DecideResult
   checkPair: PairCheckResult
+  getSet: SetView
+  decideSet: DecideSetResult
+  inspect: (InspectDetail | null)[]
 }
 
 export type ReconRequest = {
