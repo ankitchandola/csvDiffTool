@@ -120,3 +120,16 @@ describe('decimal arithmetic', () => {
     expect(formatDecimal(d(text))).toBe(expected)
   })
 })
+
+describe('bracketed negatives', () => {
+  it('read only when asked', () => {
+    expect(parseDecimal('(100.00)')).toBeNull()
+    expect(parseDecimal('(100.00)', { parentheses: true })).toEqual({ units: -10000n, scale: 2 })
+    expect(parseDecimal('(1,23,456.00)', { parentheses: true, grouped: true })).toEqual({ units: -12345600n, scale: 2 })
+    expect(parseDecimal('100.00', { parentheses: true })).toEqual({ units: 10000n, scale: 2 })
+  })
+
+  it.each(['(-100)', '(+100)', '(100-)', '(100)-', '(100', '100)', '()', '(1,000)'])('reject %j', (text) => {
+    expect(parseDecimal(text, { parentheses: true, trailingMinus: true })).toBeNull()
+  })
+})

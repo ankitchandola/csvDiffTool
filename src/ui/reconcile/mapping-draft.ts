@@ -20,6 +20,7 @@ export interface MappingDraft {
   unused: 'blank' | 'blank-or-zero'
   grouped: boolean
   trailingMinus: boolean
+  parentheses: boolean
   reference: string
   description: string
 }
@@ -39,6 +40,7 @@ export function emptyDraft(): MappingDraft {
     unused: 'blank',
     grouped: false,
     trailingMinus: false,
+    parentheses: false,
     reference: '',
     description: '',
   }
@@ -55,7 +57,7 @@ export function toMapping(draft: MappingDraft, headers: string[]): DraftOutcome 
       draft.amountKind === 'signed'
         ? { kind: 'signed', column: draft.amountColumn, positiveIs: draft.positiveIs }
         : { kind: 'split', inColumn: draft.inColumn, outColumn: draft.outColumn, unused: draft.unused },
-    amountFormat: { grouped: draft.grouped, trailingMinus: draft.trailingMinus },
+    amountFormat: { grouped: draft.grouped, trailingMinus: draft.trailingMinus, parentheses: draft.parentheses },
     reference: draft.reference || null,
     description: draft.description || null,
   }
