@@ -11,7 +11,9 @@ export function dateEvidence(gap: number): string {
   return gap > 0 ? `bank date ${days(gap)} after books` : `bank date ${days(-gap)} before books`
 }
 
-function referenceEvidence(item: SuggestionItem, rules: MatchingRules): string {
+type Evidence = Pick<SuggestionItem, 'tier' | 'gap' | 'bank' | 'books'>
+
+function referenceEvidence(item: Evidence, rules: MatchingRules): string {
   if (!rules.referencesShared) return 'references not compared'
   if (item.tier === 1) return 'reference matched'
   const bank = item.bank.reference !== null
@@ -25,6 +27,6 @@ export function competitionText(item: SuggestionItem): string {
 }
 
 // Plain statements of the rules a pair met, not a probability.
-export function evidenceText(item: SuggestionItem, rules: MatchingRules): string {
+export function evidenceText(item: Evidence, rules: MatchingRules): string {
   return `Amount exact; ${dateEvidence(item.gap)}; ${referenceEvidence(item, rules)}.`
 }

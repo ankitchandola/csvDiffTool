@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { emptyDraft, toMapping } from './mapping-draft'
+import { draftFromMapping, emptyDraft, toMapping } from './mapping-draft'
 
 describe('toMapping', () => {
   it('asks for every required choice, including an explicit date format', () => {
@@ -16,5 +16,14 @@ describe('toMapping', () => {
       ok: true,
       mapping: { amount: { kind: 'split', inColumn: 'Credit', outColumn: 'Debit', unused: 'blank' }, reference: null, description: null },
     })
+  })
+})
+
+describe('draftFromMapping', () => {
+  it('round-trips through toMapping', () => {
+    const draft = { ...emptyDraft(), dateColumn: 'Date', dateFormat: 'DD-Mon-YYYY' as const, amountKind: 'split' as const, inColumn: 'In', outColumn: 'Out', parentheses: true, description: 'Memo' }
+    const outcome = toMapping(draft, ['Date', 'In', 'Out', 'Memo'])
+    if (!outcome.ok) throw new Error(outcome.issues.join())
+    expect(toMapping(draftFromMapping(outcome.mapping), ['Date', 'In', 'Out', 'Memo'])).toEqual(outcome)
   })
 })
