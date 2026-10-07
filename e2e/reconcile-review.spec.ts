@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { BANK, BOOKS, loadAndMap } from './reconcile-helpers'
+import { BANK, BOOKS, choose, loadAndMap } from './reconcile-helpers'
 
 async function findSuggestions(page: Page) {
   await page.getByRole('button', { name: 'Find suggestions' }).click()
@@ -183,4 +183,68 @@ test('cancelling the worker keeps decisions, which apply again after the files a
   await page.getByRole('button', { name: 'Map dates and amounts' }).click()
   await findSuggestions(page)
   await expect(tabCount(page, 'Confirmed')).toHaveText('1')
+})
+
+const SET_BANK = ['Date,Details,Credit,Debit,Ref', '05/09/2026,NETFLIX,,9.99,', '05/09/2026,NETFLIX,,9.99,', '05/09/2026,NETFLIX,,9.99,', '06/09/2026,Rent,,50.00,'].join('\n')
+const SET_BOOKS = ['date,memo,amount,ref', '2026-09-05,Netflix,-9.99,', '2026-09-05,Netflix,-9.99,', '2026-09-06,Rent,-50,', '2026-09-06,Other rent,-50,'].join('\n')
+
+async function mapSetFiles(page: Page) {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Reconcile/ }).click()
+  await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(SET_BANK) })
+  await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(SET_BOOKS) })
+  await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+  await page.getByLabel('Currency').fill('INR')
+  await choose(page, 'Bank statement date column', 'Date')
+  await choose(page, 'Bank statement date format', 'DD/MM/YYYY')
+  await page.getByRole('radiogroup', { name: 'Bank statement amount layout' }).getByLabel(/Separate/).check()
+  await choose(page, 'Bank statement money-in column', 'Credit')
+  await choose(page, 'Bank statement money-out column', 'Debit')
+  await choose(page, 'Bank statement description column', 'Details')
+  await choose(page, 'Books date column', 'date')
+  await choose(page, 'Books date format', 'YYYY-MM-DD')
+  await choose(page, 'Books amount column', 'amount')
+  await choose(page, 'Books description column', 'memo')
+  await findSuggestions(page)
+}
+
+test('an identical set is confirmed in one step, with the reviewer choosing which extra row stays unmatched', async ({ page }) => {
+  await mapSetFiles(page)
+  await expect(page.getByText('Identical amounts and dates, different descriptions: review pair by pair.').first()).toBeVisible()
+  await page.locator('.review-row', { hasText: 'Identical set' }).first().getByRole('button', { name: 'Confirm set…' }).click()
+  const panel = page.getByRole('region', { name: /Confirm set/ })
+  await expect(panel).toContainText('3 bank transactions · 2 books transactions still open')
+  await expect(panel.getByRole('checkbox', { checked: true })).toHaveCount(2)
+  await expect(panel.locator('.set-pairs li')).toHaveText(['Bank record 1 · line 2 ↔ Books record 1 · line 2', 'Bank record 2 · line 3 ↔ Books record 2 · line 3'])
+  // Keep record 3 instead of record 2.
+  await panel.getByRole('checkbox', { name: 'Bank record 2 · line 3' }).uncheck()
+  await panel.getByRole('checkbox', { name: 'Bank record 3 · line 4' }).check()
+  await expect(panel.locator('.set-pairs li').nth(1)).toHaveText('Bank record 3 · line 4 ↔ Books record 2 · line 3')
+  await panel.getByRole('button', { name: 'Confirm 2 pairs' }).click()
+  await expect(tabCount(page, 'Confirmed')).toHaveText('2')
+  await expect(page.locator('.save-status')).toContainText('2 decisions')
+  await page.getByRole('tab', { name: /^Confirmed/ }).click()
+  await expect(page.locator('.review-row').first()).toContainText('Confirmed as part of an identical set; the pairing within the set is arbitrary')
+  await page.getByRole('tab', { name: /^Unmatched/ }).click()
+  await expect(page.locator('.review-row', { hasText: 'Bank record 2 · line 3' })).toBeVisible()
+})
+
+test('details show the whole source row, open alternatives and variance, and open with Enter', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await loadAndMap(page)
+  await findSuggestions(page)
+  const row = page.locator('.review-row', { hasText: 'Subscription' }).first()
+  await row.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Transaction details' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('Amount difference (bank − books): none. Dates: bank date 1 day before books.')
+  await expect(dialog.locator('.inspect-detail').first()).toContainText('Open suggestions (2)')
+  await expect(dialog.locator('.inspect-detail').first().locator('th')).toHaveText(['Date', 'Details', 'Credit', 'Debit', 'Ref'])
+  await dialog.getByRole('button', { name: 'Copy source row' }).first().click()
+  await expect(dialog.getByRole('status')).toHaveText('Copied as tab-separated text.')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Date\tDetails\tCredit\tDebit\tRef\n02/09/2026\tSubscription\t\t9.99\t')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(row).toBeFocused()
 })
