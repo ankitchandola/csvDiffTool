@@ -886,6 +886,16 @@ checked with these additions.
 
 
 
+### Browser measurement for the milestone 3 entry gate
+
+Dense repeated-amount cases were measured in Chrome 154 on an Apple M4 / 16 GB, through
+candidate search, conflict groups and paging to the last suggestion, with Chrome
+process-tree memory: see [Reconcile in the browser](benchmarks.md#reconcile-in-the-browser).
+At the 2,000,000-pair budget, finding suggestions took 0.8-1.0 s and peaked roughly
+0.1-0.4 GiB above the browser's baseline; larger dense inputs stop at the budget and
+report an incomplete search in the same time. The budget stays at 2,000,000. The gate
+is met for this device only; lower-memory devices and other browsers are unmeasured.
+
 ### Not implemented in this snapshot
 
 - Any decision: confirm, reject, manual pair, unmatch, interchangeable-set bulk
@@ -902,7 +912,5 @@ checked with these additions.
 - Cancel pressed while matching specifically. Matching is capped at the candidate
   budget and finished in under a second in Node measurements, so a browser test cannot
   land Cancel inside it reliably; the UI runs the same cancel path for every task.
-- Candidate-budget exhaustion in a browser.
-- Large inputs: no reconciliation benchmark has been run, and the 2,000,000
-  candidate budget is chosen, not measured.
+- The 2,000,000-candidate budget on devices other than the one measured (see below).
 - Other browsers, screen readers and touch use of the new forms.

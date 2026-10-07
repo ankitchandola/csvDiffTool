@@ -129,3 +129,38 @@ Fitting these gives roughly 580 bytes per cell plus 21 bytes per character (with
 about 20%). The caps, 1,000,000 cells and 25,000,000 characters, put a result at both
 at about 1.1 GB, near the 1,000-character case; the 44-million-character case itself
 is over the text cap and would now be refused.
+
+## Reconcile in the browser
+
+`npm run build && npm run bench:reconcile` drives Reconcile in Chrome on a production
+preview (`scripts/bench/reconcile-browser.ts`). Each case uses a fresh browser, two
+generated CSVs with `date,amount` columns, exact amounts and the default ±3-day window.
+It times the UI round trips: reading both files, "Check mapping", "Find suggestions"
+until the first suggestion renders (normalization, candidate search, conflict groups,
+sorting and the first page), and scrolling to the last page of suggestions.
+
+Memory is the summed resident set size of Chrome's processes, sampled every 50 ms,
+above a baseline taken after the mapping check. It covers the whole browser, not only
+the worker, so unrelated processes move it, and sampling can miss short peaks. Treat
+the ranges as rough evidence, not bounds.
+
+Measured 2026-10-07, three runs per case, on an Apple M4 with 16 GB RAM, macOS, Chrome
+154.0.8037.98, at 1440 × 900.
+
+| Case | Rows per side | Candidate pairs | Groups | Search | Find suggestions | Last page | Peak above baseline |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |
+| One amount, one day | 1,000 | 1,000,000 | 1 | complete | 0.4 s | 0.2–0.4 s | 77–163 MiB |
+| One amount, one day | 1,414 | 1,999,396 | 1 | complete | 0.8–1.0 s | 0.4–0.8 s | 200–352 MiB |
+| One amount, one day | 3,000 | 2,000,000 | 1 | budget reached | 0.9 s | 0.4 s | 104–358 MiB |
+| One amount, one day | 20,000 | 2,000,000 | 1 | budget reached | 0.9 s | 0.4 s | 160–290 MiB |
+| 500 amounts over 30 days | 50,000 | 1,112,000 | 500 | complete | 0.9 s | 0.2–0.4 s | 3–156 MiB |
+| Distinct amounts | 200,000 | 200,000 | 200,000 | complete | 0.8–0.9 s | 0.04–0.05 s | 42–127 MiB |
+
+- **The candidate budget bounds the work.** Past it, more rows (3,000 or 20,000 per
+  side of one amount) cost no more time than the 2M-pair case: the search stops at the
+  budget and reports itself incomplete.
+- **At the budget, finding suggestions takes about one second** and holds roughly
+  0.1–0.4 GiB above the browser's baseline on this machine. The 2,000,000-pair budget
+  stays; it is now measured on one device rather than only chosen.
+- **Not measured:** lower-memory laptops and phones, other browsers, worker heap
+  separately from the rest of Chrome, and inputs near the file-size limits.
