@@ -139,7 +139,7 @@ function readEvent(value: unknown, index: number): DecisionEvent {
   if (Number.isNaN(Date.parse(at))) fail(`${where}.at must be a timestamp`)
   const event: DecisionEvent = { seq, at, action, bank, books }
   if (action === 'confirm') {
-    event.origin = oneOf(e.origin, ['suggested', 'manual'] as const, `${where}.origin`)
+    event.origin = oneOf(e.origin, ['suggested', 'manual', 'set'] as const, `${where}.origin`)
     if (e.exceptions !== undefined) {
       if (!Array.isArray(e.exceptions)) fail(`${where}.exceptions must be a list`)
       event.exceptions = e.exceptions.map((x, i) => oneOf<RuleException>(x, ['amount', 'date', 'reference'], `${where}.exceptions[${i}]`))
