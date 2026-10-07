@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeftRight, CheckCircle2, CircleSlash, Search, XCircle } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react'
-import { type DecisionEvent, EXCEPTION_LABELS, parseTxnKey } from '../../reconciliation/decisions'
+import { type DecisionEvent, EXCEPTION_LABELS, type Pair, type TxnKey } from '../../reconciliation/decisions'
 import type { TransactionSnapshot } from '../../reconciliation/session'
 import type { Direction, MatchingRules, ReconSide } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
@@ -9,14 +9,12 @@ import type {
   DecisionInput,
   DecisionSummary,
   MatchSummary,
-  OriginalValues,
   PairCheckResult,
   ProblemItem,
   RejectedItem,
   ReviewItems,
   ReviewTab,
   SuggestionItem,
-  TransactionView,
   UnmatchedItem,
 } from '../../worker/reconcile-protocol'
 import { count, counted, formatValue } from '../format'
@@ -24,40 +22,13 @@ import { VirtualList } from '../results/VirtualList'
 import { Select } from '../Select'
 import { useDebounced } from '../use-debounced'
 import { competitionText, dateEvidence, evidenceText } from './evidence'
-import { type Formats, locationText, SIDE_LABELS } from './location'
+import { type Formats, keyLabel, locationText, originalAmount } from './location'
+import { Inspector } from './Inspector'
+import { SetConfirm } from './SetConfirm'
+import { TransactionCard } from './TransactionCard'
 
 // Resolves to an error message, or null once the decision is recorded.
 export type Decide = (decision: DecisionInput) => Promise<string | null>
-
-function originalAmount(original: OriginalValues): string {
-  return original.amount.length === 1 ? formatValue(original.amount[0]) : `in ${formatValue(original.amount[0])} · out ${formatValue(original.amount[1])}`
-}
-
-function Transaction({ t, formats }: { t: TransactionView; formats: Formats }) {
-  return (
-    <div className="txn">
-      <div className="txn-main">
-        <span className="mono">{t.date}</span>
-        <span className={`mono amount ${t.direction}`}>{t.amount}</span>
-        <span className="muted">{t.direction === 'in' ? 'money in' : 'money out'}</span>
-      </div>
-      {(t.reference !== null || t.original.description) && (
-        <div className="txn-context">
-          {t.reference !== null && <span className="mono">Ref {t.reference}</span>}
-          {t.original.description && <span>{t.original.description}</span>}
-        </div>
-      )}
-      <div className="txn-source muted">
-        {locationText(t, formats)} · as written: {formatValue(t.original.date)}, {originalAmount(t.original)}
-      </div>
-    </div>
-  )
-}
-
-function keyLabel(key: string): string {
-  const parsed = parseTxnKey(key)
-  return parsed ? `${SIDE_LABELS[parsed.side]} record ${count(parsed.recordNumber)}` : key
-}
 
 function Missing({ keyText }: { keyText: string }) {
   return <div className="txn muted">{keyLabel(keyText)}: not a valid transaction in the current files</div>
@@ -73,7 +44,33 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-function SuggestionRow({ item, rules, formats, busy, onDecide }: { item: SuggestionItem; rules: MatchingRules; formats: Formats; busy: boolean; onDecide: Decide }) {
+type Inspect = (keys: TxnKey[]) => void
+
+function DetailsButton({ keys, onInspect }: { keys: TxnKey[]; onInspect: Inspect }) {
+  return (
+    <button type="button" className="secondary" data-action="inspect" aria-keyshortcuts="Enter" onClick={() => onInspect(keys)}>
+      Details
+    </button>
+  )
+}
+
+function SuggestionRow({
+  item,
+  rules,
+  formats,
+  busy,
+  onDecide,
+  onInspect,
+  onOpenSet,
+}: {
+  item: SuggestionItem
+  rules: MatchingRules
+  formats: Formats
+  busy: boolean
+  onDecide: Decide
+  onInspect: Inspect
+  onOpenSet: (group: number) => void
+}) {
   const pair = { bank: item.bank.key, books: item.books.key }
   return (
     <Row label={`Suggested pair: ${locationText(item.bank, formats)} and ${locationText(item.books, formats)}`}>
@@ -81,11 +78,13 @@ function SuggestionRow({ item, rules, formats, busy, onDecide }: { item: Suggest
         <div className="group-label">
           <span className={item.unique ? 'chip' : 'chip competing'}>Group {count(item.group + 1)}</span>
           <span className="muted">{competitionText(item)}</span>
+          {item.set === 'interchangeable' && <span className="chip">Identical set</span>}
+          {item.set === 'different-descriptions' && <span className="muted">Identical amounts and dates, different descriptions: review pair by pair.</span>}
         </div>
         <div className="pair">
-          <Transaction t={item.bank} formats={formats} />
+          <TransactionCard t={item.bank} formats={formats} />
           <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
-          <Transaction t={item.books} formats={formats} />
+          <TransactionCard t={item.books} formats={formats} />
         </div>
         <div className="row-actions">
           <p className="evidence">{evidenceText(item, rules)}</p>
@@ -95,6 +94,12 @@ function SuggestionRow({ item, rules, formats, busy, onDecide }: { item: Suggest
           <button type="button" className="secondary" data-action="reject" aria-keyshortcuts="X" disabled={busy} onClick={() => void onDecide({ action: 'reject', ...pair })}>
             <XCircle size={15} aria-hidden="true" /> Reject
           </button>
+          {item.set === 'interchangeable' && (
+            <button type="button" className="secondary" disabled={busy} onClick={() => onOpenSet(item.group)}>
+              Confirm set…
+            </button>
+          )}
+          <DetailsButton keys={[pair.bank, pair.books]} onInspect={onInspect} />
         </div>
       </div>
     </Row>
@@ -102,12 +107,13 @@ function SuggestionRow({ item, rules, formats, busy, onDecide }: { item: Suggest
 }
 
 function decisionNote(event: DecisionEvent): string {
+  if (event.origin === 'set') return 'Confirmed as part of an identical set; the pairing within the set is arbitrary'
   if (event.origin !== 'manual') return 'Confirmed from a suggestion'
   const broken = (event.exceptions ?? []).map((e) => EXCEPTION_LABELS[e])
   return `Manual pair${broken.length > 0 ? `: ${broken.join(', ')}` : ''}${event.reason ? ` — “${event.reason}”` : ''}`
 }
 
-function ConfirmedRow({ item, rules, formats, busy, onDecide }: { item: ConfirmedItem; rules: MatchingRules; formats: Formats; busy: boolean; onDecide: Decide }) {
+function ConfirmedRow({ item, rules, formats, busy, onDecide, onInspect }: { item: ConfirmedItem; rules: MatchingRules; formats: Formats; busy: boolean; onDecide: Decide; onInspect: Inspect }) {
   const evidence =
     item.tier === null
       ? `Outside the rules: ${dateEvidence(item.gap)}.`
@@ -120,22 +126,23 @@ function ConfirmedRow({ item, rules, formats, busy, onDecide }: { item: Confirme
           <span className="muted">{decisionNote(item.event)}</span>
         </div>
         <div className="pair">
-          <Transaction t={item.bank} formats={formats} />
+          <TransactionCard t={item.bank} formats={formats} />
           <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
-          <Transaction t={item.books} formats={formats} />
+          <TransactionCard t={item.books} formats={formats} />
         </div>
         <div className="row-actions">
           <p className="evidence">{evidence}</p>
           <button type="button" className="secondary" data-action="unmatch" disabled={busy} onClick={() => void onDecide({ action: 'unmatch', bank: item.bank.key, books: item.books.key })}>
             Unmatch
           </button>
+          <DetailsButton keys={[item.bank.key, item.books.key]} onInspect={onInspect} />
         </div>
       </div>
     </Row>
   )
 }
 
-function RejectedRow({ item, formats, busy, onDecide }: { item: RejectedItem; formats: Formats; busy: boolean; onDecide: Decide }) {
+function RejectedRow({ item, formats, busy, onDecide, onInspect }: { item: RejectedItem; formats: Formats; busy: boolean; onDecide: Decide; onInspect: Inspect }) {
   return (
     <Row label={`Rejected pair: ${keyLabel(item.bankKey)} and ${keyLabel(item.booksKey)}`}>
       <div className="suggestion">
@@ -144,15 +151,16 @@ function RejectedRow({ item, formats, busy, onDecide }: { item: RejectedItem; fo
           <span className="muted">Rejected; hidden from suggestions</span>
         </div>
         <div className="pair">
-          {item.bank ? <Transaction t={item.bank} formats={formats} /> : <Missing keyText={item.bankKey} />}
+          {item.bank ? <TransactionCard t={item.bank} formats={formats} /> : <Missing keyText={item.bankKey} />}
           <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
-          {item.books ? <Transaction t={item.books} formats={formats} /> : <Missing keyText={item.booksKey} />}
+          {item.books ? <TransactionCard t={item.books} formats={formats} /> : <Missing keyText={item.booksKey} />}
         </div>
         <div className="row-actions">
           <span />
           <button type="button" className="secondary" data-action="restore" disabled={busy} onClick={() => void onDecide({ action: 'restore', bank: item.bankKey, books: item.booksKey })}>
             Restore suggestion
           </button>
+          <DetailsButton keys={[item.bankKey, item.booksKey]} onInspect={onInspect} />
         </div>
       </div>
     </Row>
@@ -216,9 +224,9 @@ function ManualPair({
     <section className="manual-pair" aria-label="Manual pair">
       <p className="note">Select one bank and one books transaction below to pair them by hand.</p>
       <div className="pair">
-        {selection.bank ? <Transaction t={selection.bank} formats={formats} /> : <div className="txn muted">No bank transaction selected</div>}
+        {selection.bank ? <TransactionCard t={selection.bank} formats={formats} /> : <div className="txn muted">No bank transaction selected</div>}
         <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
-        {selection.books ? <Transaction t={selection.books} formats={formats} /> : <div className="txn muted">No books transaction selected</div>}
+        {selection.books ? <TransactionCard t={selection.books} formats={formats} /> : <div className="txn muted">No books transaction selected</div>}
       </div>
       {check?.blocked && <p className="error" role="alert">{check.blocked}</p>}
       {check && !check.blocked && (
@@ -276,7 +284,8 @@ const TABS: [ReviewTab, string, typeof Search][] = [
 
 const IGNORE_KEYS_IN = 'input, textarea, [role="combobox"], [role="tab"]'
 
-// J/K or the arrow keys move between rows; C confirms and X rejects the focused row.
+// J/K or the arrow keys move between rows; C confirms, X rejects and Enter opens the
+// details of the focused row.
 function reviewKeys(event: KeyboardEvent<HTMLElement>) {
   const target = event.target as HTMLElement
   if (target.closest(IGNORE_KEYS_IN) || event.altKey || event.ctrlKey || event.metaKey) return
@@ -295,7 +304,7 @@ function reviewKeys(event: KeyboardEvent<HTMLElement>) {
     return
   }
   if (!row || target !== row) return
-  const action = key === 'c' ? 'confirm' : key === 'x' ? 'reject' : null
+  const action = key === 'c' ? 'confirm' : key === 'x' ? 'reject' : key === 'enter' ? 'inspect' : null
   if (!action) return
   const button = row.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)
   if (!button || button.disabled) return
@@ -320,6 +329,7 @@ export function ReviewView({
   error,
   formats,
   onDecide,
+  onDecideSet,
 }: {
   client: ReconcileClient
   summary: MatchSummary
@@ -332,8 +342,11 @@ export function ReviewView({
   error: string | null
   formats: Formats
   onDecide: Decide
+  onDecideSet: (group: number, pairs: Pair[]) => Promise<string | null>
 }) {
   const [tab, setTab] = useState<ReviewTab>('suggested')
+  const [inspecting, setInspecting] = useState<TxnKey[] | null>(null)
+  const [openSet, setOpenSet] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<Direction | ''>('')
   const [selection, setSelection] = useState<Selection>({})
@@ -423,8 +436,20 @@ export function ReviewView({
           <>
             <p className="note">
               Counts are candidate pairs still open. Pairs in the same group compete; confirming one removes the others that share a transaction.
-              Keys: J/K or ↓/↑ move, C confirms, X rejects the focused pair.
+              Keys: J/K or ↓/↑ move, C confirms, X rejects, Enter shows details of the focused pair.
             </p>
+            {openSet !== null && (
+              <SetConfirm
+                client={client}
+                matchId={summary.matchId}
+                group={openSet}
+                version={version}
+                busy={busy}
+                formats={formats}
+                onConfirm={onDecideSet}
+                onClose={() => setOpenSet(null)}
+              />
+            )}
             <VirtualList<SuggestionItem>
               key={listKey}
               fetchPage={fetchPage('suggested')}
@@ -432,7 +457,13 @@ export function ReviewView({
               empty="No open suggestions."
               label="Suggested pairs, scroll to browse"
               summary={filteredNote('pair')}
-              renderRow={(item) => (item ? <SuggestionRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} /> : placeholder)}
+              renderRow={(item) =>
+                item ? (
+                  <SuggestionRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} onOpenSet={setOpenSet} />
+                ) : (
+                  placeholder
+                )
+              }
             />
           </>
         )}
@@ -446,7 +477,7 @@ export function ReviewView({
               empty="Nothing confirmed yet."
               label="Confirmed matches, scroll to browse"
               summary={filteredNote('match')}
-              renderRow={(item) => (item ? <ConfirmedRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} /> : placeholder)}
+              renderRow={(item) => (item ? <ConfirmedRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
           </>
         )}
@@ -473,7 +504,7 @@ export function ReviewView({
                 t ? (
                   <Row label={`Unmatched: ${locationText(t, formats)}`}>
                     <div className="unmatched-row">
-                      <Transaction t={t} formats={formats} />
+                      <TransactionCard t={t} formats={formats} />
                       <div className="row-actions">
                         <span className="muted">{t.suggestions === 0 ? 'No open suggestion' : `In ${counted(t.suggestions, 'open suggestion')}`}</span>
                         <button
@@ -484,6 +515,7 @@ export function ReviewView({
                         >
                           {selection[t.side]?.key === t.key ? 'Selected' : 'Select for pair'}
                         </button>
+                        <DetailsButton keys={[t.key]} onInspect={setInspecting} />
                       </div>
                     </div>
                   </Row>
@@ -504,7 +536,7 @@ export function ReviewView({
               empty="No rejected pairs."
               label="Rejected pairs, scroll to browse"
               summary={filteredNote('pair')}
-              renderRow={(item) => (item ? <RejectedRow item={item} formats={formats} busy={busy} onDecide={onDecide} /> : placeholder)}
+              renderRow={(item) => (item ? <RejectedRow item={item} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
           </>
         )}
@@ -523,6 +555,17 @@ export function ReviewView({
           </>
         )}
       </div>
+      {inspecting && (
+        <Inspector
+          client={client}
+          matchId={summary.matchId}
+          keys={inspecting}
+          rules={summary.rules}
+          formats={formats}
+          version={version}
+          onClose={() => setInspecting(null)}
+        />
+      )}
       <details className="history">
         <summary>Decision history ({count(events.length)})</summary>
         {events.length === 0 ? (

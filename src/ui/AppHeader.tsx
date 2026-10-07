@@ -67,7 +67,8 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
                 <p>This mode is experimental. You confirm every match yourself; nothing is confirmed automatically, and it does not yet show that an account is reconciled.</p>
                 <details>
                   <summary>Review decisions and keys</summary>
-                  <p>Confirm or reject suggested pairs, unmatch a confirmed pair, restore a rejected one, or pair two unmatched transactions by hand; a hand-made pair that breaks the rules needs a reason. On a focused row, J/K or ↓/↑ move, C confirms and X rejects.</p>
+                  <p>Confirm or reject suggested pairs, unmatch a confirmed pair, restore a rejected one, or pair two unmatched transactions by hand; a hand-made pair that breaks the rules needs a reason. On a focused row, J/K or ↓/↑ move, C confirms, X rejects and Enter shows its details: the whole source row, any confirmed match and other open suggestions.</p>
+                  <p>When repeated transactions are identical on each side, including their descriptions, Confirm set pairs them in one step; the pairing within the set is arbitrary, and you choose which extra rows stay unmatched.</p>
                 </details>
                 <details>
                   <summary>How pairs are suggested</summary>

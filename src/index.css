@@ -446,3 +446,18 @@ fieldset > label.choice { align-items: flex-start; margin: 0 0 12px; }
 .history ol { margin: 8px 0 0; padding-left: 22px; max-height: 240px; overflow: auto; }
 .history li { margin: 2px 0; overflow-wrap: anywhere; }
 .unmatched-row { padding: 11px 12px; font-size: 12px; }
+.set-confirm { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin: 12px 0; background: var(--bg); }
+.set-confirm h3 { font-size: 14px; margin: 0 0 6px; }
+.set-choice { margin: 8px 0; }
+.set-choice legend { font-weight: 400; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.set-pairs { margin: 8px 0; padding-left: 22px; font-size: 12px; }
+.inspector { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); border: 1px solid var(--border); border-radius: 10px; padding: 0 20px 20px; color: var(--text); background: var(--panel); }
+.inspector::backdrop { background: #29233766; }
+.inspector-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 14px 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+.inspector-head h2 { font-size: 16px; margin: 0; }
+.inspect-detail { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.inspect-detail h3 { font-size: 14px; margin: 0 0 8px; }
+.inspect-detail h4 { font-size: 12px; margin: 14px 0 4px; color: var(--muted); }
+.inspect-detail th { text-align: left; font-weight: 500; color: var(--muted); padding-right: 16px; }
+.alternatives { margin: 0; padding-left: 18px; font-size: 12px; }
+.set-counts { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
