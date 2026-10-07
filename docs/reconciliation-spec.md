@@ -1,8 +1,9 @@
 # Reconciliation: product spec and implementation plan
 
-Status: milestones 0-2 on `main` (`84aa1b5`, PR #2); milestone 3 (durable review)
-implemented on branch `feat/reconcile-review`, not yet merged; milestones 4-6 proposed. See
-[Implementation status](#15-implementation-status-milestones-0-2).  
+Status: milestones 0-2 and their follow-ups on `main` (PRs #2 and #3); milestone 3
+(durable review, PR #4) and fixes from a review of the milestone 2 code are not yet
+on `main`; milestones 4-6 proposed. See
+[Implementation status](#15-implementation-status).  
 Date: 2026-10-07.
 
 This document defines a new reconciliation mode alongside the existing comparison
@@ -872,7 +873,7 @@ regression: see the [deployed Reconcile report](reconcile-deployed-test-2026-10-
 (desktop Chrome in a remote cloud browser, 1363 × 936 viewport). The deployment
 commit was not independently verified.
 
-### Additions after `84aa1b5` (PR #3, not yet merged)
+### Additions after `84aa1b5` (PR #3, on `main` as `d4d7d4d`)
 
 | Area | Commit | Where | Tests |
 | --- | --- | --- | --- |
@@ -884,19 +885,6 @@ Checks run locally at `ae1bcc6`: `npm test` 345 passed; `npm run lint` clean;
 and the two cancel tests passed five repeats. The deployed site has not been
 checked with these additions.
 
-Fixes from a code review of the milestone 2 code, each reproduced before fixing:
-
-| Defect | Commit | Fix | Tests |
-| --- | --- | --- | --- |
-| An unclosed quote in a data row folded later rows into the last record; a trailing skip then dropped those transactions without a problem | `190e7e9` | A parse error in a skipped trailing record is fatal | Unit test with the reproducing file |
-| With twelve or more detail lines above the table, the delimiter guess saw only them and fell back to a comma | `190e7e9` | With a header record after the first, the guess starts at the header | Unit tests, including an explicit delimiter left as chosen |
-| Searching or filtering 2M suggested pairs took about 1.9 s and 1.2 s in Node | `07d1b10` | Search text built once per transaction; direction from the amount's sign: 0.15 s and 0.08 s | Unit test that a search can't match across two values |
-| The shared-reference option stayed on after a reference column was unset | see below | Only in effect while both sides map a reference column | Playwright |
-| After Cancel, a file showing parse problems kept a pager whose full list had gone with the worker | see below | Such files are read again like the others | Playwright |
-
-Checks run locally after these fixes: `npm test` 348 passed; `npm run lint`
-clean; `npm run build` passed; `npm run test:ui` 23 passed in each of two
-repeated runs.
 
 
 
@@ -910,7 +898,7 @@ At the 2,000,000-pair budget, finding suggestions took 0.8-1.0 s and peaked roug
 report an incomplete search in the same time. The budget stays at 2,000,000. The gate
 is met for this device only; lower-memory devices and other browsers are unmeasured.
 
-### Milestone 3: durable review (branch `feat/reconcile-review`, not yet merged)
+### Milestone 3: durable review (PR #4, not yet on `main`)
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -931,6 +919,22 @@ outstanding-item classification in milestone 4. Confirm atomicity is enforced by
 the worker's sequence check and validation before the page records the event; a
 failure between the two (the page closing in between) leaves the worker ahead of
 the page until the next run, when the page's history is replayed.
+
+### Fixes from a review of the milestone 2 code (not yet on `main`)
+
+Each defect was reproduced before fixing.
+
+| Defect | Commit | Fix | Tests |
+| --- | --- | --- | --- |
+| An unclosed quote in a data row folded later rows into the last record; a trailing skip then dropped those transactions without a problem | `81b3104` | A parse error in a skipped trailing record is fatal | Unit test with the reproducing file |
+| With twelve or more detail lines above the table, the delimiter guess saw only them and fell back to a comma | `81b3104` | With a header record after the first, the guess starts at the header | Unit tests, including an explicit delimiter left as chosen |
+| Searching or filtering 2M suggested pairs took about 1.9 s and 1.2 s in Node | `6491205` | Search text built once per transaction; direction from the amount's sign: 0.15 s and 0.08 s | Unit test that a search can't match across two values |
+| The shared-reference option stayed on after a reference column was unset | `7eba991` | Only in effect while both sides map a reference column | Playwright |
+| After Cancel, a file showing parse problems kept a pager whose full list had gone with the worker | `7eba991` | Such files are read again like the others | Playwright |
+
+Checks run locally with milestone 3 and these fixes together: `npm test` 380 passed;
+`npm run lint` clean; `npm run build` passed; `npm run test:ui` 28 passed in each of
+two repeated runs (Chrome).
 
 ### Not implemented in this snapshot
 
