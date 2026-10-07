@@ -824,6 +824,8 @@ verified, not implemented.
 | 1:1 candidates: exact signed amount, inclusive asymmetric window, shared-reference tier 1, conflicting references excluded, conflict groups across both sides, candidate budget reported as incomplete | `src/reconciliation/match.ts` | Unit tests, including 20 shuffled input orders giving identical suggestions |
 | Reconcile worker: per-side layouts, SHA-256 fingerprints, revisions, stale-request rejection, worker-side search, direction filter and paging | `src/worker/reconcile-handler.ts` | Unit tests |
 | Files -> Map -> Review UI, experimental banner, mode switch keeping both modes' state | `src/ui/reconcile/`, `src/ui/Root.tsx` | Playwright: full flow, search, tabs, stale-setup gating, mode switching, no horizontal overflow at 390 and 768 px |
+| Bracketed negatives as an explicit per-side mapping option (added after `84aa1b5`) | `src/engine/decimal.ts`, `src/reconciliation/normalize.ts` | Unit tests: grouped values, misplaced signs, unbalanced brackets, reversal in split columns |
+| Cancel in Reconcile (test added after `84aa1b5`) | `src/ui/reconcile/ReconcileApp.tsx` | Playwright: cancel while reading a 600,000-row statement, read again; cancel after suggestions exist drops them and asks for both files again |
 
 At this snapshot: `npm test` 334 passed; `npm run lint` clean; `npm run build`
 passed; `npm run test:ui` 19 passed. Two Compare checks in `e2e/workspace.spec.ts`
@@ -850,7 +852,9 @@ see the [deployed Reconcile report](reconcile-deployed-test-2026-10-07.md)
 ### Not yet verified
 
 - Real bank and accounting-system exports; Excel-generated workbooks.
-- Cancellation during Reconcile reading or matching (no automated test either).
+- Cancel pressed while matching specifically. Matching is capped at the candidate
+  budget and finished in under a second in Node measurements, so a browser test cannot
+  land Cancel inside it reliably; the UI runs the same cancel path for every task.
 - Candidate-budget exhaustion in a browser.
 - Large inputs: no reconciliation benchmark has been run, and the 2,000,000
   candidate budget is chosen, not measured.
