@@ -1,7 +1,7 @@
 # Reconciliation: product spec and implementation plan
 
 Status: milestones 0-2 implemented as an experimental, suggestion-only mode on
-branch `feat/reconciliation`; milestones 3-6 proposed. See
+`main` (`84aa1b5`, PR #2); milestones 3-6 proposed. See
 [Implementation status](#15-implementation-status-milestones-0-2).  
 Date: 2026-10-07.
 
@@ -64,6 +64,7 @@ provide an explicit migration path. The existing lightning artwork can remain.
 | [Benchmarks](benchmarks.md) | Whole-file parsing and export memory costs; measured versus chosen limits |
 | [Browser verification](browser-verification.md) | Evidence for the recorded comparison snapshot, not reconciliation |
 | [Deployed XLSX report](xlsx-browser-test-2026-10-06.md) | Independently generated input checks and the missing-formula-cache failure |
+| [Deployed Reconcile report](reconcile-deployed-test-2026-10-07.md) | Owner's check of milestones 0-2 on the deployed site at `84aa1b5` |
 
 Keep dated reports as historical evidence. New verification must name its commit,
 environment and tested behaviors. Use separate labels for proposed, implemented,
@@ -738,7 +739,7 @@ and its tests in this spec as milestones begin.
 
 ## 15. Implementation status (milestones 0-2)
 
-Snapshot: branch `feat/reconciliation`, 2026-10-07. Labels as in the
+Snapshot: `84aa1b5` on `main` (PR #2), 2026-10-07. Labels as in the
 [V1 implementation spec](v1-implementation-spec.md): implemented, tested, not yet
 verified, not implemented.
 
@@ -762,6 +763,12 @@ that already failed on `main` were fixed alongside: a stale "1 ambiguous keys"
 assertion, and the 1440 px results page, which the rules summary had pushed to
 981 px against the 900 px no-scroll check.
 
+A deployed-site check of this commit by the project owner passed for the date
+window, competing pairs, exclusions, normalization problems, CSV/`.xlsx` agreement,
+preamble line numbers, input blocking, exact values and a basic Compare regression:
+see the [deployed Reconcile report](reconcile-deployed-test-2026-10-07.md)
+(desktop Chrome in a remote cloud browser, 1363 × 936 viewport).
+
 ### Not implemented in this snapshot
 
 - Any decision: confirm, reject, manual pair, unmatch, interchangeable-set bulk
@@ -775,6 +782,8 @@ assertion, and the 1440 px results page, which the rules summary had pushed to
 ### Not yet verified
 
 - Real bank and accounting-system exports; Excel-generated workbooks.
+- Cancellation during Reconcile reading or matching (no automated test either).
+- Candidate-budget exhaustion in a browser.
 - Large inputs: no reconciliation benchmark has been run, and the 2,000,000
   candidate budget is chosen, not measured.
 - Other browsers, screen readers and touch use of the new forms.
