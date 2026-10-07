@@ -113,3 +113,45 @@ for (const width of [390, 768]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }
+
+// Reading this many rows takes seconds, so Cancel lands mid-task. Matching is capped
+// by its candidate budget and finishes too quickly to cancel reliably; Cancel runs the
+// same code whichever task is running.
+function bigBankStatement(): Buffer {
+  return Buffer.from('Account,1234\nPeriod,Sep 2026\nDate,Details,Credit,Debit,Ref\n' + '01/09/2026,x,100.00,,\n'.repeat(600_000) + 'Closing,,,,\n')
+}
+
+test.describe('cancel', () => {
+  test.describe.configure({ mode: 'serial', timeout: 90_000 })
+
+  test('while reading stops the work and asks for the file again', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: /Reconcile/ }).click()
+    const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
+    await bank.getByLabel('Header is record').fill('3')
+    await bank.getByLabel('Skip records at the end').fill('1')
+    await bank.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: bigBankStatement() })
+    await expect(page.locator('.activity-row', { hasText: 'Reading bank statement' })).toBeVisible()
+    await page.locator('.activity').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.locator('.activity')).toHaveCount(0)
+    await expect(bank.getByRole('alert')).toContainText('Cancelled')
+    await expect(page.getByRole('button', { name: 'Map dates and amounts' })).toBeDisabled()
+    await bank.getByRole('button', { name: 'Read bank.csv again' }).click()
+    await expect(bank.locator('.file-stats')).toContainText('600,000 records', { timeout: 60_000 })
+  })
+
+  test('drops earlier suggestions and needs both files read again', async ({ page }) => {
+    await loadAndMap(page)
+    await page.getByRole('button', { name: 'Find suggestions' }).click()
+    await expect(page.getByRole('heading', { name: 'Suggested pairs' })).toBeVisible()
+    await page.getByRole('button', { name: 'Files', exact: true }).click()
+    const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
+    await bank.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: bigBankStatement() })
+    await expect(page.locator('.activity-row', { hasText: 'Reading bank statement' })).toBeVisible()
+    await page.locator('.activity').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Read bank.csv again' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Read books.csv again' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '3 Review' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: '2 Map' })).toBeDisabled()
+  })
+})
