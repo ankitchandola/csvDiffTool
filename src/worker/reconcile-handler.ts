@@ -3,10 +3,25 @@ import { DEFAULT_LIMITS, type Limits } from '../engine/limits'
 import type { ParseIssue } from '../engine/parse'
 import type { ParsedFile } from '../engine/types'
 import { isoDate } from '../reconciliation/dates'
-import { findCandidates, type MatchOutcome } from '../reconciliation/match'
+import {
+  applyToState,
+  checkDecision,
+  checkPair,
+  type DecisionEvent,
+  parseTxnKey,
+  type Replay,
+  replay,
+  type ReplayData,
+  structuralCheck,
+  type TxnKey,
+  txnKey,
+} from '../reconciliation/decisions'
+import { findCandidates, type MatchOutcome, type Tier } from '../reconciliation/match'
+import type { TransactionSnapshot } from '../reconciliation/session'
 import { contextIssues, mappingIssues, normalizeSide } from '../reconciliation/normalize'
 import {
   type Direction,
+  type MatchingRules,
   type NormalizationProblem,
   type NormalizedSide,
   RECON_SIDES,
@@ -17,10 +32,13 @@ import {
 import { MAX_PAGE_SIZE, type Preview, PREVIEW_ISSUES, PREVIEW_RECORDS } from './protocol'
 import { readSource } from './read-source'
 import {
+  type ConfirmedItem,
+  type DecisionSummary,
   type Location,
   type OriginalValues,
   PREVIEW_SKIPPED,
   type ProblemItem,
+  type RejectedItem,
   type ReconPhase,
   type ReconRequest,
   type ReconRequests,
@@ -30,6 +48,7 @@ import {
   type SideSummary,
   type SuggestionItem,
   type TransactionView,
+  type UnmatchedItem,
 } from './reconcile-protocol'
 import { createSearchCache, matches, normaliseSearch } from './search'
 
@@ -60,6 +79,10 @@ interface Normalized {
   sides: Record<ReconSide, NormalizedSide>
   // Problems grouped per source row, in row order, with zero-value rows interleaved.
   problemRows: ProblemItem[] | null
+  // Lower-cased searchable text per transaction position, built on first search.
+  searchTexts?: Record<ReconSide, (string | undefined)[]>
+  // Each side's transaction position by source row index.
+  positions?: Record<ReconSide, Map<number, number>>
 }
 
 // Owns parsed sources, normalized transactions and the latest suggestions, so full data
@@ -71,7 +94,19 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
   const generations: Record<ReconSide, number> = { bank: 0, books: 0 }
   let revision = 0
   let normalized: Normalized | null = null
-  let latest: { matchId: number; revision: number; outcome: MatchOutcome } | null = null
+  let latest: { matchId: number; revision: number; outcome: MatchOutcome; rules: MatchingRules } | null = null
+  // The session's decision history as the worker last received it, and what it means now.
+  let review: {
+    matchId: number
+    events: DecisionEvent[]
+    replay: Replay
+    // Bumped on every change, so cached filters are rebuilt.
+    version: number
+    used: Record<ReconSide, Uint8Array>
+    rejected: Set<string>
+    // Available suggestions per transaction position.
+    counts: Record<ReconSide, Int32Array> | null
+  } | null = null
   let nextMatchId = 1
   const searchCache = createSearchCache()
 
@@ -79,6 +114,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     revision++
     normalized = null
     latest = null
+    review = null
   }
 
   async function parse({ side, file, delimiter, sheet, layout }: ReconRequests['parse'], onProgress?: Reporter): Promise<ReconResults['parse']> {
@@ -139,8 +175,13 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return { side, recordNumber: index + 1, span: (sources[side] as Source).file.spans?.[index] ?? null }
   }
 
+  function keyOf(t: Transaction): TxnKey {
+    return txnKey(t.side, (sources[t.side] as Source).fingerprint, t.index + 1)
+  }
+
   function view(t: Transaction, mapping: SideMapping): TransactionView {
     return {
+      key: keyOf(t),
       ...location(t.side, t.index),
       date: isoDate(t.day),
       amount: formatDecimal(t.amount),
@@ -215,7 +256,8 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     const outcome = findCandidates(sides.bank.transactions, sides.books.transactions, rules)
     onProgress?.('match', 1, 1)
     const matchId = nextMatchId++
-    latest = { matchId, revision: forRevision, outcome }
+    latest = { matchId, revision: forRevision, outcome, rules }
+    review = null
     const per = (count: (side: ReconSide) => number) => ({ bank: count('bank'), books: count('books') })
     return {
       matchId,
@@ -270,29 +312,190 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return [v.date, v.amount, o.date, ...o.amount, o.reference ?? '', o.description ?? '']
   }
 
-  function getReview({ matchId, tab, offset, limit, search, direction }: ReconRequests['getReview']): ReconResults['getReview'] {
+  // Joined with NUL, which a trimmed search never contains, so a match can't span two values.
+  function searchText(state: Normalized, side: ReconSide, position: number): string {
+    state.searchTexts ??= { bank: [], books: [] }
+    const cache = state.searchTexts[side]
+    cache[position] ??= texts(view(state.sides[side].transactions[position], state.mappings[side])).join('\u0000').toLowerCase()
+    return cache[position] as string
+  }
+
+  function directionOf(t: Transaction): Direction {
+    return t.amount.units > 0n ? 'in' : 'out'
+  }
+
+  function positions(state: Normalized): Record<ReconSide, Map<number, number>> {
+    state.positions ??= {
+      bank: new Map(state.sides.bank.transactions.map((t, position) => [t.index, position])),
+      books: new Map(state.sides.books.transactions.map((t, position) => [t.index, position])),
+    }
+    return state.positions
+  }
+
+  function resolve(key: TxnKey): Transaction | undefined {
+    const parsed = parseTxnKey(key)
+    if (!parsed || !normalized || sources[parsed.side]?.fingerprint !== parsed.fingerprint) return undefined
+    const position = positions(normalized)[parsed.side].get(parsed.recordNumber - 1)
+    return position === undefined ? undefined : normalized.sides[parsed.side].transactions[position]
+  }
+
+  function position(t: Transaction): number {
+    return positions(normalized as Normalized)[t.side].get(t.index) as number
+  }
+
+  function replayData(rules: MatchingRules): ReplayData {
+    return {
+      transaction: resolve,
+      // A pair that meets every rule is a suggestion, whether or not a budget-limited search listed it.
+      isCandidate: (bank, books) => {
+        const pair = checkPair(resolve(bank), resolve(books), rules)
+        return pair.blocked === null && pair.exceptions.length === 0
+      },
+      sourcePresent: (key) => {
+        const parsed = parseTxnKey(key)
+        return parsed !== null && sources[parsed.side]?.fingerprint === parsed.fingerprint
+      },
+      rules,
+    }
+  }
+
+  function currentReview(matchId: number) {
     if (!latest || !normalized) throw new Error('Find suggestions first')
     if (matchId !== latest.matchId || latest.revision !== normalized.revision) throw new Error('These suggestions were replaced by a newer run')
-    const { outcome } = latest
-    const { sides, mappings } = normalized
+    review ??= { matchId, events: [], replay: replay([], replayData(latest.rules)), version: 0, used: { bank: new Uint8Array(0), books: new Uint8Array(0) }, rejected: new Set(), counts: null }
+    return { latest, normalized, review }
+  }
+
+  // Positions used by active matches and rejected position pairs, for fast filtering.
+  function derive(state: NonNullable<typeof review>, data: Normalized) {
+    const used = { bank: new Uint8Array(data.sides.bank.transactions.length), books: new Uint8Array(data.sides.books.transactions.length) }
+    for (const event of state.replay.state.active.values()) {
+      used.bank[position(resolve(event.bank) as Transaction)] = 1
+      used.books[position(resolve(event.books) as Transaction)] = 1
+    }
+    const rejected = new Set<string>()
+    for (const event of state.replay.state.rejected.values()) {
+      const bank = resolve(event.bank)
+      const books = resolve(event.books)
+      if (bank && books) rejected.add(`${position(bank)}:${position(books)}`)
+    }
+    state.used = used
+    state.rejected = rejected
+    state.counts = null
+    state.version++
+  }
+
+  function available(state: NonNullable<typeof review>) {
+    return (c: { bank: number; books: number }) => !state.used.bank[c.bank] && !state.used.books[c.books] && !state.rejected.has(`${c.bank}:${c.books}`)
+  }
+
+  function counts(state: NonNullable<typeof review>, outcome: MatchOutcome, data: Normalized): Record<ReconSide, Int32Array> {
+    if (!state.counts) {
+      const result = { bank: new Int32Array(data.sides.bank.transactions.length), books: new Int32Array(data.sides.books.transactions.length) }
+      const ok = available(state)
+      for (const c of outcome.candidates) {
+        if (!ok(c)) continue
+        result.bank[c.bank]++
+        result.books[c.books]++
+      }
+      state.counts = result
+    }
+    return state.counts
+  }
+
+  function summary(state: NonNullable<typeof review>, outcome: MatchOutcome): DecisionSummary {
+    const ok = available(state)
+    let suggested = 0
+    for (const c of outcome.candidates) if (ok(c)) suggested++
+    const unmatched = (side: ReconSide) => state.used[side].length - state.used[side].reduce((n, u) => n + u, 0)
+    return {
+      suggested,
+      confirmed: state.replay.state.active.size,
+      unmatched: { bank: unmatched('bank'), books: unmatched('books') },
+      rejected: state.replay.state.rejected.size,
+      lapsed: state.replay.lapsed.map(({ event, reason }) => ({ event, reason })),
+    }
+  }
+
+  function snapshot(key: TxnKey): TransactionSnapshot | null {
+    const t = resolve(key)
+    if (!t || !normalized) return null
+    const description = normalized.mappings[t.side].description
+    return {
+      key,
+      date: isoDate(t.day),
+      amount: formatDecimal(t.amount),
+      direction: t.amount.units > 0n ? 'in' : 'out',
+      reference: t.reference,
+      description: description === null ? null : (sources[t.side] as Source).file.rows[t.index][description],
+    }
+  }
+
+  function setDecisions({ matchId, events }: ReconRequests['setDecisions']): ReconResults['setDecisions'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    state.events = [...events]
+    state.replay = replay(state.events, replayData(run.rules))
+    derive(state, data)
+    return summary(state, run.outcome)
+  }
+
+  function decide({ matchId, seq, at, decision }: ReconRequests['decide']): ReconResults['decide'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+    const verdict = checkDecision(state.replay.state, decision, replayData(run.rules))
+    if (!verdict.ok) return verdict
+    const event: DecisionEvent = { seq, at, ...decision }
+    state.events.push(event)
+    applyToState(state.replay.state, event)
+    derive(state, data)
+    const snapshots = [snapshot(event.bank), snapshot(event.books)].filter((s): s is TransactionSnapshot => s !== null)
+    return { ok: true, event, snapshots, summary: summary(state, run.outcome) }
+  }
+
+  function pairCheck({ matchId, bank, books }: ReconRequests['checkPair']): ReconResults['checkPair'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    const b = resolve(bank)
+    const l = resolve(books)
+    const pair = checkPair(b, l, run.rules)
+    const structural = structuralCheck(state.replay.state, { action: 'confirm', bank, books })
+    return {
+      blocked: pair.blocked ?? (structural.ok ? null : structural.reason),
+      exceptions: pair.exceptions,
+      bank: b ? view(b, data.mappings.bank) : null,
+      books: l ? view(l, data.mappings.books) : null,
+    }
+  }
+
+  function evidence(bank: Transaction, books: Transaction, rules: MatchingRules): { tier: Tier | null; gap: number } {
+    const gap = bank.day - books.day
+    const pair = checkPair(bank, books, rules)
+    if (pair.blocked !== null || pair.exceptions.length > 0) return { tier: null, gap }
+    return { tier: rules.referencesShared && bank.reference !== null && books.reference !== null ? 1 : 3, gap }
+  }
+
+  function getReview({ matchId, tab, offset, limit, search, direction }: ReconRequests['getReview']): ReconResults['getReview'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    const { outcome } = run
+    const { sides, mappings } = data
     const [start, end] = pageBounds(offset, limit)
     const needle = normaliseSearch(search)
     const filtered = <T,>(build: () => T[], keep: (item: T) => boolean): T[] =>
-      needle === '' && direction === undefined
-        ? build()
-        : searchCache.get(`${matchId}\u0000${tab}\u0000${direction ?? ''}\u0000${needle}`, () => build().filter(keep))
+      searchCache.get(`${matchId}\u0000${state.version}\u0000${tab}\u0000${direction ?? ''}\u0000${needle}`, () =>
+        needle === '' && direction === undefined ? build() : build().filter(keep),
+      )
     const isDirection = (d: Direction) => direction === undefined || d === direction
+    const both = (a: TransactionView | null, b: TransactionView | null) => [...(a ? texts(a) : []), ...(b ? texts(b) : [])]
 
     switch (tab) {
       case 'suggested': {
         const groups = outcome.groups
+        const ok = available(state)
         const all = filtered(
-          () => outcome.candidates,
-          (c) => {
-            const bank = view(sides.bank.transactions[c.bank], mappings.bank)
-            const books = view(sides.books.transactions[c.books], mappings.books)
-            return isDirection(bank.direction) && (needle === '' || matches([...texts(bank), ...texts(books)], needle))
-          },
+          () => outcome.candidates.filter(ok),
+          (c) =>
+            ok(c) &&
+            isDirection(directionOf(sides.bank.transactions[c.bank])) &&
+            (needle === '' || searchText(data, 'bank', c.bank).includes(needle) || searchText(data, 'books', c.books).includes(needle)),
         )
         const items = all.slice(start, end).map((c): SuggestionItem => {
           const group = groups[c.group]
@@ -310,19 +513,48 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         })
         return { tab, total: all.length, offset: start, items }
       }
+      case 'confirmed': {
+        const confirmed = (): ConfirmedItem[] =>
+          [...state.replay.state.active.values()]
+            .sort((a, b) => a.seq - b.seq)
+            .map((event) => {
+              const bank = resolve(event.bank) as Transaction
+              const books = resolve(event.books) as Transaction
+              return { bank: view(bank, mappings.bank), books: view(books, mappings.books), event, ...evidence(bank, books, run.rules) }
+            })
+        const all = filtered(confirmed, (item) => isDirection(item.bank.direction) && (needle === '' || matches([...both(item.bank, item.books), item.event.reason ?? ''], needle)))
+        return { tab, total: all.length, offset: start, items: all.slice(start, end) }
+      }
       case 'unmatched': {
+        const per = counts(state, outcome, data)
         const all = filtered(
-          () => RECON_SIDES.flatMap((side) => outcome.noCandidate[side].map((position) => sides[side].transactions[position])),
-          (t) => {
-            const v = view(t, mappings[t.side])
-            return isDirection(v.direction) && (needle === '' || matches(texts(v), needle))
-          },
+          () => RECON_SIDES.flatMap((side) => sides[side].transactions.filter((_, p) => !state.used[side][p])),
+          (t) => isDirection(directionOf(t)) && (needle === '' || searchText(data, t.side, position(t)).includes(needle)),
         )
-        return { tab, total: all.length, offset: start, items: all.slice(start, end).map((t) => view(t, mappings[t.side])) }
+        const items = all.slice(start, end).map((t): UnmatchedItem => ({ ...view(t, mappings[t.side]), suggestions: per[t.side][position(t)] }))
+        return { tab, total: all.length, offset: start, items }
+      }
+      case 'rejected': {
+        const rejected = (): RejectedItem[] =>
+          [...state.replay.state.rejected.values()]
+            .sort((a, b) => a.seq - b.seq)
+            .map((event) => {
+              const bank = resolve(event.bank)
+              const books = resolve(event.books)
+              return {
+                bankKey: event.bank,
+                booksKey: event.books,
+                bank: bank ? view(bank, mappings.bank) : null,
+                books: books ? view(books, mappings.books) : null,
+                event,
+              }
+            })
+        const all = filtered(rejected, (item) => (item.bank === null || isDirection(item.bank.direction)) && (needle === '' || matches(both(item.bank, item.books), needle)))
+        return { tab, total: all.length, offset: start, items: all.slice(start, end) }
       }
       case 'problems': {
         const all = filtered(
-          () => problemRows(normalized as Normalized),
+          () => problemRows(data),
           // Problem rows have no trustworthy direction, so the direction filter does not apply.
           (p) => matches([...p.messages, p.original.date, ...p.original.amount, p.original.reference ?? '', p.original.description ?? ''], needle),
         )
@@ -343,6 +575,12 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         return match(request, onProgress)
       case 'getReview':
         return getReview(request)
+      case 'setDecisions':
+        return setDecisions(request)
+      case 'decide':
+        return decide(request)
+      case 'checkPair':
+        return pairCheck(request)
     }
   }
 }

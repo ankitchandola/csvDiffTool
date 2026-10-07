@@ -4,7 +4,8 @@ import type { Layout } from '../../engine/parse'
 import { contextIssues } from '../../reconciliation/normalize'
 import { DEFAULT_MATCHING, type MatchingRules, RECON_SIDES, type ReconSide, type SessionContext, type SideMapping } from '../../reconciliation/types'
 import { CancelledError, createReconcileClient } from '../../worker/client'
-import type { MatchSummary, NormalizeResult, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
+import { importSession, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
+import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
 import type { Activity } from '../activity'
 import { ActivityBar } from '../ActivityBar'
 import { WORKSPACE_IDS } from '../mode'
@@ -12,11 +13,14 @@ import { fileLabel, type FileState } from '../file-state'
 import { FilePanel } from '../FilePanel'
 import { count, counted, formatValue } from '../format'
 import { Select } from '../Select'
-import { emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
+import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
 import { MappingForm } from './MappingForm'
 import { NumberField } from './NumberField'
 import { type Formats, locationText, SIDE_LABELS } from './location'
 import { ReviewView } from './ReviewView'
+import { SessionBar } from './SessionBar'
+import { indexedDbSessionStore } from './session-store'
+import { type SessionConfig, useSession } from './use-session'
 
 type Step = 'files' | 'map' | 'review'
 
@@ -48,12 +52,50 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function download(text: string, fileName: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+interface Reviewed {
+  summary: MatchSummary
+  decisions: DecisionSummary
+}
+
+function SourceCheck({ expected, files }: { expected: Record<ReconSide, SourceDescriptor>; files: Record<ReconSide, FileState<SourceInfo>> }) {
+  const status = RECON_SIDES.map((side) => {
+    const state = files[side]
+    const loaded = state.status === 'ready' ? state.info.fingerprint : null
+    return { side, loaded, matches: loaded === expected[side].fingerprint }
+  })
+  if (status.every((s) => s.matches)) return null
+  return (
+    <div className="warning" role="status">
+      <p>The session was made from these files. Load the same files to apply its decisions; decisions about a different file will not apply.</p>
+      <ul>
+        {status.map(({ side, loaded, matches }) => (
+          <li key={side}>
+            {SIDE_LABELS[side]}: {expected[side].fileName}
+            {expected[side].sheet ? ` (sheet “${expected[side].sheet}”)` : ''} —{' '}
+            {matches ? 'loaded' : loaded ? 'a different file is loaded' : 'not loaded yet'}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// The worker's state is gone, so a file with problems must be read again too: its full
+// problem list lived in the worker.
 function failIfLoaded(state: SourceState, reason: string): SourceState {
-  if (state.status === 'loading' || state.status === 'ready') {
-    const sheet = state.status === 'ready' && state.info.format.kind === 'xlsx' ? state.info.format.sheet : state.status === 'loading' ? state.sheet : undefined
-    return { status: 'failed', file: state.file, message: reason, sheet }
-  }
-  return state
+  if (state.status === 'empty' || state.status === 'failed') return state
+  const format = state.status === 'ready' ? state.info.format : state.status === 'invalid' ? state.format : undefined
+  const sheet = state.status === 'loading' ? state.sheet : format?.kind === 'xlsx' ? format.sheet : undefined
+  return { status: 'failed', file: state.file, message: reason, sheet }
 }
 
 function SkippedRecords({ info }: { info: SourceInfo }) {
@@ -132,7 +174,12 @@ export function ReconcileApp() {
   const [rules, setRules] = useState<MatchingRules>(DEFAULT_MATCHING)
   const [dataVersion, setDataVersion] = useState(0)
   const [check, setCheck] = useState<Outcome<NormalizeResult> | null>(null)
-  const [review, setReview] = useState<Outcome<MatchSummary> | null>(null)
+  const [review, setReview] = useState<Outcome<Reviewed> | null>(null)
+  const [decisionVersion, setDecisionVersion] = useState(0)
+  const [deciding, setDeciding] = useState(false)
+  const [decideError, setDecideError] = useState<string | null>(null)
+  const [sessionMessage, setSessionMessage] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
+  const [store] = useState(indexedDbSessionStore)
   const [activity, setActivity] = useState<Activity<Task, ReconPhase>>({})
   const activityTokens = useRef<Partial<Record<Task, number>>>({})
   const loadTokens = useRef<Record<ReconSide, number>>({ bank: 0, books: 0 })
@@ -221,8 +268,20 @@ export function ReconcileApp() {
   const mappings: Record<ReconSide, SideMapping> | null =
     outcomes.bank.ok && outcomes.books.ok ? { bank: outcomes.bank.mapping, books: outcomes.books.mapping } : null
   const ready = bothReady && mappings !== null && sessionIssues.length === 0
+  const sources: Record<ReconSide, SourceDescriptor> | null =
+    files.bank.status === 'ready' && files.books.status === 'ready'
+      ? {
+          bank: { fileName: files.bank.file.name, fingerprint: files.bank.info.fingerprint, sheet: sheetOf(files.bank) ?? null, recordCount: files.bank.info.recordCount },
+          books: { fileName: files.books.file.name, fingerprint: files.books.info.fingerprint, sheet: sheetOf(files.books) ?? null, recordCount: files.books.info.recordCount },
+        }
+      : null
+  // References can only be compared when both sides map a reference column.
+  const bothReferences = drafts.bank.reference !== '' && drafts.books.reference !== ''
+  const effectiveRules: MatchingRules = bothReferences ? rules : { ...rules, referencesShared: false, referenceCaseInsensitive: false }
+  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules: effectiveRules, sources } : null
+  const session = useSession(store, config)
   const checkInputs = JSON.stringify({ dataVersion, context, mappings })
-  const reviewInputs = JSON.stringify({ checkInputs, rules })
+  const reviewInputs = JSON.stringify({ checkInputs, rules: effectiveRules })
   const currentCheck = check?.inputs === checkInputs ? check : null
   const currentReview = review?.inputs === reviewInputs ? review : null
 
@@ -263,13 +322,77 @@ export function ReconcileApp() {
     task.show()
     setReview({ inputs, status: 'pending' })
     try {
-      const value = await client.call('match', { revision: normalized.revision, rules }, task.progress)
-      setReview({ inputs, status: 'done', value })
+      const summary = await client.call('match', { revision: normalized.revision, rules: effectiveRules }, task.progress)
+      // The worker keeps no history of its own: send it after every run.
+      const decisions = await client.call('setDecisions', { matchId: summary.matchId, events: session.eventsRef.current })
+      setReview({ inputs, status: 'done', value: { summary, decisions } })
+      setDecisionVersion((v) => v + 1)
+      setDecideError(null)
       setStep('review')
     } catch (error) {
       setReview({ inputs, status: 'error', message: error instanceof CancelledError ? 'Cancelled.' : message(error) })
     } finally {
       task.end()
+    }
+  }
+
+  async function decide(decision: DecisionInput): Promise<string | null> {
+    if (currentReview?.status !== 'done') return 'Find suggestions first'
+    const { summary } = currentReview.value
+    setDeciding(true)
+    setDecideError(null)
+    try {
+      const result = await client.call('decide', { matchId: summary.matchId, seq: session.eventsRef.current.length + 1, at: new Date().toISOString(), decision })
+      if (!result.ok) {
+        setDecideError(result.reason)
+        return result.reason
+      }
+      session.record(result.event, result.snapshots)
+      setReview({ ...currentReview, value: { summary, decisions: result.summary } })
+      setDecisionVersion((v) => v + 1)
+      return null
+    } catch (error) {
+      const text = message(error)
+      setDecideError(text)
+      return text
+    } finally {
+      setDeciding(false)
+    }
+  }
+
+  function adopt(file: SessionFile, fromBrowser: boolean) {
+    session.load(file, fromBrowser)
+    setContext(file.context)
+    setRules(file.rules)
+    setDrafts({ bank: draftFromMapping(file.mappings.bank), books: draftFromMapping(file.mappings.books) })
+    setReview(null)
+    setCheck(null)
+    setStep('files')
+    setSessionMessage({
+      kind: 'info',
+      text: `Loaded a session at revision ${file.revision} with ${file.events.length} decision${file.events.length === 1 ? '' : 's'}. Load the same files, then find suggestions to apply them.`,
+    })
+    for (const side of RECON_SIDES) {
+      const state = files[side]
+      const draft = draftFromMapping(file.mappings[side])
+      if (state.status !== 'empty') load(side, state.file, draft, file.sources[side].sheet ?? undefined)
+    }
+  }
+
+  async function importFile(file: File) {
+    try {
+      adopt(importSession(await file.text()), false)
+    } catch (error) {
+      setSessionMessage({ kind: 'error', text: `This session file can't be used: ${message(error)}` })
+    }
+  }
+
+  async function resume() {
+    try {
+      const saved = await session.readSaved()
+      if (saved) adopt(saved, true)
+    } catch (error) {
+      setSessionMessage({ kind: 'error', text: `The session saved in this browser can't be read: ${message(error)}. Delete it to save again.` })
     }
   }
 
@@ -281,7 +404,8 @@ export function ReconcileApp() {
     setDataVersion((v) => v + 1)
   }
 
-  const summary = currentReview?.status === 'done' ? currentReview.value : null
+  const reviewed = currentReview?.status === 'done' ? currentReview.value : null
+  const summary = reviewed?.summary ?? null
   const busy = currentCheck?.status === 'pending' || currentReview?.status === 'pending'
 
   return (
@@ -304,13 +428,35 @@ export function ReconcileApp() {
       <ActivityBar activity={activity} onCancel={cancel} taskLabels={TASK_LABELS} phaseLabels={PHASE_LABELS} />
       <div className="workspace-surface">
         <p className="experimental-note">
-          <FlaskConical size={16} aria-hidden="true" /> Experimental and suggestion-only. Nothing is confirmed or saved, and nothing here shows
-          that an account is reconciled.
+          <FlaskConical size={16} aria-hidden="true" /> Experimental. You confirm every match; nothing is confirmed automatically, and nothing
+          here shows that an account is reconciled.
         </p>
+        <SessionBar
+          revision={session.revision}
+          decisions={session.events.length}
+          storage={session.storage}
+          backup={session.backup}
+          autosave={session.autosave}
+          storageAvailable={session.available}
+          stored={session.stored}
+          ownId={session.id}
+          canExport={config !== null}
+          message={sessionMessage}
+          onExport={() => {
+            if (!config) return
+            const { text, revision } = session.exportBackup(config)
+            download(text, `reconciliation-session-r${revision}.json`)
+          }}
+          onImport={(file) => void importFile(file)}
+          onAutosave={session.setAutosave}
+          onResume={() => void resume()}
+          onDelete={() => void session.deleteSaved()}
+        />
+        {session.expected && <SourceCheck expected={session.expected} files={files} />}
         <div className="workspace-heading">
           <div>
             <h1 ref={stepHeading} tabIndex={-1}>
-              {step === 'files' ? 'Reconcile a bank statement' : step === 'map' ? 'Map dates and amounts' : 'Suggested pairs'}
+              {step === 'files' ? 'Reconcile a bank statement' : step === 'map' ? 'Map dates and amounts' : 'Review pairs'}
             </h1>
             <p className="muted">
               {step === 'files'
@@ -428,7 +574,7 @@ export function ReconcileApp() {
               <label className="choice">
                 <input
                   type="checkbox"
-                  checked={rules.referencesShared}
+                  checked={effectiveRules.referencesShared}
                   disabled={!drafts.bank.reference || !drafts.books.reference}
                   onChange={(e) => setRules({ ...rules, referencesShared: e.target.checked })}
                 />{' '}
@@ -437,8 +583,8 @@ export function ReconcileApp() {
               <label className="choice">
                 <input
                   type="checkbox"
-                  checked={rules.referenceCaseInsensitive}
-                  disabled={!rules.referencesShared}
+                  checked={effectiveRules.referenceCaseInsensitive}
+                  disabled={!effectiveRules.referencesShared}
                   onChange={(e) => setRules({ ...rules, referenceCaseInsensitive: e.target.checked })}
                 />{' '}
                 Ignore case when comparing references
@@ -481,7 +627,7 @@ export function ReconcileApp() {
           <section aria-label="Suggested pairs">
             <div className="results-toolbar">
               <div className="metric-grid">
-                <Metric label="Candidate pairs" value={count(summary.pairs)} />
+                <Metric label="Candidate pairs found" value={count(summary.pairs)} />
                 <Metric label="Groups" value={count(summary.groups)} />
                 <Metric label="Unique groups" value={count(summary.uniqueGroups)} />
                 <Metric label="Without a candidate" value={count(summary.noCandidate.bank + summary.noCandidate.books)} />
@@ -512,7 +658,19 @@ export function ReconcileApp() {
               {summary.rules.referencesShared ? `references compared${summary.rules.referenceCaseInsensitive ? ', ignoring case' : ''}` : 'references for context only'}.
               {' '}Account: {context.account || 'unnamed'}, {context.currency} (stated, not checked).
             </p>
-            <ReviewView key={summary.matchId} client={client} summary={summary} formats={formats} />
+            <ReviewView
+              key={summary.matchId}
+              client={client}
+              summary={summary}
+              decisions={(reviewed as Reviewed).decisions}
+              version={decisionVersion}
+              events={session.events}
+              snapshots={session.snapshots}
+              busy={deciding}
+              error={decideError}
+              formats={formats}
+              onDecide={decide}
+            />
           </section>
         )}
 

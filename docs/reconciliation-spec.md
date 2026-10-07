@@ -1,8 +1,9 @@
 # Reconciliation: product spec and implementation plan
 
-Status: milestones 0-2 implemented as an experimental, suggestion-only mode on
-`main` (`84aa1b5`, PR #2); milestones 3-6 proposed. See
-[Implementation status](#15-implementation-status-milestones-0-2).  
+Status: milestones 0-2 and their follow-ups on `main` (PRs #2 and #3); milestone 3
+(durable review, PR #4) and fixes from a review of the milestone 2 code are not yet
+on `main`; milestones 4-6 proposed. See
+[Implementation status](#15-implementation-status).  
 Date: 2026-10-07.
 
 This document defines a new reconciliation mode alongside the existing comparison
@@ -839,7 +840,7 @@ Preserve the project's existing test/build/lint checks throughout development.
 These are implementation gates, not silent defaults. Record each accepted decision
 and its tests in this spec as milestones begin.
 
-## 15. Implementation status (milestones 0-2)
+## 15. Implementation status
 
 Labels as in the [V1 implementation spec](v1-implementation-spec.md):
 implemented, tested, not yet verified, not implemented. Each snapshot lists its
@@ -872,7 +873,7 @@ regression: see the [deployed Reconcile report](reconcile-deployed-test-2026-10-
 (desktop Chrome in a remote cloud browser, 1363 × 936 viewport). The deployment
 commit was not independently verified.
 
-### Additions after `84aa1b5` (PR #3, not yet merged)
+### Additions after `84aa1b5` (PR #3, on `main` as `d4d7d4d`)
 
 | Area | Commit | Where | Tests |
 | --- | --- | --- | --- |
@@ -886,6 +887,7 @@ checked with these additions.
 
 
 
+
 ### Browser measurement for the milestone 3 entry gate
 
 Dense repeated-amount cases were measured in Chrome 154 on an Apple M4 / 16 GB, through
@@ -896,13 +898,52 @@ At the 2,000,000-pair budget, finding suggestions took 0.8-1.0 s and peaked roug
 report an incomplete search in the same time. The budget stays at 2,000,000. The gate
 is met for this device only; lower-memory devices and other browsers are unmeasured.
 
+### Milestone 3: durable review (PR #4, not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Decision events keyed by source fingerprint and record number; replay with one active match per transaction, rejections kept across rule changes, lapsing on source replacement or when a suggested confirm no longer meets the rules; direction never overridable; manual pairs need the exact broken rules and a reason | `src/reconciliation/decisions.ts` | Unit tests |
+| Versioned session file: id, revision, context, mappings, rules, source descriptors, complete ordered history, snapshots with decimal text; import validates everything and replays the history structurally before use | `src/reconciliation/session.ts` | Unit tests: exact round trip, unsupported versions, gaps, contradictions, wrong-side keys, numeric amounts, reasons |
+| Worker validation of each decision against the current files (`decide`, `checkPair`), replay after every run (`setDecisions`), Confirmed/Unmatched/Rejected tabs filtered by decisions | `src/worker/reconcile-handler.ts` | Unit tests, including lapsing after a file is replaced |
+| History, revision and snapshots kept on the page, outside the worker; opt-in IndexedDB saving that checks and writes in one transaction and refuses a different session or a revision another tab advanced; separate browser-storage and backup indicators | `src/ui/reconcile/use-session.ts`, `session-store.ts`, `save-status.ts` | Unit tests for the store rules and indicators; Playwright for real IndexedDB |
+| Review UI: confirm, reject, restore, unmatch, manual pair with reason; J/K/↓/↑, C, X on focused rows only; lapsed notices; decision history; session bar | `src/ui/reconcile/` | Playwright: buttons and keys, typing never triggers a key, manual pair blocked across directions and gated on a reason, backup export then reload and import, a replaced file lapsing a decision, browser saving with resume after reload, a stale second tab refused, cancel then reread keeping decisions |
+
+The session revision advances with every decision and with every change to files,
+mappings or rules once the setup is complete. Checks run locally at this branch's
+head: `npm test` 377 passed; `npm run lint` clean; `npm run build` passed;
+`npm run test:ui` 26 passed in each of two repeated runs (Chrome).
+
+Not implemented in milestone 3: bulk confirmation of interchangeable sets, the row
+inspector, and the O (classify as outstanding) shortcut, which belongs with
+outstanding-item classification in milestone 4. Confirm atomicity is enforced by
+the worker's sequence check and validation before the page records the event; a
+failure between the two (the page closing in between) leaves the worker ahead of
+the page until the next run, when the page's history is replayed.
+
+### Fixes from a review of the milestone 2 code (not yet on `main`)
+
+Each defect was reproduced before fixing.
+
+| Defect | Commit | Fix | Tests |
+| --- | --- | --- | --- |
+| An unclosed quote in a data row folded later rows into the last record; a trailing skip then dropped those transactions without a problem | `81b3104` | A parse error in a skipped trailing record is fatal | Unit test with the reproducing file |
+| With twelve or more detail lines above the table, the delimiter guess saw only them and fell back to a comma | `81b3104` | With a header record after the first, the guess starts at the header | Unit tests, including an explicit delimiter left as chosen |
+| Searching or filtering 2M suggested pairs took about 1.9 s and 1.2 s in Node | `6491205` | Search text built once per transaction; direction from the amount's sign: 0.15 s and 0.08 s | Unit test that a search can't match across two values |
+| The shared-reference option stayed on after a reference column was unset | `7eba991` | Only in effect while both sides map a reference column | Playwright |
+| After Cancel, a file showing parse problems kept a pager whose full list had gone with the worker | `7eba991` | Such files are read again like the others | Playwright |
+
+Checks run locally with milestone 3 and these fixes together: `npm test` 380 passed;
+`npm run lint` clean; `npm run build` passed; `npm run test:ui` 28 passed in each of
+two repeated runs (Chrome).
+
 ### Not implemented in this snapshot
 
-- Any decision: confirm, reject, manual pair, unmatch, interchangeable-set bulk
-  confirm (milestone 3). The UI has no confirm control.
+- In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above), except
+  bulk confirmation of interchangeable sets.
 - Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
 - Two-digit-year pivots: such dates are always problems.
-- Saving reconciliation profiles or sessions; reloading clears the session.
+- Saving reconciliation profiles separately from sessions (milestone 3 saves the
+  mapping inside a session only).
 - Exports, balances, completion statuses, carry-forward, grouped matching.
 - Per-file worksheet preferences beyond the existing sheet picker.
 

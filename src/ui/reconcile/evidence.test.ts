@@ -4,7 +4,7 @@ import type { SuggestionItem, TransactionView } from '../../worker/reconcile-pro
 import { competitionText, dateEvidence, evidenceText } from './evidence'
 
 function view(reference: string | null): TransactionView {
-  return { side: 'bank', recordNumber: 1, span: null, date: '2026-09-01', amount: '-10.00', direction: 'out', reference, original: { date: '', amount: [], reference, description: null } }
+  return { key: 'k', side: 'bank', recordNumber: 1, span: null, date: '2026-09-01', amount: '-10.00', direction: 'out', reference, original: { date: '', amount: [], reference, description: null } }
 }
 
 function item(overrides: Partial<SuggestionItem>): SuggestionItem {

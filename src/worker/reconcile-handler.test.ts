@@ -110,6 +110,10 @@ describe('reconcile handler', () => {
     expect(searched.total).toBe(1)
     const incoming: { total: number } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10, direction: 'in' })
     expect(incoming.total).toBe(1)
+    const spanning: { total: number } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10, search: '2026-09-0150000' })
+    expect(spanning.total).toBe(0)
+    const unmatchedIn: { total: number } = await call('getReview', { matchId, tab: 'unmatched', offset: 0, limit: 10, direction: 'in' })
+    expect(unmatchedIn.total).toBe(2)
     const problems: { items: { kind: string; recordNumber: number }[] } = await call('getReview', { matchId, tab: 'problems', offset: 0, limit: 10 })
     expect(problems.items.map((p) => [p.kind, p.recordNumber])).toEqual([
       ['invalid', 4],
@@ -124,5 +128,87 @@ describe('reconcile handler', () => {
     await call('parse', { side: 'books', file: new File([BOOKS], 'books.csv'), delimiter: 'auto', layout: booksMapping.layout })
     await expect(call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10 })).rejects.toThrow()
     await expect(call('match', { revision, rules: DEFAULT_MATCHING })).rejects.toThrow('changed')
+  })
+})
+
+describe('reconcile handler decisions', () => {
+  type Item = { tier: number; bank: { key: string; original: { description: string } }; books: { key: string; original: { description: string } } }
+
+  async function suggested() {
+    const loaded_ = await loaded()
+    const { call } = loaded_
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const { matchId } = await call('match', { revision, rules: { ...DEFAULT_MATCHING, referencesShared: true } })
+    await call('setDecisions', { matchId, events: [] })
+    const page: { items: Item[] } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10 })
+    const find = (bank: string, books: string) => page.items.find((i) => i.bank.original.description === bank && i.books.original.description === books) as Item
+    return { ...loaded_, revision, matchId, find }
+  }
+
+  const AT = '2026-10-07T10:00:00.000Z'
+
+  it('confirms a suggestion, consumes both sides and removes competing pairs', async () => {
+    const { call, matchId, find } = await suggested()
+    const sub = find('Subscription', 'Sub')
+    const result: { ok: true; summary: { suggested: number; confirmed: number; unmatched: { bank: number; books: number } }; snapshots: { amount: string }[] } = await call('decide', {
+      matchId,
+      seq: 1,
+      at: AT,
+      decision: { action: 'confirm', bank: sub.bank.key, books: sub.books.key, origin: 'suggested' },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.summary).toMatchObject({ suggested: 2, confirmed: 1, unmatched: { bank: 2, books: 3 } })
+    expect(result.snapshots.map((s) => s.amount)).toEqual(['-9.99', '-9.99'])
+    const confirmed: { total: number; items: { tier: number; event: { seq: number } }[] } = await call('getReview', { matchId, tab: 'confirmed', offset: 0, limit: 10 })
+    expect(confirmed.items).toMatchObject([{ tier: 3, event: { seq: 1 } }])
+    const unmatched: { items: { original: { description: string }; suggestions: number }[] } = await call('getReview', { matchId, tab: 'unmatched', offset: 0, limit: 10 })
+    expect(unmatched.items.find((u) => u.original.description === 'Sub dup')?.suggestions).toBe(0)
+  })
+
+  it('refuses decisions out of order or that break the history', async () => {
+    const { call, matchId, find } = await suggested()
+    const salary = find('Salary', 'Salary in')
+    await expect(call('decide', { matchId, seq: 2, at: AT, decision: { action: 'reject', bank: salary.bank.key, books: salary.books.key } })).rejects.toThrow('out of step')
+    expect(await call('decide', { matchId, seq: 1, at: AT, decision: { action: 'unmatch', bank: salary.bank.key, books: salary.books.key } })).toEqual({ ok: false, reason: 'This pair is not confirmed' })
+  })
+
+  it('keeps a rejected pair out of suggestions and lists it for restoring', async () => {
+    const { call, matchId, find } = await suggested()
+    const sub = find('Subscription', 'Sub dup')
+    const result: { summary: { suggested: number; rejected: number } } = await call('decide', { matchId, seq: 1, at: AT, decision: { action: 'reject', bank: sub.bank.key, books: sub.books.key } })
+    expect(result.summary).toMatchObject({ suggested: 3, rejected: 1 })
+    const rejected: { items: { bank: { original: { description: string } } }[] } = await call('getReview', { matchId, tab: 'rejected', offset: 0, limit: 10 })
+    expect(rejected.items.map((r) => r.bank.original.description)).toEqual(['Subscription'])
+  })
+
+  it('requires a reason for a manual pair that breaks rules and blocks opposite directions', async () => {
+    const { call, matchId, find } = await suggested()
+    const salary = find('Salary', 'Salary in')
+    const rent = find('Rent', 'Rent cheque')
+    const check: { blocked: string | null; exceptions: string[] } = await call('checkPair', { matchId, bank: salary.bank.key, books: rent.books.key })
+    expect(check).toMatchObject({ blocked: 'Money in cannot pair with money out', exceptions: [] })
+    const sub = find('Subscription', 'Sub')
+    const rentToSub: { blocked: string | null; exceptions: string[] } = await call('checkPair', { matchId, bank: rent.bank.key, books: sub.books.key })
+    expect(rentToSub).toMatchObject({ blocked: null, exceptions: ['amount'] })
+    const bare = { action: 'confirm' as const, bank: rent.bank.key, books: sub.books.key, origin: 'manual' as const }
+    expect(await call('decide', { matchId, seq: 1, at: AT, decision: bare })).toMatchObject({ ok: false })
+    expect(await call('decide', { matchId, seq: 1, at: AT, decision: { ...bare, exceptions: ['amount'], reason: 'Partial payment' } })).toMatchObject({ ok: true })
+  })
+
+  it('replays the history after a rerun and lapses decisions about a replaced file', async () => {
+    const { call, matchId, find } = await suggested()
+    const salary = find('Salary', 'Salary in')
+    const confirm = { seq: 1, at: AT, action: 'confirm' as const, bank: salary.bank.key, books: salary.books.key, origin: 'suggested' as const }
+    await call('setDecisions', { matchId, events: [confirm] })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const rerun = await call('match', { revision, rules: DEFAULT_MATCHING })
+    expect(await call('setDecisions', { matchId: (rerun as { matchId: number }).matchId, events: [confirm] })).toMatchObject({ confirmed: 1, lapsed: [] })
+    await call('parse', { side: 'books', file: new File([BOOKS + '\n2026-09-30,Extra,1,'], 'books.csv'), delimiter: 'auto', layout: booksMapping.layout })
+    const again = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const third = await call('match', { revision: (again as { revision: number }).revision, rules: DEFAULT_MATCHING })
+    expect(await call('setDecisions', { matchId: (third as { matchId: number }).matchId, events: [confirm] })).toMatchObject({
+      confirmed: 0,
+      lapsed: [{ reason: 'Its source file was replaced or is not loaded' }],
+    })
   })
 })

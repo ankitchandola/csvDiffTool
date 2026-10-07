@@ -64,7 +64,11 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
               <div className="help-content">
                 <h2>Reconciling a bank statement</h2>
                 <p>Load the bank statement and your books, map each file's date, amount and reference, then review suggested pairs.</p>
-                <p>This mode is experimental and suggestion-only: nothing is confirmed, and it does not show that an account is reconciled.</p>
+                <p>This mode is experimental. You confirm every match yourself; nothing is confirmed automatically, and it does not yet show that an account is reconciled.</p>
+                <details>
+                  <summary>Review decisions and keys</summary>
+                  <p>Confirm or reject suggested pairs, unmatch a confirmed pair, restore a rejected one, or pair two unmatched transactions by hand; a hand-made pair that breaks the rules needs a reason. On a focused row, J/K or ↓/↑ move, C confirms and X rejects.</p>
+                </details>
                 <details>
                   <summary>How pairs are suggested</summary>
                   <p>A pair needs the same amount and cash direction, with dates inside the window you set. When both reference columns hold the same identifier, matching references come first and differing ones are not suggested. When several pairs compete for a transaction, they are grouped so you can see the alternatives.</p>
@@ -74,7 +78,7 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
                   <p>Each file's date format is chosen explicitly; two-digit years and impossible dates are problems. Amounts are exact; an amount with more decimals than the currency allows is a problem, never rounded. Workbooks are read as Excel displays them, so display rounding can hide digits that are stored.</p>
                 </details>
                 <FormatsAndLimits />
-                <p className="note">Files stay in this browser. Nothing is saved; reloading the page clears the session.</p>
+                <p className="note">Files stay in this browser. Decisions are kept only if you export a session backup or turn on saving in this browser; to continue later, load the same files again.</p>
               </div>
             )}
           </details>

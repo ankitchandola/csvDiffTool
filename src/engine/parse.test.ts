@@ -174,3 +174,26 @@ describe('parseCsv with a layout', () => {
     expect(outcome.ok && outcome.file).toEqual({ headers: ['id', 'v'], rows: [{ id: '1', v: '2' }], format: { kind: 'csv', delimiter: ',' }, notes: [] })
   })
 })
+
+describe('parseCsv layout safeguards', () => {
+  it('rejects a skipped trailing record with a parse error, which can hide transactions', () => {
+    const text = 'date,amount\n01/09/2026,10\n"02/09/2026,20\n03/09/2026,30\nClosing,60\n'
+    const outcome = parseCsv(text, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 1, skipTrailing: 1 })
+    expect(outcome.ok).toBe(false)
+    expect(!outcome.ok && outcome.issues[0]).toMatchObject({ kind: 'record', recordNumber: 2, message: 'Quoted field unterminated (in a record set to be skipped at the end)' })
+  })
+
+  it('detects the delimiter from the header record, not the details above it', () => {
+    const preamble = Array.from({ length: 12 }, (_, i) => `Statement line ${i}`).join('\n')
+    const text = `${preamble}\nDate;Amount;Ref\n01/09/2026;10;A\n02/09/2026;20;B\n`
+    const outcome = parseCsv(text, AUTO, undefined, undefined, { headerRecord: 13, skipTrailing: 0 })
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
+    expect(outcome.file.headers).toEqual(['Date', 'Amount', 'Ref'])
+    expect(outcome.file.format).toEqual({ kind: 'csv', delimiter: ';' })
+  })
+
+  it('keeps an explicit delimiter as chosen', () => {
+    const outcome = parseCsv('Note\nDate;Amount\n1;2\n', { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 2, skipTrailing: 0 })
+    expect(outcome.ok && outcome.file.headers).toEqual(['Date;Amount'])
+  })
+})

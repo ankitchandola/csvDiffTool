@@ -1,22 +1,33 @@
-import { AlertTriangle, ArrowLeftRight, CircleSlash, Search } from 'lucide-react'
-import { useState } from 'react'
+import { AlertTriangle, ArrowLeftRight, CheckCircle2, CircleSlash, Search, XCircle } from 'lucide-react'
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react'
+import { type DecisionEvent, EXCEPTION_LABELS, parseTxnKey } from '../../reconciliation/decisions'
+import type { TransactionSnapshot } from '../../reconciliation/session'
 import type { Direction, MatchingRules, ReconSide } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
 import type {
+  ConfirmedItem,
+  DecisionInput,
+  DecisionSummary,
   MatchSummary,
   OriginalValues,
+  PairCheckResult,
   ProblemItem,
+  RejectedItem,
   ReviewItems,
   ReviewTab,
   SuggestionItem,
   TransactionView,
+  UnmatchedItem,
 } from '../../worker/reconcile-protocol'
 import { count, counted, formatValue } from '../format'
 import { VirtualList } from '../results/VirtualList'
 import { Select } from '../Select'
 import { useDebounced } from '../use-debounced'
-import { type Formats, locationText } from './location'
-import { competitionText, evidenceText } from './evidence'
+import { competitionText, dateEvidence, evidenceText } from './evidence'
+import { type Formats, locationText, SIDE_LABELS } from './location'
+
+// Resolves to an error message, or null once the decision is recorded.
+export type Decide = (decision: DecisionInput) => Promise<string | null>
 
 function originalAmount(original: OriginalValues): string {
   return original.amount.length === 1 ? formatValue(original.amount[0]) : `in ${formatValue(original.amount[0])} · out ${formatValue(original.amount[1])}`
@@ -43,20 +54,108 @@ function Transaction({ t, formats }: { t: TransactionView; formats: Formats }) {
   )
 }
 
-function SuggestionRow({ item, rules, formats }: { item: SuggestionItem; rules: MatchingRules; formats: Formats }) {
+function keyLabel(key: string): string {
+  const parsed = parseTxnKey(key)
+  return parsed ? `${SIDE_LABELS[parsed.side]} record ${count(parsed.recordNumber)}` : key
+}
+
+function Missing({ keyText }: { keyText: string }) {
+  return <div className="txn muted">{keyLabel(keyText)}: not a valid transaction in the current files</div>
+}
+
+// A focusable row whose buttons the review shortcuts press; nothing acts on a row
+// that doesn't have focus.
+function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="suggestion">
-      <div className="group-label">
-        <span className={item.unique ? 'chip' : 'chip competing'}>Group {count(item.group + 1)}</span>
-        <span className="muted">{competitionText(item)}</span>
-      </div>
-      <div className="pair">
-        <Transaction t={item.bank} formats={formats} />
-        <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
-        <Transaction t={item.books} formats={formats} />
-      </div>
-      <p className="evidence">{evidenceText(item, rules)}</p>
+    <div className="review-row" tabIndex={0} data-row aria-label={label}>
+      {children}
     </div>
+  )
+}
+
+function SuggestionRow({ item, rules, formats, busy, onDecide }: { item: SuggestionItem; rules: MatchingRules; formats: Formats; busy: boolean; onDecide: Decide }) {
+  const pair = { bank: item.bank.key, books: item.books.key }
+  return (
+    <Row label={`Suggested pair: ${locationText(item.bank, formats)} and ${locationText(item.books, formats)}`}>
+      <div className="suggestion">
+        <div className="group-label">
+          <span className={item.unique ? 'chip' : 'chip competing'}>Group {count(item.group + 1)}</span>
+          <span className="muted">{competitionText(item)}</span>
+        </div>
+        <div className="pair">
+          <Transaction t={item.bank} formats={formats} />
+          <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
+          <Transaction t={item.books} formats={formats} />
+        </div>
+        <div className="row-actions">
+          <p className="evidence">{evidenceText(item, rules)}</p>
+          <button type="button" data-action="confirm" aria-keyshortcuts="C" disabled={busy} onClick={() => void onDecide({ action: 'confirm', ...pair, origin: 'suggested' })}>
+            <CheckCircle2 size={15} aria-hidden="true" /> Confirm
+          </button>
+          <button type="button" className="secondary" data-action="reject" aria-keyshortcuts="X" disabled={busy} onClick={() => void onDecide({ action: 'reject', ...pair })}>
+            <XCircle size={15} aria-hidden="true" /> Reject
+          </button>
+        </div>
+      </div>
+    </Row>
+  )
+}
+
+function decisionNote(event: DecisionEvent): string {
+  if (event.origin !== 'manual') return 'Confirmed from a suggestion'
+  const broken = (event.exceptions ?? []).map((e) => EXCEPTION_LABELS[e])
+  return `Manual pair${broken.length > 0 ? `: ${broken.join(', ')}` : ''}${event.reason ? ` — “${event.reason}”` : ''}`
+}
+
+function ConfirmedRow({ item, rules, formats, busy, onDecide }: { item: ConfirmedItem; rules: MatchingRules; formats: Formats; busy: boolean; onDecide: Decide }) {
+  const evidence =
+    item.tier === null
+      ? `Outside the rules: ${dateEvidence(item.gap)}.`
+      : evidenceText({ tier: item.tier, gap: item.gap, bank: item.bank, books: item.books }, rules)
+  return (
+    <Row label={`Confirmed match: ${locationText(item.bank, formats)} and ${locationText(item.books, formats)}`}>
+      <div className="suggestion">
+        <div className="group-label">
+          <span className={item.event.origin === 'manual' ? 'chip competing' : 'chip'}>Decision {count(item.event.seq)}</span>
+          <span className="muted">{decisionNote(item.event)}</span>
+        </div>
+        <div className="pair">
+          <Transaction t={item.bank} formats={formats} />
+          <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
+          <Transaction t={item.books} formats={formats} />
+        </div>
+        <div className="row-actions">
+          <p className="evidence">{evidence}</p>
+          <button type="button" className="secondary" data-action="unmatch" disabled={busy} onClick={() => void onDecide({ action: 'unmatch', bank: item.bank.key, books: item.books.key })}>
+            Unmatch
+          </button>
+        </div>
+      </div>
+    </Row>
+  )
+}
+
+function RejectedRow({ item, formats, busy, onDecide }: { item: RejectedItem; formats: Formats; busy: boolean; onDecide: Decide }) {
+  return (
+    <Row label={`Rejected pair: ${keyLabel(item.bankKey)} and ${keyLabel(item.booksKey)}`}>
+      <div className="suggestion">
+        <div className="group-label">
+          <span className="chip competing">Decision {count(item.event.seq)}</span>
+          <span className="muted">Rejected; hidden from suggestions</span>
+        </div>
+        <div className="pair">
+          {item.bank ? <Transaction t={item.bank} formats={formats} /> : <Missing keyText={item.bankKey} />}
+          <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
+          {item.books ? <Transaction t={item.books} formats={formats} /> : <Missing keyText={item.booksKey} />}
+        </div>
+        <div className="row-actions">
+          <span />
+          <button type="button" className="secondary" data-action="restore" disabled={busy} onClick={() => void onDecide({ action: 'restore', bank: item.bankKey, books: item.booksKey })}>
+            Restore suggestion
+          </button>
+        </div>
+      </div>
+    </Row>
   )
 }
 
@@ -78,31 +177,200 @@ function ProblemRow({ item, formats }: { item: ProblemItem; formats: Formats }) 
   )
 }
 
+type Selection = Partial<Record<ReconSide, UnmatchedItem>>
+
+function ManualPair({
+  client,
+  matchId,
+  selection,
+  formats,
+  busy,
+  onDecide,
+  onClear,
+}: {
+  client: ReconcileClient
+  matchId: number
+  selection: Selection
+  formats: Formats
+  busy: boolean
+  onDecide: Decide
+  onClear: () => void
+}) {
+  const [check, setCheck] = useState<PairCheckResult | null>(null)
+  const [reason, setReason] = useState('')
+  const bankKey = selection.bank?.key
+  const booksKey = selection.books?.key
+  useEffect(() => {
+    if (!bankKey || !booksKey) return
+    let live = true
+    client.call('checkPair', { matchId, bank: bankKey, books: booksKey }).then((result) => {
+      if (live) setCheck(result)
+    })
+    return () => {
+      live = false
+      setCheck(null)
+    }
+  }, [client, matchId, bankKey, booksKey])
+  const needsReason = (check?.exceptions.length ?? 0) > 0
+  return (
+    <section className="manual-pair" aria-label="Manual pair">
+      <p className="note">Select one bank and one books transaction below to pair them by hand.</p>
+      <div className="pair">
+        {selection.bank ? <Transaction t={selection.bank} formats={formats} /> : <div className="txn muted">No bank transaction selected</div>}
+        <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
+        {selection.books ? <Transaction t={selection.books} formats={formats} /> : <div className="txn muted">No books transaction selected</div>}
+      </div>
+      {check?.blocked && <p className="error" role="alert">{check.blocked}</p>}
+      {check && !check.blocked && (
+        <>
+          <p className={needsReason ? 'warning' : 'note'}>
+            {needsReason ? `This pair breaks the rules: ${check.exceptions.map((e) => EXCEPTION_LABELS[e]).join(', ')}. Give a reason.` : 'This pair meets the matching rules.'}
+          </p>
+          {needsReason && (
+            <label className="field">
+              <span>Reason</span>
+              <textarea value={reason} rows={2} onChange={(e) => setReason(e.target.value)} />
+            </label>
+          )}
+        </>
+      )}
+      <div className="row">
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || !check || check.blocked !== null || (needsReason && reason.trim() === '')}
+          onClick={async () => {
+            if (!bankKey || !booksKey || !check) return
+            const error = await onDecide({
+              action: 'confirm',
+              bank: bankKey,
+              books: booksKey,
+              origin: 'manual',
+              ...(needsReason ? { exceptions: check.exceptions, reason: reason.trim() } : {}),
+            })
+            if (error === null) {
+              setReason('')
+              onClear()
+            }
+          }}
+        >
+          Confirm manual pair
+        </button>
+        {(selection.bank || selection.books) && (
+          <button type="button" className="secondary" onClick={onClear}>
+            Clear selection
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 const TABS: [ReviewTab, string, typeof Search][] = [
   ['suggested', 'Suggested', ArrowLeftRight],
-  ['unmatched', 'No candidate', CircleSlash],
+  ['confirmed', 'Confirmed', CheckCircle2],
+  ['unmatched', 'Unmatched', CircleSlash],
+  ['rejected', 'Rejected', XCircle],
   ['problems', 'Problems', AlertTriangle],
 ]
 
-export function ReviewView({ client, summary, formats }: { client: ReconcileClient; summary: MatchSummary; formats: Formats }) {
+const IGNORE_KEYS_IN = 'input, textarea, [role="combobox"], [role="tab"]'
+
+// J/K or the arrow keys move between rows; C confirms and X rejects the focused row.
+function reviewKeys(event: KeyboardEvent<HTMLElement>) {
+  const target = event.target as HTMLElement
+  if (target.closest(IGNORE_KEYS_IN) || event.altKey || event.ctrlKey || event.metaKey) return
+  const row = target.closest<HTMLElement>('[data-row]')
+  const key = event.key.toLowerCase()
+  if (key === 'j' || key === 'arrowdown' || key === 'k' || key === 'arrowup') {
+    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-row]')]
+    if (rows.length === 0) return
+    const index = row ? rows.indexOf(row) : -1
+    const next = key === 'j' || key === 'arrowdown' ? rows[index + 1] : rows[index - 1]
+    if (!next && row) return
+    event.preventDefault()
+    const target_ = next ?? rows[0]
+    target_.focus()
+    target_.scrollIntoView({ block: 'nearest' })
+    return
+  }
+  if (!row || target !== row) return
+  const action = key === 'c' ? 'confirm' : key === 'x' ? 'reject' : null
+  if (!action) return
+  const button = row.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)
+  if (!button || button.disabled) return
+  event.preventDefault()
+  button.click()
+}
+
+function eventText(event: DecisionEvent): string {
+  const verb = { confirm: 'Confirmed', reject: 'Rejected', restore: 'Restored', unmatch: 'Unmatched' }[event.action]
+  const note = event.action === 'confirm' ? ` · ${decisionNote(event)}` : ''
+  return `${count(event.seq)}. ${verb} ${keyLabel(event.bank)} ↔ ${keyLabel(event.books)}${note} · ${new Date(event.at).toLocaleString()}`
+}
+
+export function ReviewView({
+  client,
+  summary,
+  decisions,
+  version,
+  events,
+  snapshots,
+  busy,
+  error,
+  formats,
+  onDecide,
+}: {
+  client: ReconcileClient
+  summary: MatchSummary
+  decisions: DecisionSummary
+  // Changes with every recorded decision, so lists fetch again.
+  version: number
+  events: DecisionEvent[]
+  snapshots: Map<string, TransactionSnapshot>
+  busy: boolean
+  error: string | null
+  formats: Formats
+  onDecide: Decide
+}) {
   const [tab, setTab] = useState<ReviewTab>('suggested')
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<Direction | ''>('')
+  const [selection, setSelection] = useState<Selection>({})
   const search = useDebounced(query, 250)
   const both = (r: Record<ReconSide, number>) => r.bank + r.books
   const totals: Record<ReviewTab, number> = {
-    suggested: summary.pairs,
-    unmatched: both(summary.noCandidate),
+    suggested: decisions.suggested,
+    confirmed: decisions.confirmed,
+    unmatched: both(decisions.unmatched),
+    rejected: decisions.rejected,
     problems: both(summary.invalid) + both(summary.zero),
   }
   const fetchPage = <T extends ReviewTab>(which: T) => (offset: number, limit: number) =>
     client
       .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}) })
       .then((page) => ({ total: page.total, items: page.items as ReviewItems[T][] }))
-  const listKey = `${summary.matchId}-${tab}-${search}-${direction}`
+  const listKey = `${summary.matchId}-${version}-${tab}-${search}-${direction}`
+  const filteredNote = (unit: string) => (total: number) => (search || direction ? `${counted(total, unit)} match.` : null)
+  const placeholder = <div className="cell">…</div>
 
   return (
     <section className="panel results-panel review-panel" aria-label="Review">
+      {decisions.lapsed.length > 0 && (
+        <details className="warning lapsed">
+          <summary>
+            {counted(decisions.lapsed.length, 'earlier decision')} no longer {decisions.lapsed.length === 1 ? 'applies' : 'apply'}
+          </summary>
+          <p>They stay in the history but are not in force. Confirm or reject again where needed.</p>
+          <ul>
+            {decisions.lapsed.map(({ event, reason }) => (
+              <li key={event.seq}>
+                {eventText(event)}: {reason}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="tabs" role="tablist" aria-label="Review">
         {TABS.map(([id, label, Icon]) => (
           <button
@@ -145,35 +413,98 @@ export function ReviewView({ client, summary, formats }: { client: ReconcileClie
           />
         )}
       </div>
-      <div id="recon-panel" role="tabpanel" aria-labelledby={`recon-tab-${tab}`}>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div id="recon-panel" role="tabpanel" aria-labelledby={`recon-tab-${tab}`} onKeyDown={reviewKeys}>
         {tab === 'suggested' && (
           <>
             <p className="note">
-              Counts are candidate pairs. A transaction can appear in several pairs; pairs in the same group compete. Nothing here is
-              confirmed.
+              Counts are candidate pairs still open. Pairs in the same group compete; confirming one removes the others that share a transaction.
+              Keys: J/K or ↓/↑ move, C confirms, X rejects the focused pair.
             </p>
             <VirtualList<SuggestionItem>
               key={listKey}
               fetchPage={fetchPage('suggested')}
-              estimateSize={150}
-              empty="No suggested pairs."
+              estimateSize={170}
+              empty="No open suggestions."
               label="Suggested pairs, scroll to browse"
-              summary={(total) => (search || direction ? `${counted(total, 'pair')} match.` : null)}
-              renderRow={(item) => (item ? <SuggestionRow item={item} rules={summary.rules} formats={formats} /> : <div className="cell">…</div>)}
+              summary={filteredNote('pair')}
+              renderRow={(item) => (item ? <SuggestionRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} /> : placeholder)}
+            />
+          </>
+        )}
+        {tab === 'confirmed' && (
+          <>
+            <p className="note">Confirmed by you in this session. Each transaction belongs to at most one confirmed match.</p>
+            <VirtualList<ConfirmedItem>
+              key={listKey}
+              fetchPage={fetchPage('confirmed')}
+              estimateSize={170}
+              empty="Nothing confirmed yet."
+              label="Confirmed matches, scroll to browse"
+              summary={filteredNote('match')}
+              renderRow={(item) => (item ? <ConfirmedRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} /> : placeholder)}
             />
           </>
         )}
         {tab === 'unmatched' && (
           <>
-            <p className="note">Valid transactions with no pair under these rules. They are not outstanding items: nothing has been reviewed.</p>
-            <VirtualList<TransactionView>
+            <ManualPair
+              client={client}
+              matchId={summary.matchId}
+              selection={selection}
+              formats={formats}
+              busy={busy}
+              onDecide={onDecide}
+              onClear={() => setSelection({})}
+            />
+            <p className="note">Valid transactions not in a confirmed match. They are not outstanding items: nothing has been classified.</p>
+            <VirtualList<UnmatchedItem>
               key={listKey}
               fetchPage={fetchPage('unmatched')}
-              estimateSize={90}
-              empty="Every valid transaction has at least one candidate."
-              label="Transactions without a candidate, scroll to browse"
-              summary={(total) => (search || direction ? `${counted(total, 'transaction')} match.` : null)}
-              renderRow={(t) => (t ? <div className="cell"><Transaction t={t} formats={formats} /></div> : <div className="cell">…</div>)}
+              estimateSize={110}
+              empty="Every valid transaction is in a confirmed match."
+              label="Unmatched transactions, scroll to browse"
+              summary={filteredNote('transaction')}
+              renderRow={(t) =>
+                t ? (
+                  <Row label={`Unmatched: ${locationText(t, formats)}`}>
+                    <div className="unmatched-row">
+                      <Transaction t={t} formats={formats} />
+                      <div className="row-actions">
+                        <span className="muted">{t.suggestions === 0 ? 'No open suggestion' : `In ${counted(t.suggestions, 'open suggestion')}`}</span>
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-pressed={selection[t.side]?.key === t.key}
+                          onClick={() => setSelection((prev) => ({ ...prev, [t.side]: prev[t.side]?.key === t.key ? undefined : t }))}
+                        >
+                          {selection[t.side]?.key === t.key ? 'Selected' : 'Select for pair'}
+                        </button>
+                      </div>
+                    </div>
+                  </Row>
+                ) : (
+                  placeholder
+                )
+              }
+            />
+          </>
+        )}
+        {tab === 'rejected' && (
+          <>
+            <p className="note">Rejected pairs stay hidden from suggestions after reruns and rule changes, until restored or a source file is replaced.</p>
+            <VirtualList<RejectedItem>
+              key={listKey}
+              fetchPage={fetchPage('rejected')}
+              estimateSize={150}
+              empty="No rejected pairs."
+              label="Rejected pairs, scroll to browse"
+              summary={filteredNote('pair')}
+              renderRow={(item) => (item ? <RejectedRow item={item} formats={formats} busy={busy} onDecide={onDecide} /> : placeholder)}
             />
           </>
         )}
@@ -187,11 +518,26 @@ export function ReviewView({ client, summary, formats }: { client: ReconcileClie
               empty="No problems."
               label="Problem rows, scroll to browse"
               summary={(total) => (search ? `${counted(total, 'row')} match.` : null)}
-              renderRow={(p) => (p ? <div className="cell"><ProblemRow item={p} formats={formats} /></div> : <div className="cell">…</div>)}
+              renderRow={(p) => (p ? <div className="cell"><ProblemRow item={p} formats={formats} /></div> : placeholder)}
             />
           </>
         )}
       </div>
+      <details className="history">
+        <summary>Decision history ({count(events.length)})</summary>
+        {events.length === 0 ? (
+          <p className="note">No decisions yet.</p>
+        ) : (
+          <ol reversed>
+            {[...events].reverse().map((event) => (
+              <li key={event.seq}>
+                {eventText(event)}
+                {snapshots.get(event.bank)?.description && <span className="muted"> · {snapshots.get(event.bank)?.description}</span>}
+              </li>
+            ))}
+          </ol>
+        )}
+      </details>
     </section>
   )
 }
