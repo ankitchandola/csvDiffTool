@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { BOOKS, loadAndMap } from './reconcile-helpers'
+import { BOOKS, choose, loadAndMap } from './reconcile-helpers'
 
 test('reconcile flow: layout, mapping check, suggestions and review tabs', async ({ page }) => {
   const errors: string[] = []
