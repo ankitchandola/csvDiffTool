@@ -36,6 +36,17 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
   expect(errors).toEqual([])
 })
 
+test('references are compared only while both sides map a reference column', async ({ page }) => {
+  await loadAndMap(page)
+  const shared = page.getByLabel(/same identifier/)
+  await shared.check()
+  await choose(page, 'Books reference column', 'None')
+  await expect(shared).not.toBeChecked()
+  await expect(shared).toBeDisabled()
+  await page.getByRole('button', { name: 'Find suggestions' }).click()
+  await expect(page.getByText(/references for context only/)).toBeVisible()
+})
+
 test('switching modes keeps each mode’s files', async ({ page }) => {
   await page.goto('/')
   await page.getByLabel('Choose old file').setInputFiles({ name: 'baseline.csv', mimeType: 'text/csv', buffer: Buffer.from('id,v\n1,a\n') })
@@ -81,6 +92,23 @@ test.describe('cancel', () => {
     await expect(page.getByRole('button', { name: 'Map dates and amounts' })).toBeDisabled()
     await bank.getByRole('button', { name: 'Read bank.csv again' }).click()
     await expect(bank.locator('.file-stats')).toContainText('600,000 records', { timeout: 60_000 })
+  })
+
+  test('also asks again for a file whose problems were in the cancelled worker', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: /Reconcile/ }).click()
+    const books = page.locator('section.file-panel', { hasText: 'Your ledger' })
+    await books.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from('date,amount\n1,2,3\n') })
+    await expect(books.getByText(/problem/).first()).toBeVisible()
+    const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
+    await bank.getByLabel('Header is record').fill('3')
+    await bank.getByLabel('Skip records at the end').fill('1')
+    await bank.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: bigBankStatement() })
+    await expect(page.locator('.activity-row', { hasText: 'Reading bank statement' })).toBeVisible()
+    await page.locator('.activity').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(books.getByRole('button', { name: 'Read books.csv again' })).toBeVisible()
+    await books.getByRole('button', { name: 'Read books.csv again' }).click()
+    await expect(books.getByText('Expected 2 fields, found 3')).toBeVisible()
   })
 
   test('drops earlier suggestions and needs both files read again', async ({ page }) => {
