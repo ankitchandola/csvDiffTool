@@ -34,6 +34,8 @@ export interface MatchOutcome {
   incomplete: string | null
 }
 
+// At this budget, finding suggestions took about one second in Chrome on an Apple M4
+// (docs/benchmarks.md#reconcile-in-the-browser); lower-memory devices are unmeasured.
 export const MAX_CANDIDATES = 2_000_000
 
 function byContent(a: Transaction, b: Transaction): number {

@@ -24,7 +24,7 @@ const bankMapping: SideMapping = {
   layout: { headerRecord: 3, skipTrailing: 1 },
   date: { column: 'Date', format: 'DD/MM/YYYY', kind: 'posting' },
   amount: { kind: 'split', inColumn: 'Credit', outColumn: 'Debit', unused: 'blank' },
-  amountFormat: { grouped: true, trailingMinus: false },
+  amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
   reference: 'Ref',
   description: 'Details',
 }
@@ -34,7 +34,7 @@ const booksMapping: SideMapping = {
   layout: { headerRecord: 1, skipTrailing: 0 },
   date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
   amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
-  amountFormat: { grouped: false, trailingMinus: false },
+  amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
   reference: 'ref',
   description: 'memo',
 }

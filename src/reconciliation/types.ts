@@ -21,6 +21,8 @@ export type AmountMapping =
 export interface AmountFormat {
   grouped: boolean
   trailingMinus: boolean
+  // (1,234.50) is a negative amount.
+  parentheses: boolean
 }
 
 export type DateKind = 'posting' | 'value' | 'transaction'

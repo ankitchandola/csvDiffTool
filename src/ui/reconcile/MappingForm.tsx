@@ -133,6 +133,10 @@ export function MappingForm({
         <input type="checkbox" checked={draft.trailingMinus} onChange={(e) => set('trailingMinus', e.target.checked)} /> Negatives may end in a
         minus (500.00-)
       </label>
+      <label className="choice">
+        <input type="checkbox" checked={draft.parentheses} onChange={(e) => set('parentheses', e.target.checked)} /> Negatives may be in
+        brackets ((500.00))
+      </label>
 
       <ColumnSelect label={`${title} reference column`}
         visibleLabel="Reference column (optional)" headers={headers} value={draft.reference} optional onChange={(v) => set('reference', v)} />

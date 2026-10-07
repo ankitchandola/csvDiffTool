@@ -18,7 +18,7 @@ const signedMapping: SideMapping = {
   layout: { headerRecord: 1, skipTrailing: 0 },
   date: { column: 'date', format: 'DD/MM/YYYY', kind: 'posting' },
   amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
-  amountFormat: { grouped: true, trailingMinus: true },
+  amountFormat: { grouped: true, trailingMinus: true, parentheses: false },
   reference: 'ref',
   description: null,
 }
@@ -111,5 +111,24 @@ describe('mappingIssues', () => {
   it('requires distinct money-in and money-out columns', () => {
     const same: SideMapping = { ...splitMapping, amount: { kind: 'split', inColumn: 'x', outColumn: 'x', unused: 'blank' } }
     expect(mappingIssues(same, ['date', 'x', 'ref'])).toEqual(['Money in and money out must be different columns'])
+  })
+})
+
+describe('bracketed negatives', () => {
+  const bracketed: SideMapping = { ...signedMapping, amountFormat: { grouped: true, trailingMinus: false, parentheses: true } }
+
+  it('read a bracketed signed amount as money out when positive is money in', () => {
+    expect(amounts('date,amount,ref\n05/01/2026,"(1,234.50)",\n05/01/2026,(-5),\n', bracketed)).toEqual({
+      valid: [[0, '-123450/2']],
+      problems: [[1, 'amount', '"(-5)" is not a number in the chosen format']],
+      zero: [],
+    })
+  })
+
+  it('treat a bracketed value in a money-in or money-out column as a reversal', () => {
+    const split: SideMapping = { ...splitMapping, amountFormat: bracketed.amountFormat }
+    expect(amounts('date,credit,debit,ref\n05/01/2026,,(25.00),\n', split).problems).toEqual([
+      [0, 'amount', 'Money out is negative ("(25.00)"); a reversal is not moved to the other column'],
+    ])
   })
 })

@@ -10,6 +10,9 @@ export interface DecimalFormat {
   grouped?: boolean
   // Accounting/ERP exports (SAP among them) write negatives as 1234.50-.
   trailingMinus?: boolean
+  // Accounting statements write negatives as (1,234.50). The brackets must hold the
+  // whole value, with no sign of its own inside or after them.
+  parentheses?: boolean
 }
 
 interface Signed {
@@ -62,7 +65,14 @@ export function isPlainDecimal(text: string): boolean {
   return plainParts(splitAtPoint(readSign(text, false).body))
 }
 
-export function parseDecimal(raw: string, { grouped = false, trailingMinus = false }: DecimalFormat = {}): Decimal | null {
+export function parseDecimal(raw: string, { grouped = false, trailingMinus = false, parentheses = false }: DecimalFormat = {}): Decimal | null {
+  if (parentheses && raw.startsWith('(')) {
+    if (!raw.endsWith(')')) return null
+    const inner = raw.slice(1, -1)
+    if (/^[+-]|-$/.test(inner)) return null
+    const value = parseDecimal(inner, { grouped })
+    return value && { units: -value.units, scale: value.scale }
+  }
   const { negative, body } = readSign(raw, trailingMinus)
   const parts = splitAtPoint(body)
   if (grouped && parts.whole.includes(',')) {
