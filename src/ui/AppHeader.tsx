@@ -1,0 +1,85 @@
+import { LockKeyhole } from 'lucide-react'
+import { type Mode, WORKSPACE_IDS } from './mode'
+import { MAX_FIELDS, MAX_FILE_BYTES, MAX_XLSX_BYTES, MAX_XLSX_FIELDS } from '../engine/limits'
+
+
+function FormatsAndLimits() {
+  return (
+    <details>
+      <summary>File formats and limits</summary>
+      <p>Use a UTF-8 CSV (or TSV) or an .xlsx workbook; for a workbook, one sheet per file is compared, as Excel displays it. Headers are trimmed automatically. Leading zeros can be lost when a spreadsheet opens a CSV; the JSON report and the Excel workbook export keep the original text.</p>
+      <p>
+        Per-file limits: CSV {MAX_FILE_BYTES / 2 ** 20} MiB and {MAX_FIELDS.toLocaleString('en-US')} fields; .xlsx{' '}
+        {MAX_XLSX_BYTES / 2 ** 20} MiB and {MAX_XLSX_FIELDS.toLocaleString('en-US')} fields. Capacity depends on your
+        browser and device.
+      </p>
+    </details>
+  )
+}
+
+export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (mode: Mode) => void }) {
+  return (
+    <>
+      <a className="skip-link" href={`#${WORKSPACE_IDS[mode]}`}>
+        Skip to workspace
+      </a>
+      <header className="app-header">
+        <a className="brand" href={`#${WORKSPACE_IDS[mode]}`} aria-label="CSV Diff workspace">
+          <img
+            className="brand-icon"
+            src={`${import.meta.env.BASE_URL}favicon.svg?v=original-brand`}
+            width="32"
+            height="32"
+            alt=""
+          />
+          <span>CSV Diff</span>
+        </a>
+        <div className="mode-switch" role="group" aria-label="Mode">
+          <button type="button" aria-pressed={mode === 'compare'} onClick={() => onModeChange('compare')}>
+            Compare
+          </button>
+          <button type="button" aria-pressed={mode === 'reconcile'} onClick={() => onModeChange('reconcile')}>
+            Reconcile <span className="experimental-badge">Experimental</span>
+          </button>
+        </div>
+        <div className="header-end">
+          <span className="privacy-badge">
+            <LockKeyhole size={14} aria-hidden="true" /> Files stay local
+          </span>
+          <details className="help-disclosure">
+            <summary>Help</summary>
+            {mode === 'compare' ? (
+              <div className="help-content">
+                <h2>Comparing CSV files</h2>
+                <p>Load an old and a new export, then choose the columns that identify the same record in both files.</p>
+                <p>A key can be one column, such as <code>invoice_id</code>, or a combination like <code>warehouse + sku</code>.</p>
+                <details>
+                  <summary>Excluded records and warnings</summary>
+                  <p>Duplicate keys and records with an empty key component are excluded. Numeric warnings flag values that could not be read as numbers.</p>
+                </details>
+                <FormatsAndLimits />
+                <p className="note">Files stay in this browser. Saved profiles contain rules, never file contents.</p>
+              </div>
+            ) : (
+              <div className="help-content">
+                <h2>Reconciling a bank statement</h2>
+                <p>Load the bank statement and your books, map each file's date, amount and reference, then review suggested pairs.</p>
+                <p>This mode is experimental and suggestion-only: nothing is confirmed, and it does not show that an account is reconciled.</p>
+                <details>
+                  <summary>How pairs are suggested</summary>
+                  <p>A pair needs the same amount and cash direction, with dates inside the window you set. When both reference columns hold the same identifier, matching references come first and differing ones are not suggested. When several pairs compete for a transaction, they are grouped so you can see the alternatives.</p>
+                </details>
+                <details>
+                  <summary>Dates, amounts and .xlsx</summary>
+                  <p>Each file's date format is chosen explicitly; two-digit years and impossible dates are problems. Amounts are exact; an amount with more decimals than the currency allows is a problem, never rounded. Workbooks are read as Excel displays them, so display rounding can hide digits that are stored.</p>
+                </details>
+                <FormatsAndLimits />
+                <p className="note">Files stay in this browser. Nothing is saved; reloading the page clears the session.</p>
+              </div>
+            )}
+          </details>
+        </div>
+      </header>
+    </>
+  )
+}

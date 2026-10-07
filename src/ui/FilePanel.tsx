@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { type ReactNode, useId, useState } from 'react'
 import { CheckCircle2, FileSpreadsheet, UploadCloud } from 'lucide-react'
 import type { ParseIssue } from '../engine/parse'
 import type { Delimiter, FileFormat } from '../engine/types'
@@ -124,13 +124,20 @@ function RecordPreview({ info }: { info: FileInfo }) {
 
 export function FilePanel({
   title,
+  badge = title === 'Old file' ? 'A' : 'B',
+  caption = title === 'Old file' ? 'Baseline' : 'Updated',
   state,
   onPick,
   onPickSheet,
   fetchIssues,
+  children,
 }: {
   title: string
+  badge?: string
+  caption?: string
   state: FileState
+  // Shown under the drop zone, e.g. settings for how this file is read.
+  children?: ReactNode
   onPick: (file: File, sheet?: string) => void
   onPickSheet: (sheet: string) => void
   fetchIssues: IssuePager
@@ -143,9 +150,9 @@ export function FilePanel({
     >
       <div className="file-heading">
         <h2>
-          <span className="file-side">{title === 'Old file' ? 'A' : 'B'}</span>
+          <span className="file-side">{badge}</span>
           {title}
-          <span className="muted">{title === 'Old file' ? 'Baseline' : 'Updated'}</span>
+          <span className="muted">{caption}</span>
         </h2>
         {state.status === 'ready' && (
           <span className="ready-badge">
@@ -199,6 +206,7 @@ export function FilePanel({
           }}
         />
       </label>
+      {children}
       {state.status === 'loading' && (
         <p className="muted" role="status">
           Reading {state.file.name}…

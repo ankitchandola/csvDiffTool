@@ -2,10 +2,10 @@ import type { ParseIssue } from '../engine/parse'
 import type { FileFormat } from '../engine/types'
 import type { FileInfo, Preview } from '../worker/protocol'
 
-export type FileState =
+export type FileState<I extends FileInfo = FileInfo> =
   | { status: 'empty' }
   | { status: 'loading'; file: File; sheet?: string }
-  | { status: 'ready'; file: File; info: FileInfo }
+  | { status: 'ready'; file: File; info: I }
   | { status: 'invalid'; file: File; issues: Preview<ParseIssue>; format?: FileFormat }
   // sheet: the worksheet to read again, so recovery doesn't fall back to the first one.
   | { status: 'failed'; file: File; message: string; sheet?: string }
