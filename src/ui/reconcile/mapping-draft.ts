@@ -65,3 +65,23 @@ export function toMapping(draft: MappingDraft, headers: string[]): DraftOutcome 
   if (draft.dateFormat === '') issues.push('Choose the date format')
   return issues.length > 0 ? { ok: false, issues } : { ok: true, mapping }
 }
+
+// A saved mapping back into form state, so a loaded session shows its choices.
+export function draftFromMapping(mapping: SideMapping): MappingDraft {
+  const draft: MappingDraft = {
+    ...emptyDraft(),
+    delimiter: mapping.delimiter,
+    layout: mapping.layout,
+    dateColumn: mapping.date.column,
+    dateFormat: mapping.date.format,
+    dateKind: mapping.date.kind,
+    grouped: mapping.amountFormat.grouped,
+    trailingMinus: mapping.amountFormat.trailingMinus,
+    parentheses: mapping.amountFormat.parentheses,
+    reference: mapping.reference ?? '',
+    description: mapping.description ?? '',
+  }
+  return mapping.amount.kind === 'signed'
+    ? { ...draft, amountKind: 'signed', amountColumn: mapping.amount.column, positiveIs: mapping.amount.positiveIs }
+    : { ...draft, amountKind: 'split', inColumn: mapping.amount.inColumn, outColumn: mapping.amount.outColumn, unused: mapping.amount.unused }
+}

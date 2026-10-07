@@ -34,6 +34,8 @@ export interface TransactionSnapshot {
 export interface SessionFile {
   format: typeof SESSION_FORMAT
   version: typeof SESSION_VERSION
+  // Random, set when the session starts: tells one session from another in browser storage.
+  id: string
   savedAt: string
   // Advances with every decision and configuration change.
   revision: number
@@ -197,6 +199,7 @@ export function readSession(value: unknown): SessionFile {
   return {
     format: SESSION_FORMAT,
     version: SESSION_VERSION,
+    id: string(root.id, 'id'),
     savedAt,
     revision: integer(root.revision, 'revision', 0),
     context,

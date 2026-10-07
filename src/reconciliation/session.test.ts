@@ -21,6 +21,7 @@ function session(overrides: Partial<SessionFile> = {}): SessionFile {
   return {
     format: SESSION_FORMAT,
     version: 1,
+    id: 'session-1',
     savedAt: '2026-10-07T10:00:00.000Z',
     revision: 3,
     context: { account: 'Current', currency: 'INR', minorUnits: 2 },
