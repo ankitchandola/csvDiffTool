@@ -105,3 +105,72 @@ describe('parseCsv field limit', () => {
     expect(tooManyFieldsMessage(6_000_000)).toMatch('more than 6,000,000 fields')
   })
 })
+
+describe('parseCsv with a layout', () => {
+  const statement = [
+    'Account,12345678',
+    'Statement period,01/09/2026 to 30/09/2026',
+    '',
+    'Date,Details,Amount',
+    '01/09/2026,Opening,0',
+    '02/09/2026,"Rent, September",-500.00',
+    'Closing balance,,-500.00,extra',
+    '',
+  ].join('\r\n')
+
+  function read(text: string, headerRecord: number, skipTrailing = 0) {
+    return parseCsv(text, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord, skipTrailing })
+  }
+
+  it('reads the header at a record number and skips trailing records before field-count checks', () => {
+    const outcome = read(statement, 3, 1)
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
+    expect(outcome.file.headers).toEqual(['Date', 'Details', 'Amount'])
+    expect(outcome.file.rows).toEqual([
+      { Date: '01/09/2026', Details: 'Opening', Amount: '0' },
+      { Date: '02/09/2026', Details: 'Rent, September', Amount: '-500.00' },
+    ])
+    expect(outcome.file.skipped).toEqual({
+      before: ['Account,12345678', 'Statement period,01/09/2026 to 30/09/2026'],
+      after: ['Closing balance,,-500.00,extra'],
+    })
+    expect(outcome.file.spans).toEqual([{ first: 5, last: 5 }, { first: 6, last: 6 }])
+  })
+
+  it('still rejects a trailing record that is not skipped', () => {
+    const outcome = read(statement, 3)
+    expect(outcome.ok).toBe(false)
+    expect(!outcome.ok && outcome.issues[0]).toMatchObject({ kind: 'record', recordNumber: 3, message: 'Expected 3 fields, found 4' })
+  })
+
+  it('counts records, not lines, so a quoted preamble field spanning lines cannot shift the header', () => {
+    const text = 'Note\n"line one\nline two"\nid,amount\n1,"multi\nline"\n2,5\n'
+    const outcome = read(text, 3)
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
+    expect(outcome.file.headers).toEqual(['id', 'amount'])
+    expect(outcome.file.skipped?.before).toEqual(['Note', '"line one\nline two"'])
+    expect(outcome.file.spans).toEqual([{ first: 5, last: 6 }, { first: 7, last: 7 }])
+  })
+
+  it('reads a quote inside preamble prose literally', () => {
+    const outcome = read('Statement for "Savings\nid,amount\n1,5\n', 2)
+    expect(outcome.ok && outcome.file.skipped?.before).toEqual(['Statement for "Savings'])
+  })
+
+  it('rejects preamble text with an unterminated quoted field rather than guessing', () => {
+    const outcome = read('"Statement for Savings\nid,amount\n1,5\n', 2)
+    expect(outcome.ok).toBe(false)
+  })
+
+  it('reports a header record beyond the file', () => {
+    const outcome = read('a\nb\n', 5)
+    expect(!outcome.ok && outcome.issues).toEqual([
+      { kind: 'header', message: 'The header is set to record 5, but the file has only 2 non-blank records' },
+    ])
+  })
+
+  it('keeps Compare output unchanged without a layout', () => {
+    const outcome = parseCsv('id,v\n1,2\n', AUTO)
+    expect(outcome.ok && outcome.file).toEqual({ headers: ['id', 'v'], rows: [{ id: '1', v: '2' }], format: { kind: 'csv', delimiter: ',' }, notes: [] })
+  })
+})

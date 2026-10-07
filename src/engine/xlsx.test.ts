@@ -261,3 +261,42 @@ describe('unpackedSize', () => {
     expect(unpackedSize(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0]).buffer)).toBeNull()
   })
 })
+
+describe('parseXlsx with a layout', () => {
+  const bytes = workbook({
+    name: 'Statement',
+    rows: [
+      ['Account', '12345678'],
+      [],
+      ['Date', 'Amount'],
+      ['2026-09-01', '10.00'],
+      ['2026-09-02', '-4.00'],
+      ['Closing', '6.00', 'extra'],
+    ],
+  })
+
+  it('reads the header at a non-blank row and skips trailing rows', () => {
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipTrailing: 1 })
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
+    expect(outcome.file.headers).toEqual(['Date', 'Amount'])
+    expect(outcome.file.rows).toEqual([{ Date: '2026-09-01', Amount: '10.00' }, { Date: '2026-09-02', Amount: '-4.00' }])
+    expect(outcome.file.spans).toEqual([{ first: 4, last: 4 }, { first: 5, last: 5 }])
+    expect(outcome.file.skipped).toEqual({ before: ['Account, 12345678'], after: ['Closing, 6.00, extra'] })
+  })
+
+  it('numbers records from the header and rejects unskipped extra values', () => {
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipTrailing: 0 })
+    expect(!outcome.ok && outcome.issues[0]).toMatchObject({ kind: 'record', recordNumber: 3 })
+  })
+
+  it('ignores a missing formula result in a skipped row', () => {
+    const uncachedFooter = withCellXml(bytes, 'B6', '<c r="B6"><f>B4+B5</f></c>')
+    const outcome = parseXlsx(uncachedFooter, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipTrailing: 1 })
+    expect(outcome.ok).toBe(true)
+  })
+
+  it('reports a header row beyond the sheet', () => {
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 9, skipTrailing: 0 })
+    expect(!outcome.ok && outcome.issues[0].message).toBe('The header is set to record 9, but the file has only 5 non-blank records')
+  })
+})

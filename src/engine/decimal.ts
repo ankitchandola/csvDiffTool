@@ -84,3 +84,41 @@ export function withinTolerance(a: Decimal, b: Decimal, tolerance: Decimal): boo
   const diff = atScale(a, scale) - atScale(b, scale)
   return (diff < 0n ? -diff : diff) <= atScale(tolerance, scale)
 }
+
+function aligned(a: Decimal, b: Decimal): [bigint, bigint, number] {
+  const scale = Math.max(a.scale, b.scale)
+  return [atScale(a, scale), atScale(b, scale), scale]
+}
+
+export function addDecimal(a: Decimal, b: Decimal): Decimal {
+  const [x, y, scale] = aligned(a, b)
+  return { units: x + y, scale }
+}
+
+export function subtractDecimal(a: Decimal, b: Decimal): Decimal {
+  const [x, y, scale] = aligned(a, b)
+  return { units: x - y, scale }
+}
+
+export function negateDecimal(d: Decimal): Decimal {
+  return { units: -d.units, scale: d.scale }
+}
+
+export function compareDecimal(a: Decimal, b: Decimal): -1 | 0 | 1 {
+  const [x, y] = aligned(a, b)
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+// Exact rescale: null when the value has nonzero digits beyond the target scale.
+export function toScale(d: Decimal, scale: number): Decimal | null {
+  if (scale >= d.scale) return { units: atScale(d, scale), scale }
+  const divisor = 10n ** BigInt(d.scale - scale)
+  return d.units % divisor === 0n ? { units: d.units / divisor, scale } : null
+}
+
+export function formatDecimal({ units, scale }: Decimal): string {
+  const digits = (units < 0n ? -units : units).toString().padStart(scale + 1, '0')
+  const whole = digits.slice(0, digits.length - scale)
+  const body = scale === 0 ? whole : `${whole}.${digits.slice(-scale)}`
+  return units < 0n ? `-${body}` : body
+}

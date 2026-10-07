@@ -1,11 +1,9 @@
 import {
   ArrowRight,
   Check,
-  LockKeyhole,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
-import { MAX_FIELDS, MAX_FILE_BYTES, MAX_XLSX_BYTES, MAX_XLSX_FIELDS } from '../engine/limits'
 import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
 import {
   exportProfile,
@@ -19,7 +17,8 @@ import {
 import { browserStorage, createProfileStore } from '../profiles/store'
 import { CancelledError, createCompareClient } from '../worker/client'
 import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
-import { type Activity, ActivityBar, type Task } from './ActivityBar'
+import { type Activity, PHASE_LABELS, TASK_LABELS, type Task } from './activity'
+import { ActivityBar } from './ActivityBar'
 import { fileLabel, type FileState, sheetOf } from './file-state'
 import { valueRulesLine } from './rules-summary'
 import { FilePanel } from './FilePanel'
@@ -321,48 +320,6 @@ export function App() {
 
   return (
     <>
-      <a className="skip-link" href="#workspace">
-        Skip to workspace
-      </a>
-      <header className="app-header">
-        <a className="brand" href="#workspace" aria-label="CSV Diff workspace">
-          <img
-            className="brand-icon"
-            src={`${import.meta.env.BASE_URL}favicon.svg?v=original-brand`}
-            width="32"
-            height="32"
-            alt=""
-          />
-          <span>CSV Diff</span>
-        </a>
-        <div className="header-end">
-          <span className="privacy-badge">
-            <LockKeyhole size={14} aria-hidden="true" /> Files stay local
-          </span>
-          <details className="help-disclosure">
-            <summary>Help</summary>
-            <div className="help-content">
-              <h2>Comparing CSV files</h2>
-              <p>Load an old and a new export, then choose the columns that identify the same record in both files.</p>
-              <p>A key can be one column, such as <code>invoice_id</code>, or a combination like <code>warehouse + sku</code>.</p>
-              <details>
-                <summary>Excluded records and warnings</summary>
-                <p>Duplicate keys and records with an empty key component are excluded. Numeric warnings flag values that could not be read as numbers.</p>
-              </details>
-              <details>
-                <summary>File formats and limits</summary>
-                <p>Use a UTF-8 CSV (or TSV) or an .xlsx workbook; for a workbook, one sheet per file is compared, as Excel displays it. Headers are trimmed automatically. Leading zeros can be lost when a spreadsheet opens a CSV; the JSON report and the Excel workbook export keep the original text.</p>
-                <p>
-                  Per-file limits: CSV {MAX_FILE_BYTES / 2 ** 20} MiB and {MAX_FIELDS.toLocaleString('en-US')} fields; .xlsx{' '}
-                  {MAX_XLSX_BYTES / 2 ** 20} MiB and {MAX_XLSX_FIELDS.toLocaleString('en-US')} fields. Capacity depends on your
-                  browser and device.
-                </p>
-              </details>
-              <p className="note">Files stay in this browser. Saved profiles contain rules, never file contents.</p>
-            </div>
-          </details>
-        </div>
-      </header>
       <main id="workspace" tabIndex={-1} className={step === 'results' ? 'workspace results-workspace' : 'workspace'}>
         <nav className="workflow-nav" aria-label="Comparison workflow">
           {(['files', 'rules', 'results'] as const).map((item, index) => (
@@ -381,7 +338,7 @@ export function App() {
             </button>
           ))}
         </nav>
-        <ActivityBar activity={activity} onCancel={cancel} />
+        <ActivityBar activity={activity} onCancel={cancel} taskLabels={TASK_LABELS} phaseLabels={PHASE_LABELS} />
         <div className="workspace-surface">
           <div className="workspace-heading">
             <div>

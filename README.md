@@ -9,6 +9,10 @@ Plan and scope: [`docs/build-plan.md`](docs/build-plan.md).
 Current behavior and verification: [`docs/v1-implementation-spec.md`](docs/v1-implementation-spec.md).
 Browser measurements and spreadsheet observations: [`docs/browser-verification.md`](docs/browser-verification.md).
 
+Reconciliation mode: [`docs/reconciliation-spec.md`](docs/reconciliation-spec.md).
+Milestones 0-2 are implemented as an experimental, suggestion-only mode; nothing is
+confirmed or saved, and later milestones are still a plan.
+
 ## UI redesign
 
 The interface shows one step at a time: **Files → Match → Results**. Back keeps loaded files and rules; changing either invalidates the old result. The header uses the original purple lightning favicon as its brand icon, with matching purple controls on neutral surfaces. Help, profiles, previews and advanced options open on demand; dropdowns support keyboard and touch. Fonts and icons are bundled locally. See [`docs/ui-redesign.md`](docs/ui-redesign.md) for layout decisions and verification.
