@@ -3,7 +3,7 @@ import type { DecisionEvent, TxnKey } from '../../reconciliation/decisions'
 import { exportSession, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
 import type { MatchingRules, ReconSide, SessionContext, SideMapping } from '../../reconciliation/types'
 import type { StorageState } from './save-status'
-import type { SavedRef, SessionStore } from './session-store'
+import { type SavedRef, StorageConflictError, type SessionStore } from './session-store'
 
 // Everything a session file holds besides its history: complete only once both files
 // are read and both mappings are valid.
@@ -32,6 +32,8 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
   const [snapshots, setSnapshots] = useState<Map<TxnKey, TransactionSnapshot>>(() => new Map())
   const [autosave, setAutosave] = useState(false)
   const [storage, setStorage] = useState<StorageState>({ kind: 'off' })
+  // Browser storage holds a revision of this session that this page has not seen.
+  const [conflict, setConflict] = useState(false)
   const [backup, setBackup] = useState<number | null>(null)
   const [stored, setStored] = useState<SavedRef | null>(null)
   // The files a loaded session was made from, until they are loaded again.
@@ -87,7 +89,9 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
         lastSaved.current = { id: session.id, revision: session.revision }
         setStored(lastSaved.current)
         setStorage({ kind: 'saved', revision: session.revision })
+        setConflict(false)
       } catch (error) {
+        setConflict(error instanceof StorageConflictError)
         setStorage({ kind: 'error', message: message(error), lastSaved: lastSaved.current?.revision ?? null })
       }
     })
@@ -116,6 +120,7 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
     setExpected(session.sources)
     setBackup(null)
     previousConfig.current = null
+    setConflict(false)
     if (fromBrowser) {
       lastSaved.current = { id: session.id, revision: session.revision }
       setStorage({ kind: 'saved', revision: session.revision })
@@ -135,6 +140,7 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
     snapshots,
     autosave,
     storage,
+    conflict,
     backup,
     stored,
     expected,

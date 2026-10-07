@@ -48,8 +48,17 @@ describe('session store', () => {
     const store = memorySessionStore()
     await store.save(session('a', 1), null)
     await store.save(session('a', 5), { id: 'a', revision: 1 })
-    await expect(store.save(session('a', 2), { id: 'a', revision: 1 })).rejects.toThrow('Another tab saved this session at revision 5')
+    await expect(store.save(session('a', 2), { id: 'a', revision: 1 })).rejects.toThrow('A newer revision is saved in this browser (revision 5)')
     await store.save(session('a', 6), { id: 'a', revision: 5 })
     expect((await store.peek())?.revision).toBe(6)
+  })
+
+  it('uses source-neutral wording when an imported backup has not seen the saved revision', async () => {
+    const store = memorySessionStore()
+    await store.save(session('a', 5), null)
+    await expect(store.save(session('a', 2), null)).rejects.toThrow(
+      'A newer revision is saved in this browser (revision 5). Resume the saved session before saving here.',
+    )
+    expect((await store.peek())?.revision).toBe(5)
   })
 })

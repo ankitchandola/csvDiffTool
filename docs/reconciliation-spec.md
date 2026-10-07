@@ -1,8 +1,7 @@
 # Reconciliation: product spec and implementation plan
 
-Status: milestones 0-2 and their follow-ups on `main` (PRs #2 and #3); milestone 3
-(durable review, PR #4) and fixes from a review of the milestone 2 code are not yet
-on `main`; milestones 4-6 proposed. See
+Status: milestones 0-3 on `main` (PRs #2-#6, latest `f7aa0f5`), experimental;
+milestones 4-6 proposed. See
 [Implementation status](#15-implementation-status).  
 Date: 2026-10-07.
 
@@ -65,6 +64,7 @@ provide an explicit migration path. The existing lightning artwork can remain.
 | [Benchmarks](benchmarks.md) | Whole-file parsing and export memory costs; measured versus chosen limits |
 | [Browser verification](browser-verification.md) | Evidence for the recorded comparison snapshot, not reconciliation |
 | [Deployed XLSX report](xlsx-browser-test-2026-10-06.md) | Independently generated input checks and the missing-formula-cache failure |
+| [Deployed milestone 3 report](reconcile-review-deployed-test-2026-10-08.md) | Assistant-run browser check of milestone 3 on the deployed site; deployment commit not independently verified |
 | [Deployed Reconcile report](reconcile-deployed-test-2026-10-07.md) | Assistant-run browser check of the deployed site after PR #2; deployment commit not independently verified |
 
 Keep dated reports as historical evidence. New verification must name its commit,
@@ -898,7 +898,13 @@ At the 2,000,000-pair budget, finding suggestions took 0.8-1.0 s and peaked roug
 report an incomplete search in the same time. The budget stays at 2,000,000. The gate
 is met for this device only; lower-memory devices and other browsers are unmeasured.
 
-### Milestone 3: durable review (PR #4, not yet on `main`)
+### Milestone 3: durable review (on `main` through PR #5, `b3510d2`)
+
+An assistant-run deployed review found no correctness blocker in its tested
+milestone 3 scenarios. See [the deployed review report](reconcile-review-deployed-test-2026-10-08.md)
+for passed behaviors, three UI-message findings, and unverified storage/recovery
+cases. The deployment commit was not independently verified; this evidence does
+not establish quota handling, simultaneous-tab behavior or large-session capacity.
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -920,7 +926,7 @@ the worker's sequence check and validation before the page records the event; a
 failure between the two (the page closing in between) leaves the worker ahead of
 the page until the next run, when the page's history is replayed.
 
-### Fixes from a review of the milestone 2 code (not yet on `main`)
+### Fixes from a review of the milestone 2 code (on `main` through PR #5)
 
 Each defect was reproduced before fixing.
 
@@ -936,7 +942,7 @@ Checks run locally with milestone 3 and these fixes together: `npm test` 380 pas
 `npm run lint` clean; `npm run build` passed; `npm run test:ui` 28 passed in each of
 two repeated runs (Chrome).
 
-### Interchangeable sets and the row inspector (not yet on `main`)
+### Interchangeable sets and the row inspector (on `main` as `f7aa0f5`, PR #6)
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -948,7 +954,16 @@ Checks run locally with these additions: `npm test` 386 passed; `npm run lint`
 clean; `npm run build` passed; `npm run test:ui` 30 passed in each of two repeated
 runs (Chrome).
 
-### Not implemented in this snapshot
+### Fixes from the deployed milestone 3 review (not yet on `main`)
+
+| Finding | Fix | Tests |
+| --- | --- | --- |
+| The "load the same files" instruction stayed after recovery finished | Cleared once suggestions are found with the session's own files | Playwright |
+| A filtered count read "1 match match." | Counts read "N matches shown for these filters." (Problems: "shown for this search") | Playwright |
+| "Another tab saved…" also appeared after importing an older backup in the same tab | Source-neutral wording: "A newer revision is saved in this browser" | Unit and Playwright |
+| That message advised resuming, but the Resume button only appeared for a different session | A "Resume the saved session" button appears whenever a newer revision of the same session blocks saving, with a warning that it replaces this page's session | Playwright, stale second tab |
+
+
 
 - In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
 - Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
