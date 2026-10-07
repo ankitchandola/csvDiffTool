@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Decimal, isPlainDecimal, parseDecimal, withinTolerance } from './decimal'
+import { addDecimal, compareDecimal, type Decimal, formatDecimal, isPlainDecimal, negateDecimal, parseDecimal, subtractDecimal, toScale, withinTolerance } from './decimal'
 
 function d(text: string): Decimal {
   const value = parseDecimal(text)
@@ -81,5 +81,42 @@ describe('withinTolerance', () => {
     expect(withinTolerance(d('1.00'), d('1.01'), d('0.01'))).toBe(true)
     expect(withinTolerance(d('1.00'), d('1.02'), d('0.01'))).toBe(false)
     expect(withinTolerance(d('1.01'), d('1.00'), d('0.01'))).toBe(true)
+  })
+})
+
+describe('decimal arithmetic', () => {
+  it('adds and subtracts across scales exactly', () => {
+    expect(addDecimal(d('0.1'), d('0.2'))).toEqual(d('0.3'))
+    expect(subtractDecimal(d('1.01'), d('1'))).toEqual({ units: 1n, scale: 2 })
+    expect(subtractDecimal(d('5'), d('7.25'))).toEqual(d('-2.25'))
+  })
+
+  it('compares values with different scales', () => {
+    expect(compareDecimal(d('1.5'), d('1.50'))).toBe(0)
+    expect(compareDecimal(d('-1'), d('0.01'))).toBe(-1)
+    expect(compareDecimal(d('10'), d('9.999'))).toBe(1)
+  })
+
+  it('negates', () => {
+    expect(negateDecimal(d('-3.5'))).toEqual(d('3.5'))
+  })
+
+  it('rescales only when no digits are lost', () => {
+    expect(toScale(d('1.5'), 2)).toEqual({ units: 150n, scale: 2 })
+    expect(toScale(d('1.500'), 2)).toEqual({ units: 150n, scale: 2 })
+    expect(toScale(d('1.505'), 2)).toBeNull()
+    expect(toScale(d('-12.30'), 0)).toBeNull()
+    expect(toScale(d('-12.00'), 0)).toEqual({ units: -12n, scale: 0 })
+  })
+
+  it.each([
+    ['0', '0'],
+    ['0.05', '0.05'],
+    ['-0.05', '-0.05'],
+    ['1234.50', '1234.50'],
+    ['-7', '-7'],
+    ['.5', '0.5'],
+  ])('formats %s as %s', (text, expected) => {
+    expect(formatDecimal(d(text))).toBe(expected)
   })
 })
