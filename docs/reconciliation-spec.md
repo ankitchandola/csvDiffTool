@@ -884,6 +884,20 @@ Checks run locally at `ae1bcc6`: `npm test` 345 passed; `npm run lint` clean;
 and the two cancel tests passed five repeats. The deployed site has not been
 checked with these additions.
 
+Fixes from a code review of the milestone 2 code, each reproduced before fixing:
+
+| Defect | Commit | Fix | Tests |
+| --- | --- | --- | --- |
+| An unclosed quote in a data row folded later rows into the last record; a trailing skip then dropped those transactions without a problem | `190e7e9` | A parse error in a skipped trailing record is fatal | Unit test with the reproducing file |
+| With twelve or more detail lines above the table, the delimiter guess saw only them and fell back to a comma | `190e7e9` | With a header record after the first, the guess starts at the header | Unit tests, including an explicit delimiter left as chosen |
+| Searching or filtering 2M suggested pairs took about 1.9 s and 1.2 s in Node | `07d1b10` | Search text built once per transaction; direction from the amount's sign: 0.15 s and 0.08 s | Unit test that a search can't match across two values |
+| The shared-reference option stayed on after a reference column was unset | see below | Only in effect while both sides map a reference column | Playwright |
+| After Cancel, a file showing parse problems kept a pager whose full list had gone with the worker | see below | Such files are read again like the others | Playwright |
+
+Checks run locally after these fixes: `npm test` 348 passed; `npm run lint`
+clean; `npm run build` passed; `npm run test:ui` 23 passed in each of two
+repeated runs.
+
 
 
 ### Browser measurement for the milestone 3 entry gate
