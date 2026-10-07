@@ -64,7 +64,7 @@ provide an explicit migration path. The existing lightning artwork can remain.
 | [Benchmarks](benchmarks.md) | Whole-file parsing and export memory costs; measured versus chosen limits |
 | [Browser verification](browser-verification.md) | Evidence for the recorded comparison snapshot, not reconciliation |
 | [Deployed XLSX report](xlsx-browser-test-2026-10-06.md) | Independently generated input checks and the missing-formula-cache failure |
-| [Deployed Reconcile report](reconcile-deployed-test-2026-10-07.md) | Owner's check of milestones 0-2 on the deployed site at `84aa1b5` |
+| [Deployed Reconcile report](reconcile-deployed-test-2026-10-07.md) | Assistant-run browser check of the deployed site after PR #2; deployment commit not independently verified |
 
 Keep dated reports as historical evidence. New verification must name its commit,
 environment and tested behaviors. Use separate labels for proposed, implemented,
@@ -213,13 +213,23 @@ and a tolerance wide enough to hide them would also pair unrelated transactions.
 - When a source carries the net amount (processor payout and balance reports
   usually do), map that column.
 - When it carries gross and fee columns instead, the amount mapping may be
-  **gross minus fee**, computed exactly per row under the same parsing rules. The
-  fee stays available as a mapped field and is shown with the transaction. A
-  blank or invalid fee is a Problem, not zero.
+  **gross minus fee**. Initially this covers receipts only, with an explicit sign
+  convention: the gross column holds a nonnegative magnitude, the fee column holds
+  a nonnegative magnitude, and the mapping declares the direction of the result
+  (money in for processor receipts). The net magnitude is `gross − fee`, computed
+  exactly, and then takes the declared direction. A negative gross or fee, a blank
+  or invalid fee, and a fee greater than the gross are Problems; a fee equal to
+  the gross gives a zero-value row, kept out of matching. The fee stays available
+  as a mapped field and is shown with the transaction. Refunds, chargebacks and
+  payout reversals (where gross or fee change sign) are deferred until their
+  convention is specified and tested.
 - When the books record the gross receipt and the fee as two separate entries in
   opposite directions, pairing them with one bank deposit is cross-direction
   netting, which stays deferred. Until then those entries remain unmatched and
   visible rather than forced into a pair.
+
+Fee mapping is a separately gated addition (section 12), not part of the durable
+review milestone.
 
 An invalid number in Compare may fall back to text equality with a warning.
 Reconcile must instead exclude that transaction from matching and report why.
@@ -363,8 +373,9 @@ A conflict group is an **interchangeable set** only when, on each side, every me
 has the same normalized date, amount, direction and reference **and** the same
 review-context text (the mapped description, compared exactly after trimming).
 Groups that match on normalized fields but differ in description are shown as
-"identical amounts and dates, different descriptions"; bulk confirm is offered only
-after the reviewer explicitly acknowledges the differences shown.
+"identical amounts and dates, different descriptions" and are reviewed pair by pair.
+The first release has no acknowledgement path that turns them into a set; a
+separately authorized bulk action for them would need its own specification.
 
 The reviewer confirms a set in one action. The pairs use a deterministic assignment
 that is recorded and shown as arbitrary within the set; it is not presented as
@@ -447,17 +458,20 @@ autosave with a clear explanation that data is stored in this browser, explicit
 delete, backup export, and visible storage failures. Browser storage is not a
 guaranteed backup or an encrypted vault.
 
-Every decision shows one of three save states, always visible beside the session:
+Two independent indicators are always visible beside the session, because a
+revision can be both saved in this browser and included in a backup:
 
-| State | Meaning |
+| Indicator | States |
 | --- | --- |
-| Applied, backup needed | The decision exists in the current session only; a reload loses it |
-| Saved in this browser | The IndexedDB write containing it succeeded (autosave on) |
-| Backup exported | A session file was generated at a stated revision that includes it |
+| Browser storage | Off (autosave not enabled) · Saving · Saved in this browser at revision N · Not saved: the error, with the last revision that was saved |
+| Backup | No backup · Backup at revision N, current · Backup at revision N, outdated (later decisions are not in it) |
 
-States are per revision: a later decision returns the session to "applied, backup
-needed" until it is saved or exported. A storage failure leaves the affected
-decisions at "applied, backup needed" and shows the error; there is no fallback that
+For example: "Saved in this browser · Backup at revision 12". A later decision
+advances the revision: the browser indicator moves through Saving to the new
+revision, and the backup becomes outdated without affecting the browser state.
+Every decision is applied to the session first; until the browser indicator shows
+its revision (or a backup includes it), a reload loses it. A storage failure shows
+the error and keeps the last revision actually saved; there is no fallback that
 reports success.
 
 The UI owns durable session state outside the computation worker. Full records
@@ -612,11 +626,19 @@ its own. Four separate statuses are shown, each with its own evidence:
 | Source balances validated | Per side: opening balance plus current-period movement equals closing balance, with no invalid rows on that side |
 | Balance bridge complete | Both sides validated; opening items pass the opening check; no incomplete searches; the bridge is computed |
 | Outstanding items reviewed | Every remaining unmatched movement and opening item is acknowledged and classified by the reviewer (for example outstanding cheque, deposit in transit, bank entry to record in books, error to investigate) |
-| Reconciliation completed | All three above, no unresolved Problems, an accepted explanation for any opening difference not covered by opening items and for every confirmed variance, and an explicit "mark complete" decision by the reviewer |
+| Reconciliation completed | All three above, no unresolved Problems, an accepted explanation for every confirmed variance, and an explicit "mark complete" decision by the reviewer |
+
+The opening check must hold exactly: the opening difference is fully covered by
+imported opening items. An explanation cannot stand in for a missing term in the
+bridge, so an uncovered opening difference leaves the bridge incomplete. Supporting
+it later needs an explicit **opening-difference item** (amount, side, explanation,
+who accepted it, and its lifecycle across periods), specified and tested before use.
 
 Valid outstanding items, such as an uncleared cheque, may remain when reconciliation
-is completed; they carry forward. Any later decision in the session withdraws the
-completed status until it is marked again. During the experimental milestones 1-3,
+is completed; they carry forward. Completion is withdrawn, until marked again, by
+any later review decision and by any configuration change: source replacement or
+worksheet change, mapping edits, matching-rule changes, balance edits and
+opening-item imports. During the experimental milestones 1-3,
 none of these statuses is shown and the UI never uses the word "reconciled".
 
 ### Monthly workflow
@@ -649,7 +671,12 @@ group's exact signed sum, at the latest member date, becomes one aggregate
 transaction matched 1:1 against the other side under the normal rules. This is
 exact and linear in the number of rows. The review shows every member; members
 with invalid amounts make the whole group a Problem rather than a smaller sum. A
-group whose members differ in direction is shown with its parts and needs review.
+group whose members differ in direction is blocked from matching: matching its net
+sum would be cross-direction netting, which is deferred. Its members are shown for
+diagnosis, and no review action can override the block.
+
+Batch grouping is a separately gated addition (section 12), not part of the
+durable review milestone.
 
 ### Bounded subset search as the fallback
 
@@ -712,9 +739,11 @@ Do not silently alter `csv-diff-report` or `csv-diff-profile` for new domains.
 | 0. Baseline and contracts | Committed Playwright check of missing formula caches using `fixtures/xlsxwriter`; file reading extracted from the Compare handler for reuse; exact-decimal add/subtract/compare/format; header-row and trailing-row reading; fixtures, schemas and policies | Formula-cache browser check passes in the committed suite; Compare tests unchanged; inherited limitations recorded |
 | 1. Mode and mapping | Files/Map UI, independent mappings, normalization/problems | Equivalent supported CSV/XLSX values normalize identically; invalid fields cannot match |
 | 2. Candidate engine | Indexed 1:1 suggestions and conflicts | Input-order independence, boundary correctness and no hidden ambiguity |
-| 3. Durable review | Decisions with buttons and keyboard shortcuts, manual pairing, save/load and opt-in autosave | Reload/cancel/rerun/import preserve valid decisions; incompatible revisions blocked |
+| 3. Durable review | Decisions with buttons and keyboard shortcuts, manual pairing, save/load and opt-in autosave | Entry: a browser measurement of a dense repeated-amount case through candidate search and conflict analysis, with peak memory, and the candidate budget set from it. Exit: reload/cancel/rerun/import preserve valid decisions; incompatible revisions blocked; save and backup indicators tested |
 | 4. Monthly reconciliation | Balance bridge, completion statuses, outstanding-item continuation and reports | The section 9 worked example passes as a fixture before the continuation UI is built; two-month fixtures conserve money and prevent duplicate carry-forward; a balanced bridge alone never yields "completed" |
-| 5. Grouped suggestions | Payout/batch-ID grouping, then bounded 1:N/N:1 residual search | Conflict and budget exhaustion tests pass; cancellation remains usable |
+| 5. Grouped suggestions | Bounded 1:N/N:1 residual search | Conflict and budget exhaustion tests pass; cancellation remains usable |
+| Gated: fee mapping | Gross-minus-fee receipts with the section 4 sign convention | Can ship after milestone 2; does not enlarge milestone 3; exactness, fee-above-gross and refund exclusion tests |
+| Gated: batch grouping | Payout/batch-ID aggregates matched 1:1 | Can ship after milestone 3; mixed-direction groups blocked; large-group and invalid-member tests |
 | 6. Release and naming | Documentation, browser/spreadsheet verification, optional rename | Compare regressions pass; release claims match evidence |
 
 Do not enable grouped matching before milestone 4. The mode may be labeled
@@ -747,10 +776,13 @@ experimental during milestones 1-3, without claiming complete account reconcilia
 - Decision replay, confirm/unmatch/reconfirm, stale revisions and multiple tabs.
 - Reject survives reruns and rule changes, lapses on source replacement, can be
   restored, and never makes another candidate unique.
-- Save states: applied/saved/exported transitions, storage failure leaves
-  "applied, backup needed", confirm atomicity under a stale revision.
+- Save indicators: browser storage and backup tracked independently; a later
+  decision makes the backup outdated without changing the browser state; a storage
+  failure keeps the last revision saved; confirm atomicity under a stale revision.
 - Completion statuses: a fully unmatched but balancing bridge is not "completed";
   Problems and unreviewed outstanding items block completion.
+- Completion is withdrawn by later decisions and by source, worksheet, mapping,
+  rule, balance and opening-item changes; an uncovered opening difference blocks it.
 - Quota/storage failure, cancellation, worker failure and restore from backup.
 - Balance validation and unexplained difference; incomplete data never yields success.
 - Carry-forward lineage, overlapping imports, cleared items and two-month totals.
@@ -787,9 +819,11 @@ Preserve the project's existing test/build/lint checks throughout development.
 | Automatic confirmation | None in the initial usable release; every match is confirmed manually. The mode is labeled experimental and suggestion-only through milestone 2 | No code path creates a confirmed match without a reviewer action |
 | Conflicting references | Pairs whose shared-identifier references conflict are not suggested | Conflict excluded at every tier; context-only references ignored |
 | Bracketed negatives | Explicit per-side option in Reconcile; Compare unchanged | Grouped and plain values, misplaced signs, unbalanced brackets, reversal in split columns |
-| Fees | Map net, or gross minus fee; never tolerance. Cross-direction fee netting deferred | Gross-minus-fee exactness, invalid or blank fee as a Problem (with the fee mapping) |
+| Fees | Map net, or gross minus fee for nonnegative receipts with a declared direction; never tolerance. Refunds and cross-direction netting deferred. Separately gated | Exactness, fee above gross, negative or blank fee as Problems (with the fee mapping) |
 | Confidence | Rule-based evidence; no percentage scores without documented calibration | No percentage appears in suggestions or reports |
-| Grouped matching order | Payout/batch-ID grouping before subset search | Large ID groups, mixed directions, invalid members (with milestone 5) |
+| Grouped matching order | Payout/batch-ID grouping before subset search; mixed-direction groups blocked. Separately gated | Large ID groups, mixed-direction block, invalid members |
+| Interchangeable sets | Identical descriptions required in the first release; no acknowledgement path | Description difference prevents bulk confirm |
+| Opening differences | Must be fully covered by opening items; an explicit opening-difference item is deferred | Uncovered opening difference leaves the bridge incomplete |
 | Description similarity | Ranking within a tier only, never eligibility or confirmation | Same candidate set with and without similarity (with its release) |
 | Source layout | Explicit header row and trailing rows to skip in Reconcile; strict UTF-8 retained | Preamble/footer CSV and `.xlsx`, original record locations, Compare unchanged |
 
@@ -807,11 +841,11 @@ and its tests in this spec as milestones begin.
 
 ## 15. Implementation status (milestones 0-2)
 
-Snapshot: `84aa1b5` on `main` (PR #2), 2026-10-07. Labels as in the
-[V1 implementation spec](v1-implementation-spec.md): implemented, tested, not yet
-verified, not implemented.
+Labels as in the [V1 implementation spec](v1-implementation-spec.md):
+implemented, tested, not yet verified, not implemented. Each snapshot lists its
+own checks; results from one do not carry over to another.
 
-### Implemented and tested
+### Baseline snapshot: `84aa1b5` on `main` (PR #2), 2026-10-07
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -824,20 +858,33 @@ verified, not implemented.
 | 1:1 candidates: exact signed amount, inclusive asymmetric window, shared-reference tier 1, conflicting references excluded, conflict groups across both sides, candidate budget reported as incomplete | `src/reconciliation/match.ts` | Unit tests, including 20 shuffled input orders giving identical suggestions |
 | Reconcile worker: per-side layouts, SHA-256 fingerprints, revisions, stale-request rejection, worker-side search, direction filter and paging | `src/worker/reconcile-handler.ts` | Unit tests |
 | Files -> Map -> Review UI, experimental banner, mode switch keeping both modes' state | `src/ui/reconcile/`, `src/ui/Root.tsx` | Playwright: full flow, search, tabs, stale-setup gating, mode switching, no horizontal overflow at 390 and 768 px |
-| Bracketed negatives as an explicit per-side mapping option (added after `84aa1b5`) | `src/engine/decimal.ts`, `src/reconciliation/normalize.ts` | Unit tests: grouped values, misplaced signs, unbalanced brackets, reversal in split columns |
-| Cancel in Reconcile (test added after `84aa1b5`) | `src/ui/reconcile/ReconcileApp.tsx` | Playwright: cancel while reading a 600,000-row statement, read again; cancel after suggestions exist drops them and asks for both files again |
 
-At this snapshot: `npm test` 334 passed; `npm run lint` clean; `npm run build`
+Checks run locally on this snapshot's branch head before merge: `npm test` 334 passed; `npm run lint` clean; `npm run build`
 passed; `npm run test:ui` 19 passed. Two Compare checks in `e2e/workspace.spec.ts`
 that already failed on `main` were fixed alongside: a stale "1 ambiguous keys"
 assertion, and the 1440 px results page, which the rules summary had pushed to
 981 px against the 900 px no-scroll check.
 
-A deployed-site check of this commit by the project owner passed for the date
-window, competing pairs, exclusions, normalization problems, CSV/`.xlsx` agreement,
-preamble line numbers, input blocking, exact values and a basic Compare regression:
-see the [deployed Reconcile report](reconcile-deployed-test-2026-10-07.md)
-(desktop Chrome in a remote cloud browser, 1363 × 936 viewport).
+An assistant-run browser check of the deployed site after PR #2 merged passed for
+the date window, competing pairs, exclusions, normalization problems, CSV/`.xlsx`
+agreement, preamble line numbers, input blocking, exact values and a basic Compare
+regression: see the [deployed Reconcile report](reconcile-deployed-test-2026-10-07.md)
+(desktop Chrome in a remote cloud browser, 1363 × 936 viewport). The deployment
+commit was not independently verified.
+
+### Additions after `84aa1b5` (PR #3, not yet merged)
+
+| Area | Commit | Where | Tests |
+| --- | --- | --- | --- |
+| Bracketed negatives as an explicit per-side mapping option | `5bde8fd` | `src/engine/decimal.ts`, `src/reconciliation/normalize.ts`, mapping form | Unit tests: grouped values, misplaced signs, unbalanced brackets, reversal in split columns |
+| Cancel in Reconcile | `ae1bcc6` (test only) | `e2e/reconcile.spec.ts` | Playwright: cancel while reading a 600,000-row statement, then read again; cancel after suggestions exist drops them and asks for both files again |
+
+Checks run locally at `ae1bcc6`: `npm test` 345 passed; `npm run lint` clean;
+`npm run build` passed; `npm run test:ui` 21 passed in each of two repeated runs,
+and the two cancel tests passed five repeats. The deployed site has not been
+checked with these additions.
+
+
 
 ### Not implemented in this snapshot
 

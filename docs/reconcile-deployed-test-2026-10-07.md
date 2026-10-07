@@ -1,10 +1,12 @@
-# Deployed Reconcile check
+# Deployed Reconcile check (assistant-run)
 
-Test date: 2026-10-07. Commit: `84aa1b59a80df1a8ae9f3f0c2b782e5a34d89121` (PR #2 merged to
-`main`). Site: https://ankitchandola.github.io/csvDiffTool/, through the public UI, by the
-project owner. Environment: desktop Chrome in a remote cloud browser, 1363 × 936 CSS-pixel
-viewport. Chrome version, operating system, hardware and the exact input files were not
-recorded.
+Test date: 2026-10-07. Assistant-run deployed browser check, through the public UI of
+https://ankitchandola.github.io/csvDiffTool/, after PR #2 was merged to `main` as
+`84aa1b59a80df1a8ae9f3f0c2b782e5a34d89121`. The deployment commit was not independently
+verified: the page's build was not matched to that commit.
+
+Environment: desktop Chrome in a remote cloud browser, 1363 × 936 CSS-pixel viewport.
+Chrome version, operating system, hardware and the exact input files were not recorded.
 
 ## Passed
 
