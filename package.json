@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "preview": "vite preview",
-    "bench": "node --expose-gc --import tsx scripts/bench/run.ts"
+    "bench": "node --expose-gc --import tsx scripts/bench/run.ts",
+    "bench:reconcile": "tsx scripts/bench/reconcile-browser.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
