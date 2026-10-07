@@ -95,8 +95,9 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [autosave, store, revision, configKey])
 
-  function record(event: DecisionEvent, eventSnapshots: TransactionSnapshot[]) {
-    eventsRef.current = [...eventsRef.current, event]
+  // One reviewer action, which may be several events (a set confirm), is one revision.
+  function record(events: DecisionEvent[], eventSnapshots: TransactionSnapshot[]) {
+    eventsRef.current = [...eventsRef.current, ...events]
     setEvents(eventsRef.current)
     setSnapshots((prev) => {
       const next = new Map(prev)

@@ -8,7 +8,7 @@ function view(reference: string | null): TransactionView {
 }
 
 function item(overrides: Partial<SuggestionItem>): SuggestionItem {
-  return { group: 0, groupBank: 1, groupBooks: 1, groupPairs: 1, unique: true, tier: 3, gap: 0, bank: view(null), books: view(null), ...overrides }
+  return { group: 0, groupBank: 1, groupBooks: 1, groupPairs: 1, unique: true, tier: 3, gap: 0, bank: view(null), books: view(null), set: null, ...overrides }
 }
 
 describe('evidence wording', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkDecision, checkPair, type DecisionEvent, edgeKey, emptyState, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
+import { checkDecision, checkPair, type DecisionEvent, edgeKey, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
 import { DEFAULT_MATCHING, type Transaction } from './types'
 
 const FP_BANK = 'a'.repeat(64)
@@ -133,5 +133,20 @@ describe('replay', () => {
   it('keeps rejections when only the rules change', () => {
     const r = replay([ev('reject', B1, L1)], data({ isCandidate: () => false, rules: { ...DEFAULT_MATCHING, bankDaysAfter: 0 } }))
     expect(r.state.rejected.size).toBe(1)
+  })
+})
+
+describe('interchangeable sets', () => {
+  it('pair chosen members in the given order', () => {
+    expect(pairSet([B1, B2], [L1, L2])).toEqual([
+      { bank: B1, books: L1 },
+      { bank: B2, books: L2 },
+    ])
+    expect(() => pairSet([B1, B2], [L1])).toThrow('same number')
+  })
+
+  it('check a set confirm like a suggestion: it must meet the rules', () => {
+    expect(checkDecision(emptyState(), { action: 'confirm', bank: B1, books: L1, origin: 'set' }, data())).toEqual({ ok: true })
+    expect(checkDecision(emptyState(), { action: 'confirm', bank: B1, books: L2, origin: 'set' }, data()).ok).toBe(false)
   })
 })

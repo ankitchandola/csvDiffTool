@@ -913,9 +913,9 @@ mappings or rules once the setup is complete. Checks run locally at this branch'
 head: `npm test` 377 passed; `npm run lint` clean; `npm run build` passed;
 `npm run test:ui` 26 passed in each of two repeated runs (Chrome).
 
-Not implemented in milestone 3: bulk confirmation of interchangeable sets, the row
-inspector, and the O (classify as outstanding) shortcut, which belongs with
-outstanding-item classification in milestone 4. Confirm atomicity is enforced by
+Not implemented in milestone 3's first pass: bulk confirmation of interchangeable
+sets and the row inspector (both added below), and the O (classify as outstanding)
+shortcut, which belongs with outstanding-item classification in milestone 4. Confirm atomicity is enforced by
 the worker's sequence check and validation before the page records the event; a
 failure between the two (the page closing in between) leaves the worker ahead of
 the page until the next run, when the page's history is replayed.
@@ -936,10 +936,21 @@ Checks run locally with milestone 3 and these fixes together: `npm test` 380 pas
 `npm run lint` clean; `npm run build` passed; `npm run test:ui` 28 passed in each of
 two repeated runs (Chrome).
 
+### Interchangeable sets and the row inspector (not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| A non-unique group is an interchangeable set when, on each side, every member has the same date, amount, reference and trimmed description; one differing only in descriptions is labelled and reviewed pair by pair | `src/worker/reconcile-handler.ts` | Unit tests |
+| Set confirmation: open members in source order, pairs assigned in that order and recorded with origin `set`, the reviewer choosing which extra rows stay unmatched (latest by default); every pair validated against a copy first, so the set is recorded whole or not at all; a rejected pair inside the set blocks it; one revision per set | `decisions.ts`, `reconcile-handler.ts`, `SetConfirm.tsx`, `use-session.ts` | Unit tests; Playwright choosing a non-default row to leave unmatched |
+| Row inspector (Details button or Enter on a focused row): whole source row in column order with a copy action, confirmed match, open alternatives with evidence, rejected-pair count, and the pair's exact amount difference and date gap | `Inspector.tsx`, `reconcile-handler.ts` (`inspect`) | Unit tests; Playwright with Enter, copy to clipboard, Escape returning focus |
+
+Checks run locally with these additions: `npm test` 386 passed; `npm run lint`
+clean; `npm run build` passed; `npm run test:ui` 30 passed in each of two repeated
+runs (Chrome).
+
 ### Not implemented in this snapshot
 
-- In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above), except
-  bulk confirmation of interchangeable sets.
+- In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
 - Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
 - Two-digit-year pivots: such dates are always problems.
 - Saving reconciliation profiles separately from sessions (milestone 3 saves the

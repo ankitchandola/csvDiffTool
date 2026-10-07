@@ -20,6 +20,8 @@ export function parseTxnKey(key: TxnKey): { side: ReconSide; fingerprint: string
 
 export type DecisionAction = 'confirm' | 'reject' | 'restore' | 'unmatch'
 
+export type ConfirmOrigin = 'suggested' | 'manual' | 'set'
+
 // Soft rules a manual pair may break, with a reason. Direction is never one of them.
 export type RuleException = 'amount' | 'date' | 'reference'
 
@@ -30,8 +32,9 @@ export interface DecisionEvent {
   action: DecisionAction
   bank: TxnKey
   books: TxnKey
-  // confirm only.
-  origin?: 'suggested' | 'manual'
+  // confirm only. 'set': one pair of a bulk-confirmed interchangeable set, whose
+  // assignment within the set is arbitrary.
+  origin?: ConfirmOrigin
   exceptions?: RuleException[]
   reason?: string
 }
@@ -149,7 +152,7 @@ export function checkDecision(state: DecisionState, event: Omit<DecisionEvent, '
   if (event.action !== 'confirm') return { ok: true }
   const pair = checkPair(data.transaction(event.bank), data.transaction(event.books), data.rules)
   if (pair.blocked) return { ok: false, reason: pair.blocked }
-  if (event.origin === 'suggested') {
+  if (event.origin === 'suggested' || event.origin === 'set') {
     return data.isCandidate(event.bank, event.books) ? { ok: true } : { ok: false, reason: 'This pair is no longer suggested under the current rules' }
   }
   const missing = pair.exceptions.filter((e) => !(event.exceptions ?? []).includes(e))
@@ -190,4 +193,17 @@ export function replay(events: DecisionEvent[], data: ReplayData): Replay {
     applyToState(state, event)
   }
   return { state, lapsed }
+}
+
+export interface Pair {
+  bank: TxnKey
+  books: TxnKey
+}
+
+// Pairs the chosen members of an interchangeable set in the order given (source order),
+// so the assignment is deterministic and visibly arbitrary. Both sides must have the
+// same number of chosen members.
+export function pairSet(bank: TxnKey[], books: TxnKey[]): Pair[] {
+  if (bank.length !== books.length) throw new Error('Choose the same number of bank and books transactions')
+  return bank.map((key, i) => ({ bank: key, books: books[i] }))
 }

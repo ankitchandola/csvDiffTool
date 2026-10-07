@@ -4,6 +4,7 @@ import type { Layout } from '../../engine/parse'
 import { contextIssues } from '../../reconciliation/normalize'
 import { DEFAULT_MATCHING, type MatchingRules, RECON_SIDES, type ReconSide, type SessionContext, type SideMapping } from '../../reconciliation/types'
 import { CancelledError, createReconcileClient } from '../../worker/client'
+import type { Pair } from '../../reconciliation/decisions'
 import { importSession, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
 import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
 import type { Activity } from '../activity'
@@ -347,7 +348,7 @@ export function ReconcileApp() {
         setDecideError(result.reason)
         return result.reason
       }
-      session.record(result.event, result.snapshots)
+      session.record([result.event], result.snapshots)
       setReview({ ...currentReview, value: { summary, decisions: result.summary } })
       setDecisionVersion((v) => v + 1)
       return null
@@ -355,6 +356,25 @@ export function ReconcileApp() {
       const text = message(error)
       setDecideError(text)
       return text
+    } finally {
+      setDeciding(false)
+    }
+  }
+
+  async function decideSet(group: number, pairs: Pair[]): Promise<string | null> {
+    if (currentReview?.status !== 'done') return 'Find suggestions first'
+    const { summary } = currentReview.value
+    setDeciding(true)
+    setDecideError(null)
+    try {
+      const result = await client.call('decideSet', { matchId: summary.matchId, group, seq: session.eventsRef.current.length + 1, at: new Date().toISOString(), pairs })
+      if (!result.ok) return result.reason
+      session.record(result.events, result.snapshots)
+      setReview({ ...currentReview, value: { summary, decisions: result.summary } })
+      setDecisionVersion((v) => v + 1)
+      return null
+    } catch (error) {
+      return message(error)
     } finally {
       setDeciding(false)
     }
@@ -670,6 +690,7 @@ export function ReconcileApp() {
               error={decideError}
               formats={formats}
               onDecide={decide}
+              onDecideSet={decideSet}
             />
           </section>
         )}

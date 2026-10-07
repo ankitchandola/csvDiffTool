@@ -212,3 +212,82 @@ describe('reconcile handler decisions', () => {
     })
   })
 })
+
+describe('reconcile handler sets and inspection', () => {
+  const SET_BANK = ['date,amount,memo', '2026-09-05,-9.99,NETFLIX', '2026-09-05,-9.99,NETFLIX', '2026-09-05,-9.99,NETFLIX', '2026-09-06,-50.00,Rent'].join('\n')
+  const SET_BOOKS = ['date,amount,memo', '2026-09-05,-9.99,Netflix', '2026-09-05,-9.99,Netflix', '2026-09-06,-50.00,Rent', '2026-09-06,-50.00,Other rent'].join('\n')
+  const mapping: SideMapping = {
+    delimiter: ',',
+    layout: { headerRecord: 1, skipTrailing: 0 },
+    date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
+    amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
+    amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
+    reference: null,
+    description: 'memo',
+  }
+
+  async function run() {
+    const handle = createReconcileHandler()
+    let id = 1
+    const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
+    await call('parse', { side: 'bank', file: new File([SET_BANK], 'bank.csv'), delimiter: ',', layout: mapping.layout })
+    await call('parse', { side: 'books', file: new File([SET_BOOKS], 'books.csv'), delimiter: ',', layout: mapping.layout })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping } })
+    const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
+    await call('setDecisions', { matchId, events: [] })
+    const page: { items: { group: number; set: string | null; bank: { original: { description: string } } }[] } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 50 })
+    return { call, matchId, page }
+  }
+
+  it('marks identical repeated transactions as an interchangeable set, and different descriptions as not', async () => {
+    const { page } = await run()
+    const kinds = new Map(page.items.map((i) => [i.bank.original.description, i.set]))
+    expect(kinds.get('NETFLIX')).toBe('interchangeable')
+    expect(kinds.get('Rent')).toBe('different-descriptions')
+  })
+
+  it('confirms a set whole, and refuses one with differing descriptions', async () => {
+    const { call, matchId, page } = await run()
+    const netflix = page.items.find((i) => i.bank.original.description === 'NETFLIX') as { group: number }
+    const set: { bank: { key: string; recordNumber: number }[]; books: { key: string }[]; blocked: string | null } = await call('getSet', { matchId, group: netflix.group })
+    expect(set.bank.map((v) => v.recordNumber)).toEqual([1, 2, 3])
+    expect(set.books).toHaveLength(2)
+    expect(set.blocked).toBeNull()
+    const pairs = [0, 1].map((i) => ({ bank: set.bank[i].key, books: set.books[i].key }))
+    await expect(call('decideSet', { matchId, group: netflix.group, seq: 1, at: '2026-10-08T00:00:00Z', pairs })).resolves.toMatchObject({
+      ok: true,
+      events: [{ seq: 1, origin: 'set' }, { seq: 2, origin: 'set' }],
+      summary: { confirmed: 2 },
+    })
+    const after: { bank: unknown[]; blocked: string | null } = await call('getSet', { matchId, group: netflix.group })
+    expect(after).toMatchObject({ blocked: 'Nothing in this set is left to confirm' })
+    expect(after.bank).toHaveLength(1)
+
+    const rent = page.items.find((i) => i.bank.original.description === 'Rent') as { group: number }
+    const rentSet: { blocked: string | null } = await call('getSet', { matchId, group: rent.group })
+    expect(rentSet.blocked).toMatch(/descriptions differ/)
+  })
+
+  it('records nothing when any pair in a set is invalid', async () => {
+    const { call, matchId, page } = await run()
+    const netflix = page.items.find((i) => i.bank.original.description === 'NETFLIX') as { group: number }
+    const set: { bank: { key: string }[]; books: { key: string }[] } = await call('getSet', { matchId, group: netflix.group })
+    const reused = [
+      { bank: set.bank[0].key, books: set.books[0].key },
+      { bank: set.bank[1].key, books: set.books[0].key },
+    ]
+    expect(await call('decideSet', { matchId, group: netflix.group, seq: 1, at: '2026-10-08T00:00:00Z', pairs: reused })).toMatchObject({ ok: false })
+    expect(await call('setDecisions', { matchId, events: [] })).toMatchObject({ confirmed: 0 })
+  })
+
+  it('inspects a transaction with its full source row, match and alternatives', async () => {
+    const { call, matchId, page } = await run()
+    const netflix = page.items.find((i) => i.bank.original.description === 'NETFLIX') as unknown as { bank: { key: string }; books: { key: string } }
+    const [detail, missing]: ({ headers: string[]; values: string[]; alternativesTotal: number; match: unknown } | null)[] = await call('inspect', { matchId, keys: [netflix.bank.key, 'bank|' + 'f'.repeat(64) + '|1'] })
+    expect(detail).toMatchObject({ headers: ['date', 'amount', 'memo'], values: ['2026-09-05', '-9.99', 'NETFLIX'], alternativesTotal: 2, match: null })
+    expect(missing).toBeNull()
+    await call('decide', { matchId, seq: 1, at: '2026-10-08T00:00:00Z', decision: { action: 'confirm', bank: netflix.bank.key, books: netflix.books.key, origin: 'suggested' } })
+    const [confirmed]: { match: { event: { seq: number } } | null; alternativesTotal: number }[] = await call('inspect', { matchId, keys: [netflix.bank.key] })
+    expect(confirmed).toMatchObject({ match: { event: { seq: 1 } }, alternativesTotal: 0 })
+  })
+})

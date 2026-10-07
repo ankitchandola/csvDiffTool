@@ -8,6 +8,8 @@ import {
   checkDecision,
   checkPair,
   type DecisionEvent,
+  type DecisionState,
+  edgeKey,
   parseTxnKey,
   type Replay,
   replay,
@@ -16,7 +18,7 @@ import {
   type TxnKey,
   txnKey,
 } from '../reconciliation/decisions'
-import { findCandidates, type MatchOutcome, type Tier } from '../reconciliation/match'
+import { type Candidate, findCandidates, type MatchOutcome, type Tier } from '../reconciliation/match'
 import type { TransactionSnapshot } from '../reconciliation/session'
 import { contextIssues, mappingIssues, normalizeSide } from '../reconciliation/normalize'
 import {
@@ -39,6 +41,7 @@ import {
   PREVIEW_SKIPPED,
   type ProblemItem,
   type RejectedItem,
+  type SetKind,
   type ReconPhase,
   type ReconRequest,
   type ReconRequests,
@@ -108,6 +111,8 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     counts: Record<ReconSide, Int32Array> | null
   } | null = null
   let nextMatchId = 1
+  // Each group's set kind, computed on first use for the latest run.
+  const setKinds = new Map<number, SetKind | null>()
   const searchCache = createSearchCache()
 
   function invalidate() {
@@ -258,6 +263,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     const matchId = nextMatchId++
     latest = { matchId, revision: forRevision, outcome, rules }
     review = null
+    setKinds.clear()
     const per = (count: (side: ReconSide) => number) => ({ bank: count('bank'), books: count('books') })
     return {
       matchId,
@@ -439,6 +445,142 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return summary(state, run.outcome)
   }
 
+  function suggestionItem(outcome: MatchOutcome, data: Normalized, c: Candidate): SuggestionItem {
+    const group = outcome.groups[c.group]
+    return {
+      group: c.group,
+      groupBank: group.bank.length,
+      groupBooks: group.books.length,
+      groupPairs: group.pairs,
+      unique: group.unique,
+      tier: c.tier,
+      gap: c.gap,
+      bank: view(data.sides.bank.transactions[c.bank], data.mappings.bank),
+      books: view(data.sides.books.transactions[c.books], data.mappings.books),
+      set: setKind(outcome, data, c.group),
+    }
+  }
+
+  function descriptionOf(data: Normalized, t: Transaction): string {
+    const column = data.mappings[t.side].description
+    return column === null ? '' : (sources[t.side] as Source).file.rows[t.index][column].trim()
+  }
+
+  function setKind(outcome: MatchOutcome, data: Normalized, groupId: number): SetKind | null {
+    const cached = setKinds.get(groupId)
+    if (cached !== undefined) return cached
+    const group = outcome.groups[groupId]
+    let kind: SetKind | null = null
+    if (!group.unique) {
+      const same = (side: ReconSide, positions: number[]) => {
+        const all = positions.map((p) => data.sides[side].transactions[p])
+        const first = all[0]
+        const fields = all.every((t) => t.day === first.day && t.amount.units === first.amount.units && t.reference === first.reference)
+        const descriptions = all.every((t) => descriptionOf(data, t) === descriptionOf(data, first))
+        return { fields, descriptions }
+      }
+      const bank = same('bank', group.bank)
+      const books = same('books', group.books)
+      if (bank.fields && books.fields) kind = bank.descriptions && books.descriptions ? 'interchangeable' : 'different-descriptions'
+    }
+    setKinds.set(groupId, kind)
+    return kind
+  }
+
+  function getSet({ matchId, group }: ReconRequests['getSet']): ReconResults['getSet'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    const kind = setKind(run.outcome, data, group)
+    if (kind === null) throw new Error('This group is not a set of identical transactions')
+    const members = run.outcome.groups[group]
+    const open = (side: ReconSide, positions: number[]) =>
+      positions
+        .filter((p) => !state.used[side][p])
+        .map((p) => data.sides[side].transactions[p])
+        .sort((a, b) => a.index - b.index)
+    const bank = open('bank', members.bank)
+    const books = open('books', members.books)
+    const rejectedInside = bank.some((b) => books.some((l) => state.rejected.has(`${position(b)}:${position(l)}`)))
+    const blocked =
+      kind !== 'interchangeable'
+        ? 'The descriptions differ, so these transactions may not be interchangeable; confirm pairs one at a time'
+        : bank.length === 0 || books.length === 0
+          ? 'Nothing in this set is left to confirm'
+          : rejectedInside
+            ? 'A pair in this set was rejected; confirm pairs one at a time'
+            : null
+    return {
+      group,
+      kind,
+      bank: bank.map((t) => view(t, data.mappings.bank)),
+      books: books.map((t) => view(t, data.mappings.books)),
+      blocked,
+    }
+  }
+
+  function decideSet({ matchId, group, seq, at, pairs }: ReconRequests['decideSet']): ReconResults['decideSet'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+    const set = getSet({ matchId, group })
+    if (set.blocked) return { ok: false, reason: set.blocked }
+    if (pairs.length === 0) return { ok: false, reason: 'Choose at least one pair' }
+    const bankKeys = new Set(set.bank.map((v) => v.key))
+    const booksKeys = new Set(set.books.map((v) => v.key))
+    if (!pairs.every((p) => bankKeys.has(p.bank) && booksKeys.has(p.books))) return { ok: false, reason: 'Every pair must come from this set' }
+    // Check every pair against a copy first, so a failure leaves the history untouched.
+    const trial: DecisionState = {
+      bankMatch: new Map(state.replay.state.bankMatch),
+      booksMatch: new Map(state.replay.state.booksMatch),
+      active: new Map(state.replay.state.active),
+      rejected: new Map(state.replay.state.rejected),
+    }
+    const data_ = replayData(run.rules)
+    const events: DecisionEvent[] = []
+    for (const [i, pair] of pairs.entries()) {
+      const decision = { action: 'confirm' as const, ...pair, origin: 'set' as const }
+      const verdict = checkDecision(trial, decision, data_)
+      if (!verdict.ok) return verdict
+      const event: DecisionEvent = { seq: seq + i, at, ...decision }
+      applyToState(trial, event)
+      events.push(event)
+    }
+    for (const event of events) {
+      state.events.push(event)
+      applyToState(state.replay.state, event)
+    }
+    derive(state, data)
+    const snapshots = events.flatMap((e) => [snapshot(e.bank), snapshot(e.books)]).filter((s): s is TransactionSnapshot => s !== null)
+    return { ok: true, events, snapshots, summary: summary(state, run.outcome) }
+  }
+
+  const ALTERNATIVES = 20
+
+  function inspect({ matchId, keys }: ReconRequests['inspect']): ReconResults['inspect'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    const ok = available(state)
+    return keys.map((key) => {
+      const t = resolve(key)
+      if (!t) return null
+      const file = (sources[t.side] as Source).file
+      const own = position(t)
+      const otherSide: ReconSide = t.side === 'bank' ? 'books' : 'bank'
+      const partnerKey = t.side === 'bank' ? state.replay.state.bankMatch.get(key) : state.replay.state.booksMatch.get(key)
+      const partner = partnerKey ? resolve(partnerKey) : undefined
+      const event = partnerKey ? state.replay.state.active.get(t.side === 'bank' ? edgeKey(key, partnerKey) : edgeKey(partnerKey, key)) : undefined
+      const involving = run.outcome.candidates.filter((c) => (t.side === 'bank' ? c.bank : c.books) === own && ok(c))
+      let rejectedPairs = 0
+      for (const e of state.replay.state.rejected.values()) if (e.bank === key || e.books === key) rejectedPairs++
+      return {
+        view: view(t, data.mappings[t.side]),
+        headers: file.headers,
+        values: file.headers.map((h) => file.rows[t.index][h]),
+        match: partner && event ? { other: view(partner, data.mappings[otherSide]), event } : null,
+        alternatives: involving.slice(0, ALTERNATIVES).map((c) => suggestionItem(run.outcome, data, c)),
+        alternativesTotal: involving.length,
+        rejectedPairs,
+      }
+    })
+  }
+
   function decide({ matchId, seq, at, decision }: ReconRequests['decide']): ReconResults['decide'] {
     const { latest: run, normalized: data, review: state } = currentReview(matchId)
     if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
@@ -488,7 +630,6 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
 
     switch (tab) {
       case 'suggested': {
-        const groups = outcome.groups
         const ok = available(state)
         const all = filtered(
           () => outcome.candidates.filter(ok),
@@ -497,20 +638,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
             isDirection(directionOf(sides.bank.transactions[c.bank])) &&
             (needle === '' || searchText(data, 'bank', c.bank).includes(needle) || searchText(data, 'books', c.books).includes(needle)),
         )
-        const items = all.slice(start, end).map((c): SuggestionItem => {
-          const group = groups[c.group]
-          return {
-            group: c.group,
-            groupBank: group.bank.length,
-            groupBooks: group.books.length,
-            groupPairs: group.pairs,
-            unique: group.unique,
-            tier: c.tier,
-            gap: c.gap,
-            bank: view(sides.bank.transactions[c.bank], mappings.bank),
-            books: view(sides.books.transactions[c.books], mappings.books),
-          }
-        })
+        const items = all.slice(start, end).map((c) => suggestionItem(run.outcome, data, c))
         return { tab, total: all.length, offset: start, items }
       }
       case 'confirmed': {
@@ -581,6 +709,12 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         return decide(request)
       case 'checkPair':
         return pairCheck(request)
+      case 'getSet':
+        return getSet(request)
+      case 'decideSet':
+        return decideSet(request)
+      case 'inspect':
+        return inspect(request)
     }
   }
 }
