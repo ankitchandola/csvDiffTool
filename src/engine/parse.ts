@@ -94,6 +94,31 @@ function lineBreaks(text: string, start: number, end: number): number {
   return count
 }
 
+// Papa Parse guesses the delimiter from the first records, which for a statement are
+// the details above the table. Guess from the header record onwards instead. Records
+// before it are counted with comma quoting, as the layout counts them.
+function delimiterFromHeader(input: string, headerRecord: number): Delimiter | null {
+  let seen = 0
+  let previousCursor = 0
+  let start = -1
+  Papa.parse<string[]>(input, {
+    delimiter: ',',
+    skipEmptyLines: true,
+    step(result, parser) {
+      seen++
+      if (seen === headerRecord) {
+        start = previousCursor
+        parser.abort()
+        return
+      }
+      previousCursor = result.meta.cursor
+    },
+  })
+  if (start < 0) return null
+  const guess = Papa.parse<string[]>(input.slice(start), { delimitersToGuess: GUESSABLE, preview: 10, skipEmptyLines: true })
+  return (GUESSABLE as string[]).includes(guess.meta.delimiter) ? (guess.meta.delimiter as Delimiter) : null
+}
+
 // Without a layout this is Compare's reader: the first non-blank record is the header and
 // no spans or skipped records are kept.
 export function parseCsv(
@@ -139,8 +164,10 @@ export function parseCsv(
     return true
   }
 
+  const explicit = rules.delimiter !== 'auto' ? rules.delimiter : headerRecord > 1 ? delimiterFromHeader(input, headerRecord) : null
+
   Papa.parse<string[]>(input, {
-    delimiter: rules.delimiter === 'auto' ? '' : rules.delimiter,
+    delimiter: explicit ?? '',
     delimitersToGuess: GUESSABLE,
     dynamicTyping: false,
     skipEmptyLines: true,
@@ -197,6 +224,14 @@ export function parseCsv(
   }
   if (tooLarge) return { ok: false, issues: [{ kind: 'file', message: tooManyFieldsMessage(maxFields) }] }
   if (fatal.length > 0) return { ok: false, issues: fatal }
+  // A parse error in a skipped record is not just footer text: an unclosed quote there
+  // can have swallowed transactions that follow it.
+  for (const p of pending) {
+    recordNumber++
+    if (p.errors.length > 0) {
+      issues.push({ kind: 'record', recordNumber, message: `${p.errors.join('; ')} (in a record set to be skipped at the end)`, raw: p.raw })
+    }
+  }
   if (issues.length > 0) return { ok: false, issues }
   skipped.after = pending.map((p) => p.raw)
   const file: ParsedFile = { headers, rows, format: { kind: 'csv', delimiter }, notes: [] }
