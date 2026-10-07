@@ -757,10 +757,10 @@ verified, not implemented.
 | Files -> Map -> Review UI, experimental banner, mode switch keeping both modes' state | `src/ui/reconcile/`, `src/ui/Root.tsx` | Playwright: full flow, search, tabs, stale-setup gating, mode switching, no horizontal overflow at 390 and 768 px |
 
 At this snapshot: `npm test` 334 passed; `npm run lint` clean; `npm run build`
-passed; `npm run test:ui` 17 passed and 2 failed. Both failures are in
-`e2e/workspace.spec.ts` and also fail on `main` before this work: a stale
-"1 ambiguous keys" assertion and a 1440 px page height of 981 px against a 900 px
-check. Neither is caused or changed by the reconciliation work.
+passed; `npm run test:ui` 19 passed. Two Compare checks in `e2e/workspace.spec.ts`
+that already failed on `main` were fixed alongside: a stale "1 ambiguous keys"
+assertion, and the 1440 px results page, which the rules summary had pushed to
+981 px against the 900 px no-scroll check.
 
 ### Not implemented in this snapshot
 
