@@ -20,12 +20,12 @@ export interface XlsxExportLimits {
 
 export class ExportRefused extends Error {}
 
-const ALTERNATIVE = 'Download the changes CSV or the JSON report instead; they have no such limit.'
+const COMPARE_ALTERNATIVE = 'Download the changes CSV or the JSON report instead; they have no such limit.'
 const SIDE_NAMES: Record<Side, string> = { old: 'old', new: 'new' }
 const MAX_WIDTH = 50
 const WIDTH_SAMPLE_ROWS = 1000
 
-interface Table {
+export interface Table {
   name: string
   header: string[]
   rows: string[][]
@@ -35,13 +35,13 @@ interface Table {
 
 const n = (value: number) => value.toLocaleString('en-US')
 
-function refuse(message: string): never {
-  throw new ExportRefused(`${message} ${ALTERNATIVE}`)
-}
-
 // Checks every Excel and memory limit from the tables alone, before any SheetJS object
-// is built, so a refusal costs no workbook memory.
-function validate(tables: Table[], limits: XlsxExportLimits) {
+// is built, so a refusal costs no workbook memory. alternative tells the user what to
+// download instead.
+function validate(tables: Table[], limits: XlsxExportLimits, alternative: string) {
+  const refuse = (message: string): never => {
+    throw new ExportRefused(`${message} ${alternative}`)
+  }
   let cells = 0
   let text = 0
   for (const table of tables) {
@@ -183,16 +183,19 @@ export function buildXlsxReport(input: ReportInput, limits: XlsxExportLimits, on
     rows: diff.warnings.map((w) => [w.column, SIDE_NAMES[w.side], String(w.recordNumber), w.message]),
   }
 
-  const tables = [summary, added, removed, changed, ambiguous, emptyKeys, warnings]
-  validate(tables, limits)
+  const bytes = writeWorkbook([summary, added, removed, changed, ambiguous, emptyKeys, warnings], limits, COMPARE_ALTERNATIVE)
+  onProgress?.('export', total, total)
+  return bytes
+}
 
+// Every table becomes one sheet of fresh text cells, after every limit is checked.
+export function writeWorkbook(tables: Table[], limits: XlsxExportLimits, alternative: string): ArrayBuffer {
+  validate(tables, limits, alternative)
   const book = XLSX.utils.book_new()
   for (const table of tables) XLSX.utils.book_append_sheet(book, sheet(table), table.name)
   // bookSST stores text as shared strings, Excel's standard form; the default t="str" is
   // the type of a formula's string result. ignoreEC: false keeps Excel's "number stored
   // as text" indicators: suppressing them can crash Excel in Text to Columns, which is
   // how users are told to convert these text cells.
-  const bytes = XLSX.write(book, { type: 'array', bookType: 'xlsx', bookSST: true, ignoreEC: false, compression: true }) as ArrayBuffer
-  onProgress?.('export', total, total)
-  return bytes
+  return XLSX.write(book, { type: 'array', bookType: 'xlsx', bookSST: true, ignoreEC: false, compression: true }) as ArrayBuffer
 }
