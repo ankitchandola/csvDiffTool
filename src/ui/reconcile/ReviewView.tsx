@@ -20,6 +20,7 @@ import type {
 import { count, counted, formatValue } from '../format'
 import { VirtualList } from '../results/VirtualList'
 import { Select } from '../Select'
+import { tabKeyTarget } from '../tabs'
 import { useDebounced } from '../use-debounced'
 import { competitionText, dateEvidence, evidenceText } from './evidence'
 import { type Formats, keyLabel, locationText, originalAmount } from './location'
@@ -475,9 +476,8 @@ export function ReviewView({
             className={tab === id ? 'tab active' : 'tab'}
             onClick={() => setTab(id)}
             onKeyDown={(e) => {
-              const index = TABS.findIndex(([key]) => key === id)
-              const next = e.key === 'ArrowRight' ? (index + 1) % TABS.length : e.key === 'ArrowLeft' ? (index + TABS.length - 1) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1
-              if (next < 0) return
+              const next = tabKeyTarget(e.key, TABS.findIndex(([key]) => key === id), TABS.length)
+              if (next === null) return
               e.preventDefault()
               setTab(TABS[next][0])
               document.getElementById(`recon-tab-${TABS[next][0]}`)?.focus()
