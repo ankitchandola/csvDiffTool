@@ -80,6 +80,11 @@ function cashFlow(row: Row, amount: AmountMapping, mapping: SideMapping, context
   return { ok: true, amount: { units: 0n, scale: context.minorUnits } }
 }
 
+// Rows with at least one problem; a row can have several.
+export function invalidRowCount(side: NormalizedSide): number {
+  return new Set(side.problems.map((p) => p.index)).size
+}
+
 export function normalizeSide(
   side: ReconSide,
   file: ParsedFile,

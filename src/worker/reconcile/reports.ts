@@ -1,6 +1,7 @@
 import { type Decimal, formatDecimal, subtractDecimal } from '../../engine/decimal'
 import { type RunningBalanceCheck } from '../../reconciliation/accounting'
 import { placeLabel } from '../../reconciliation/location'
+import { invalidRowCount } from '../../reconciliation/normalize'
 import { type ReconciliationReport, REPORT_FORMAT, REPORT_VERSION, reportJson, type ReportMatch, type ReportOutstanding, type ReportProblem, reportTables, type ReportTransaction } from '../../reconciliation/report'
 import { RECON_SIDES, type ReconSide, type SideMapping, type Transaction } from '../../reconciliation/types'
 import { type ReconRequests, type ReconResults } from '../reconcile-protocol'
@@ -79,7 +80,7 @@ export function buildReport(ws: Workspace, { matchId, setup, basis, session, gen
   const counts = (side: ReconSide) => ({
     rows: (ws.sources[side] as Source).file.rows.length,
     valid: data.sides[side].transactions.length,
-    invalid: new Set(data.sides[side].problems.map((p) => p.index)).size,
+    invalid: invalidRowCount(data.sides[side]),
     zero: data.sides[side].zero.length,
     opening: data.pool[side].length - data.sides[side].transactions.length,
   })

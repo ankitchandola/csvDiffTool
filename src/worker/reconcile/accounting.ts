@@ -2,6 +2,7 @@ import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } f
 import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
 import { applyToState, type DecisionEvent } from '../../reconciliation/decisions'
+import { invalidRowCount } from '../../reconciliation/normalize'
 import { type AccountingSetup } from '../../reconciliation/session'
 import { computeStatuses, type ReviewFacts } from '../../reconciliation/statuses'
 import { RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
@@ -62,7 +63,7 @@ export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewS
   const unmatched = (side: ReconSide) => data.pool[side].filter((t, p) => !t.opening && !state.used[side][p])
   const openingAll = (side: ReconSide) => data.pool[side].filter((t) => t.opening)
   const openingRemaining = (side: ReconSide) => data.pool[side].filter((t, p) => t.opening && !state.used[side][p])
-  const invalid = (side: ReconSide) => new Set(data.sides[side].problems.map((p) => p.index)).size
+  const invalid = (side: ReconSide) => invalidRowCount(data.sides[side])
   const movement = { bank: sum(amounts(data.sides.bank.transactions)), books: sum(amounts(data.sides.books.transactions)) }
   const confirmed = [...state.replay.state.active.values()]
   const differences = confirmed.map((event) => subtractDecimal((resolve(ws, event.bank) as Transaction).amount, (resolve(ws, event.books) as Transaction).amount))
