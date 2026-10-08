@@ -1063,7 +1063,7 @@ passed; `npm run test:ui` 39 passed in each of two repeated runs (Chrome).
 Not verified: real storage quotas (the test simulates the error), browsers other than
 Chrome, private browsing modes, and devices with less memory.
 
-### Deployed milestone 4 check and period entry (fix not yet on `main`)
+### Deployed milestone 4 check and period entry (on `main` through PR #15)
 
 An assistant-run deployed check of the milestone 4 accounting flow found no correctness
 blocker in its scenarios: see the [deployed milestone 4 report](reconcile-accounting-deployed-test-2026-10-08.md).
@@ -1075,6 +1075,19 @@ prompt otherwise, and older backups holding a half-entered period read as none.
 
 Checks run locally: `npm test` 435 passed; `npm run lint` clean; `npm run build`
 passed; `npm run test:ui` 41 passed in each of two repeated runs (Chrome).
+
+### Fixes from a review of milestone 4 (not yet on `main`)
+
+| Defect | Fix | Tests |
+| --- | --- | --- |
+| A grouped balance such as `1,000.00` (valid for the accounting check) or a half-typed one made backups and saved sessions impossible to load | Session files keep balances as typed; the accounting check reports any it can't read | Unit |
+| Matching could pair a bank opening item with a books opening item, clearing both with no current-period movement | Not suggested, and refused for manual and replayed decisions | Worker |
+| Outstanding-items exports dropped clearances inherited from imported files, so a later period could re-import a stale file | Exports list inherited clearances as well as new ones | Worker |
+| After loading a backup without opening items, the worker kept those imported earlier | The opening list is sent with every mapping check, even when empty | Playwright |
+
+Each test fails without its fix. Checks run locally: `npm test` 439 passed;
+`npm run lint` clean; `npm run build` passed; `npm run test:ui` 42 passed in each of
+two repeated runs (Chrome).
 
 ### Not implemented in this snapshot
 

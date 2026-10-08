@@ -574,6 +574,50 @@ describe('reconcile handler carry-forward', () => {
     }
   })
 
+  function outstandingFile(items: object[], cleared: string[] = []): string {
+    return JSON.stringify({ format: 'reconciliation-outstanding', version: 1, exportedAt: AT, sessionId: 'sep', account: CONTEXT.account, currency: 'INR', minorUnits: 2, period: SEP, items, cleared })
+  }
+  const item = (side: 'bank' | 'books', n: number, amount: string, reference: string | null, description: string) => ({
+    lineage: `${side}|${'9'.repeat(64)}|${n}`,
+    side,
+    date: '2026-09-29',
+    amount,
+    direction: amount.startsWith('-') ? 'out' : 'in',
+    reference,
+    description,
+    origin: { sessionId: 'sep', period: SEP, fileName: `${side}-sep.csv`, fingerprint: '9'.repeat(64), recordNumber: n },
+  })
+
+  it('never pairs two carried items with each other', async () => {
+    const text = outstandingFile([item('bank', 1, '-50.00', null, 'Bank fee not in books'), item('books', 1, '-50.00', null, 'Cheque not in bank')])
+    const oct = await session('date,amount,ref,memo\n05/10/2026,1.00,,Other\n', 'date,amount,ref,memo\n2026-10-05,2.00,,Other\n', OCT, text)
+    expect(oct.normalized.opening).toMatchObject({ items: { bank: 1, books: 1 } })
+    expect(await oct.suggestions()).toEqual([])
+    const carried = (await oct.unmatched()).filter((u) => u.carried)
+    const bank = carried.find((u) => u.side === 'bank') as { key: string }
+    const books = carried.find((u) => u.side === 'books') as { key: string }
+    const check: { blocked: string | null } = await oct.call('checkPair', { matchId: oct.matchId, bank: bank.key, books: books.key })
+    expect(check.blocked).toBe('Two carried items can’t clear each other; a carried item clears against a transaction from this period')
+    expect(await oct.decide({ action: 'confirm', bank: bank.key, books: books.key, origin: 'manual', exceptions: [], reason: 'x' })).toMatchObject({ ok: false })
+  })
+
+  it('carries forward the clearances it inherited as well as its own', async () => {
+    const text = outstandingFile([item('books', 3, '-200.00', 'CHQ101', 'Cheque 101 issued')], ['books|' + '9'.repeat(64) + '|7'])
+    const oct = await session('date,amount,ref,memo\n02/10/2026,-200.00,CHQ101,Cheque 101 cleared\n', 'date,amount,ref,memo\n2026-10-30,500.00,,Receipt\n', OCT, text)
+    const [pair] = await oct.suggestions()
+    await oct.decide({ action: 'confirm', bank: pair.bank.key, books: pair.books.key, origin: 'suggested' })
+    const exported: { text: string; cleared: number } = await oct.call('exportOutstanding', { matchId: oct.matchId, sessionId: 'oct', period: OCT, exportedAt: AT })
+    expect(JSON.parse(exported.text).cleared.sort()).toEqual([`books|${'9'.repeat(64)}|3`, `books|${'9'.repeat(64)}|7`])
+    expect(exported.cleared).toBe(2)
+  })
+
+  it('forgets opening items when an empty list is sent', async () => {
+    const { exported } = await september()
+    const handle = createReconcileHandler()
+    expect(await handle({ id: 1, type: 'setOpening', files: [{ name: 'sep.json', text: exported.text }] })).toMatchObject({ ok: true })
+    expect(await handle({ id: 2, type: 'setOpening', files: [] })).toEqual({ ok: true, files: [] })
+  })
+
   it('inspects a carried item with where it first appeared', async () => {
     const { exported } = await september()
     const oct = await session(BANK_OCT, BOOKS_OCT, OCT, exported.text)

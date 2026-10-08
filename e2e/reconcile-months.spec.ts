@@ -86,3 +86,34 @@ test('an outstanding-items file from the same period is refused at the mapping c
   await page.getByRole('button', { name: 'Check mapping' }).click()
   await expect(page.getByRole('alert')).toContainText("same.json: The file's period ends 2026-09-30, not before this session's period starts (2026-09-01)")
 })
+
+test('loading a backup without opening items drops the ones imported before', async ({ page }) => {
+  test.setTimeout(60_000)
+  const october = { bank: 'date,amount,ref,memo\n02/10/2026,-200.00,CHQ101,Cheque 101 cleared\n', books: 'date,amount,ref,memo\n2026-10-30,500.00,,Receipt\n' }
+  await setUp(page, october, ['2026-10-01', '2026-10-31'], ['1300.00', '1100.00', '1050.00', '1550.00'])
+  await page.getByRole('button', { name: 'Find suggestions' }).click()
+  await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible()
+  const backup = (await downloaded(page, () => page.getByRole('button', { name: 'Export session backup' }).click())).toString()
+  expect(JSON.parse(backup).opening).toEqual([])
+
+  const outstanding = JSON.stringify({
+    format: 'reconciliation-outstanding', version: 1, exportedAt: '2026-10-01T00:00:00Z', sessionId: 'sep', account: '', currency: 'INR', minorUnits: 2,
+    period: { start: '2026-09-01', end: '2026-09-30' },
+    items: [{ lineage: `books|${'2'.repeat(64)}|3`, side: 'books', date: '2026-09-29', amount: '-200.00', direction: 'out', reference: 'CHQ101', description: 'Cheque 101 issued', origin: { sessionId: 'sep', period: { start: '2026-09-01', end: '2026-09-30' }, fileName: 'books-sep.csv', fingerprint: '2'.repeat(64), recordNumber: 3 } }],
+    cleared: [],
+  })
+  await page.getByRole('button', { name: 'Edit mapping' }).click()
+  await page.getByLabel('Import outstanding items file').setInputFiles({ name: 'outstanding.json', mimeType: 'application/json', buffer: Buffer.from(outstanding) })
+  await page.getByRole('button', { name: 'Find suggestions' }).click()
+  await expect(page.locator('.review-row', { hasText: 'Carried · Books record 3' }).first()).toBeVisible()
+
+  await page.getByLabel('Import session file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) })
+  await expect(page.getByText(/Loaded a session/)).toBeVisible()
+  await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+  await expect(page.locator('.opening-files')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Find suggestions' }).click()
+  await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible()
+  await page.getByRole('tab', { name: /^Unmatched/ }).click()
+  await expect(page.locator('.review-row').first()).toBeVisible()
+  await expect(page.getByText(/Carried ·/)).toHaveCount(0)
+})

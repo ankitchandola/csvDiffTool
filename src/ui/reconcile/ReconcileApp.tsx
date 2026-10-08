@@ -353,11 +353,10 @@ export function ReconcileApp() {
     setReview(null)
     setCheck({ inputs, status: 'pending' })
     try {
-      // The worker may have lost its copy (Cancel, a crash), so it is sent with every check.
-      if (openingFiles.length > 0) {
-        const sent = await client.call('setOpening', { files: openingFiles })
-        if (!sent.ok) throw new Error(sent.errors.map((e) => `${e.name}: ${e.message}`).join('; '))
-      }
+      // Sent with every check, even when empty: the worker may have lost its copy (Cancel, a
+      // crash), or may still hold files from a session loaded earlier.
+      const sent = await client.call('setOpening', { files: openingFiles })
+      if (!sent.ok) throw new Error(sent.errors.map((e) => `${e.name}: ${e.message}`).join('; '))
       const value = await client.call('normalize', { context, mappings, period: accounting.period }, task.progress)
       setCheck({ inputs, status: 'done', value })
       return value

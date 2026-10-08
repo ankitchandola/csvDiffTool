@@ -66,6 +66,8 @@ export function findCandidates(
   rules: MatchingRules,
   maxCandidates: number = MAX_CANDIDATES,
 ): MatchOutcome {
+  // Two carried opening items never clear each other: each clears only against a
+  // transaction from the current period.
   const reference = (t: Transaction) => (t.reference === null ? null : rules.referenceCaseInsensitive ? t.reference.toLowerCase() : t.reference)
   const buckets = new Map<bigint, number[]>()
   books.forEach((t, position) => {
@@ -96,6 +98,7 @@ export function findCandidates(
     for (let i = low; i < bucket.length && books[bucket[i]].day <= latest; i++) {
       const position = bucket[i]
       const other = books[position]
+      if (t.opening && other.opening) continue
       let tier: Tier = 3
       if (rules.referencesShared) {
         const ours = reference(t)

@@ -86,11 +86,10 @@ export function emptyAccounting(): AccountingSetup {
   return { period: null, balances: { bank: side(), books: side() } }
 }
 
+// Kept as typed, grouped or half-entered: the accounting check reports text it can't read,
+// and a session must still load so the reviewer can correct it.
 function readBalance(value: unknown, where: string): string | null {
-  if (value === null) return null
-  const text = string(value, where)
-  if (parseDecimal(text) === null) fail(`${where} must be exact decimal text`)
-  return text
+  return value === null ? null : string(value, where)
 }
 
 function readOpening(value: unknown): OpeningFile[] {
