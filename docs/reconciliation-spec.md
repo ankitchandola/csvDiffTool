@@ -64,6 +64,7 @@ provide an explicit migration path. The existing lightning artwork can remain.
 | [Benchmarks](benchmarks.md) | Whole-file parsing and export memory costs; measured versus chosen limits |
 | [Browser verification](browser-verification.md) | Evidence for the recorded comparison snapshot, not reconciliation |
 | [Deployed XLSX report](xlsx-browser-test-2026-10-06.md) | Independently generated input checks and the missing-formula-cache failure |
+| [Deployed milestone 4 report](reconcile-accounting-deployed-test-2026-10-08.md) | Assistant-run browser check of the milestone 4 accounting flow; deployment commit not independently verified |
 | [Deployed milestone 3 report](reconcile-review-deployed-test-2026-10-08.md) | Assistant-run browser check of milestone 3 on the deployed site; deployment commit not independently verified |
 | [Deployed Reconcile report](reconcile-deployed-test-2026-10-07.md) | Assistant-run browser check of the deployed site after PR #2; deployment commit not independently verified |
 
@@ -1042,7 +1043,7 @@ Milestone 4 is then complete in code. Before it ships: the milestone 3 durabilit
 checks (cancellation recovery, simultaneous tabs, storage failures, realistic session
 sizes) and the owner's milestone 4 browser run.
 
-### Milestone 3 durability checks (not yet on `main`)
+### Milestone 3 durability checks (on `main` through PR #14)
 
 The checks named as a condition for shipping milestone 4.
 
@@ -1061,6 +1062,19 @@ passed; `npm run test:ui` 39 passed in each of two repeated runs (Chrome).
 
 Not verified: real storage quotas (the test simulates the error), browsers other than
 Chrome, private browsing modes, and devices with less memory.
+
+### Deployed milestone 4 check and period entry (fix not yet on `main`)
+
+An assistant-run deployed check of the milestone 4 accounting flow found no correctness
+blocker in its scenarios: see the [deployed milestone 4 report](reconcile-accounting-deployed-test-2026-10-08.md).
+Its one qualification, period dates not persisting through the remote browser's date
+controls, was followed up locally: typed dates persist (Playwright, `en-IN`, day first).
+The follow-up found that a half-entered period was saved and made backups impossible to
+import. Fixed: the period counts only once both dates are entered and in order, with a
+prompt otherwise, and older backups holding a half-entered period read as none.
+
+Checks run locally: `npm test` 435 passed; `npm run lint` clean; `npm run build`
+passed; `npm run test:ui` 41 passed in each of two repeated runs (Chrome).
 
 ### Not implemented in this snapshot
 
