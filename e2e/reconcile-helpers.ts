@@ -57,3 +57,32 @@ export async function loadAndMap(page: Page, booksFile: string | Buffer = BOOKS)
   await choose(page, 'Books description column', 'memo')
 }
 
+
+// Both files with date, amount, ref and memo columns, references shared, a 40-day window,
+// and the period and balances entered.
+export async function setUpMonth(page: Page, files: { bank: string; books: string }, period: [string, string], balances: [string, string, string, string]) {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Reconcile/ }).click()
+  await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(files.bank) })
+  await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(files.books) })
+  await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+  await page.getByLabel('Currency').fill('INR')
+  await choose(page, 'Bank statement date column', 'date')
+  await choose(page, 'Bank statement date format', 'DD/MM/YYYY')
+  await choose(page, 'Bank statement amount column', 'amount')
+  await choose(page, 'Bank statement reference column', 'ref')
+  await choose(page, 'Bank statement description column', 'memo')
+  await choose(page, 'Books date column', 'date')
+  await choose(page, 'Books date format', 'YYYY-MM-DD')
+  await choose(page, 'Books amount column', 'amount')
+  await choose(page, 'Books reference column', 'ref')
+  await choose(page, 'Books description column', 'memo')
+  await page.getByLabel(/same identifier/).check()
+  await page.getByLabel('Bank date up to this many days after books').fill('40')
+  await page.getByLabel('Period start').fill(period[0])
+  await page.getByLabel('Period end').fill(period[1])
+  await page.getByLabel('Bank opening balance').fill(balances[0])
+  await page.getByLabel('Bank closing balance').fill(balances[1])
+  await page.getByLabel('Books opening balance').fill(balances[2])
+  await page.getByLabel('Books closing balance').fill(balances[3])
+}
