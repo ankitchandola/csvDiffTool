@@ -124,3 +124,11 @@ describe('session files with a half-entered period', () => {
     expect(() => readSession({ ...session(), accounting: { period: { start: '2026-09-30', end: '2026-09-01' }, balances } })).toThrow(/two YYYY-MM-DD dates in order/)
   })
 })
+
+describe('session files with balances as typed', () => {
+  it('keep grouped or half-typed balance text instead of refusing the session', () => {
+    const balances = { bank: { opening: '1,000.00', closing: '1,0', basis: 'cash' }, books: { opening: '', closing: null, basis: 'cash' } }
+    const file = { ...session(), accounting: { period: null, balances } }
+    expect(readSession(JSON.parse(JSON.stringify(file))).accounting.balances).toEqual(balances)
+  })
+})
