@@ -1,0 +1,24 @@
+ACME TRADERS PVT LTD
+"14 Industrial Area, Peenya, Bengaluru 560058"
+ICICI Bank Current A/c 000405001234
+Ledger Account
+1-Sep-2026 to 30-Sep-2026
+Date,Particulars,Vch Type,Vch No.,Debit,Credit
+,Opening Balance,,,"2,50,000.00",
+1-Sep-2026,Raj Enterprises,Receipt,101,"1,25,000.00",
+2-Sep-2026,Razorpay Software Pvt Ltd,Receipt,102,"18,450.00",
+2-Sep-2026,Sharma Steel Works (Chq 145),Payment,201,,"45,000.00"
+4-Sep-2026,HDFC Life Insurance,Payment,202,,"12,500.00"
+7-Sep-2026,Shree Cements Ltd,Payment,203,,"2,10,000.00"
+9-Sep-2026,BESCOM Electricity,Payment,204,,"8,732.00"
+12-Sep-2026,Gupta Distributors,Receipt,103,"64,000.00",
+15-Sep-2026,Salary - Anil Kumar,Payment,205,,"65,000.00"
+15-Sep-2026,Salary - Priya Nair,Payment,206,,"60,000.00"
+15-Sep-2026,Salary - Ravi Shetty,Payment,207,,"55,000.00"
+17-Sep-2026,Mehta Traders (Chq 881),Receipt,104,"35,500.00",
+20-Sep-2026,GST Payable,Payment,208,,"27,540.00"
+25-Sep-2026,Paytm Payments Services,Receipt,105,"18,450.00",
+29-Sep-2026,Verma Packaging (Chq 152),Payment,209,,"22,000.00"
+30-Sep-2026,Kapoor & Sons,Receipt,106,"40,000.00",
+,,,,"5,51,400.00","5,05,772.00"
+,Closing Balance,,,,"45,628.00"
