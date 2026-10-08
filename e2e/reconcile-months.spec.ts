@@ -1,7 +1,7 @@
 import { expect, type Page, test } from '@playwright/test'
 import * as XLSX from 'xlsx'
 import type { OutstandingFile } from '../src/reconciliation/carryforward'
-import { choose, setUpMonth as setUp } from './reconcile-helpers'
+import { choose, classifyAll, setUpMonth as setUp } from './reconcile-helpers'
 
 const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'
 const BOOKS_SEP = 'date,amount,ref,memo\n2026-09-10,300.00,,Receipt\n2026-09-15,-50.00,CHQ102,Cheque 102 issued\n2026-09-29,-200.00,CHQ101,Cheque 101 issued\n'
@@ -49,16 +49,6 @@ async function downloaded(page: Page, click: () => Promise<void>): Promise<Buffe
   const chunks: Buffer[] = []
   for await (const chunk of await (await event).createReadStream()) chunks.push(Buffer.from(chunk))
   return Buffer.concat(chunks)
-}
-
-async function classifyAll(page: Page) {
-  await page.getByRole('tab', { name: /^Unmatched/ }).click()
-  await expect(page.locator('.review-row').first()).toBeVisible()
-  for (const row of await page.locator('.review-row').all()) {
-    await row.focus()
-    await page.keyboard.press('o')
-    await expect(row.locator('.chip')).toBeVisible()
-  }
 }
 
 test('September’s outstanding cheques carry into October, clear there, and only new items carry on', async ({ page }) => {
