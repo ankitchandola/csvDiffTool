@@ -284,6 +284,14 @@ export interface ReconRequests {
   // Replaces the imported opening-items files; each is validated whole.
   setOpening: { files: { name: string; text: string }[] }
   exportOutstanding: { matchId: number; sessionId: string; period: Period; exportedAt: string }
+  exportReport: {
+    matchId: number
+    format: 'json' | 'xlsx'
+    setup: AccountingSetup
+    basis: string
+    session: { id: string; revision: number }
+    generatedAt: string
+  }
 }
 
 export interface ReconResults {
@@ -302,6 +310,7 @@ export interface ReconResults {
   markComplete: MarkCompleteResult
   setOpening: SetOpeningResult
   exportOutstanding: { text: string; items: number; cleared: number }
+  exportReport: Blob
 }
 
 export type ReconRequest = {

@@ -57,8 +57,8 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function download(text: string, fileName: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+function download(content: string | Blob, fileName: string): void {
+  const url = URL.createObjectURL(typeof content === 'string' ? new Blob([content], { type: 'application/json' }) : content)
   const link = document.createElement('a')
   link.href = url
   link.download = fileName
@@ -782,6 +782,7 @@ export function ReconcileApp() {
                 setDecisionVersion((v) => v + 1)
               }}
               sessionId={session.id}
+              revision={session.revision}
               onDownload={download}
             />
             <ReviewView

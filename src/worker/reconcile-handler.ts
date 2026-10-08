@@ -9,6 +9,8 @@ import {
   openingTransactions,
   readOutstandingFile,
 } from '../reconciliation/carryforward'
+import { placeLabel } from '../reconciliation/location'
+import { type ReconciliationReport, REPORT_FORMAT, REPORT_VERSION, type ReportMatch, type ReportOutstanding, type ReportProblem, type ReportTransaction, reportJson, reportTables } from '../reconciliation/report'
 import { computeStatuses, type ReviewFacts } from '../reconciliation/statuses'
 import type { AccountingSetup } from '../reconciliation/session'
 import { DEFAULT_LIMITS, type Limits } from '../engine/limits'
@@ -767,6 +769,131 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return { text: JSON.stringify(file, null, 2), items: file.items.length, cleared: cleared.length }
   }
 
+  function reportTransaction(t: Transaction, mapping: SideMapping): ReportTransaction {
+    const v = view(t, mapping)
+    return {
+      key: v.key,
+      side: v.side,
+      location: placeLabel(v, (sources[v.side] as Source).file.format.kind),
+      date: v.date,
+      amount: v.amount,
+      direction: v.direction,
+      reference: v.reference,
+      description: v.original.description,
+      carried: v.carried ?? null,
+    }
+  }
+
+  function runningText(check: RunningBalanceCheck | null): string | null {
+    if (!check) return null
+    if (check.status === 'consistent') return 'consistent with every row'
+    if (check.status === 'break') return `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}`
+    return `can't be checked past record ${check.row}`
+  }
+
+  function buildReport({ matchId, setup, basis, session, generatedAt }: ReconRequests['exportReport']): ReconciliationReport {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    const accountingReport = report(run, data, state, setup, basis)
+    const kind = (side: ReconSide) => (sources[side] as Source).file.format.kind
+    const matches: ReportMatch[] = [...state.replay.state.active.values()]
+      .sort((a, b) => a.seq - b.seq)
+      .map((event) => {
+        const bank = resolve(event.bank) as Transaction
+        const books = resolve(event.books) as Transaction
+        const { tier, gap } = evidence(bank, books, run.rules)
+        return {
+          decision: event.seq,
+          at: event.at,
+          origin: event.origin ?? 'suggested',
+          bank: reportTransaction(bank, data.mappings.bank),
+          books: reportTransaction(books, data.mappings.books),
+          variance: formatDecimal(subtractDecimal(bank.amount, books.amount)),
+          dateGap: gap,
+          tier,
+          exceptions: event.exceptions ?? [],
+          reason: event.reason ?? null,
+        }
+      })
+    const classifications = state.replay.state.classifications
+    const outstanding: ReportOutstanding[] = RECON_SIDES.flatMap((side) =>
+      data.pool[side]
+        .filter((_, p) => !state.used[side][p])
+        .map((t) => {
+          const classified = classifications.get(keyOf(t))
+          return { transaction: reportTransaction(t, data.mappings[side]), classification: classified?.classification ?? null, note: classified?.note ?? null }
+        }),
+    )
+    const problems: ReportProblem[] = problemRows(data).map((p) => ({
+      side: p.side,
+      location: placeLabel(p, kind(p.side)),
+      kind: p.kind,
+      messages: p.messages,
+      original: p.original,
+    }))
+    const text = (d: Decimal | null) => (d === null ? null : formatDecimal(d))
+    const sourceEntry = (side: ReconSide) => {
+      const { file, fingerprint, name } = sources[side] as Source
+      return { fileName: name, fingerprint, sheet: file.format.kind === 'xlsx' ? file.format.sheet : null, recordCount: file.rows.length }
+    }
+    const { bridge, statuses, balances } = accountingReport
+    const counts = (side: ReconSide) => ({
+      rows: (sources[side] as Source).file.rows.length,
+      valid: data.sides[side].transactions.length,
+      invalid: new Set(data.sides[side].problems.map((p) => p.index)).size,
+      zero: data.sides[side].zero.length,
+      opening: data.pool[side].length - data.sides[side].transactions.length,
+    })
+    return {
+      format: REPORT_FORMAT,
+      version: REPORT_VERSION,
+      generatedAt,
+      experimental: true,
+      session,
+      account: data.context.account,
+      currency: data.context.currency,
+      minorUnits: data.context.minorUnits,
+      period: setup.period,
+      sources: { bank: sourceEntry('bank'), books: sourceEntry('books') },
+      opening: opening.map((o) => ({ fileName: o.name, fingerprint: o.fingerprint, period: o.file.period, items: o.file.items.length, cleared: o.file.cleared.length })),
+      mappings: data.mappings,
+      rules: run.rules,
+      counts: { bank: counts('bank'), books: counts('books') },
+      balances: {
+        stated: setup.balances,
+        cash: {
+          bank: { opening: text(balances.bank.opening), closing: text(balances.bank.closing) },
+          books: { opening: text(balances.books.opening), closing: text(balances.books.closing) },
+        },
+      },
+      running: { bank: runningText(accountingReport.running.bank), books: runningText(accountingReport.running.books) },
+      statuses: {
+        sourcesValidated: statuses.sourcesValidated,
+        bridgeComplete: statuses.bridgeComplete,
+        outstandingReviewed: statuses.outstandingReviewed,
+        completed: statuses.completed,
+      },
+      bridge: { closingDifference: text(bridge.actual), explained: formatDecimal(bridge.explained), unexplained: text(bridge.unexplained), complete: bridge.complete, gaps: bridge.gaps },
+      search: { candidatePairs: run.outcome.candidates.length, groups: run.outcome.groups.length, incomplete: run.outcome.incomplete, referenceConflicts: run.outcome.referenceConflicts },
+      matches,
+      outstanding,
+      problems,
+      decisions: state.events,
+      lapsed: state.replay.lapsed.map(({ event, reason }) => ({ decision: event.seq, reason })),
+    }
+  }
+
+  async function exportReport(request: ReconRequests['exportReport']): Promise<ReconResults['exportReport']> {
+    const built = buildReport(request)
+    if (request.format === 'json') return new Blob([reportJson(built)], { type: 'application/json' })
+    const { writeWorkbook, MAX_CELL_CHARS, MAX_SHEET_COLUMNS, MAX_SHEET_ROWS } = await import('../engine/xlsx-report')
+    const bytes = writeWorkbook(
+      reportTables(built),
+      { maxSheetRows: MAX_SHEET_ROWS, maxSheetColumns: MAX_SHEET_COLUMNS, maxCellChars: MAX_CELL_CHARS, maxCells: limits.maxXlsxExportCells, maxTextChars: limits.maxXlsxExportText },
+      'Download the JSON report instead; it has no such limit.',
+    )
+    return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  }
+
   function accounting({ matchId, setup, basis }: ReconRequests['accounting']): ReconResults['accounting'] {
     const { latest: run, normalized: data, review: state } = currentReview(matchId)
     return report(run, data, state, setup, basis)
@@ -981,6 +1108,8 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         return setOpening(request)
       case 'exportOutstanding':
         return exportOutstanding(request)
+      case 'exportReport':
+        return exportReport(request)
     }
   }
 }

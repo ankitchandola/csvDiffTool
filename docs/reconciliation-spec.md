@@ -1006,7 +1006,7 @@ Not yet: the period is stored and dated but does not yet order carry-forward in 
 UI; opening items, the running-balance column, carry-forward screens and reports are
 milestone 4c. Before milestone 4 ships: the milestone 3 durability checks.
 
-### Milestone 4c: carry-forward and running balances (not yet on `main`)
+### Milestone 4c: carry-forward and running balances (on `main` through PR #11)
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -1025,7 +1025,22 @@ bank charge and the receipt, listing both cheques as cleared.
 Checks run locally: `npm test` 428 passed; `npm run lint` clean; `npm run build`
 passed; `npm run test:ui` 33 passed in each of two repeated runs (Chrome).
 
-Not yet: reports (milestone 4d) and the milestone 3 durability checks.
+Not yet: reports (milestone 4d, below) and the milestone 3 durability checks.
+
+### Milestone 4d: reports (not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| `reconciliation-report` JSON v1: files with SHA-256 fingerprints, opening-item files, mappings, rules, counts, stated and cash-basis balances, running-balance checks, statuses as they stand, the bridge, matches with variance, date gap, tier, exceptions and reason, outstanding items with classification, problem rows, decisions and lapsed decisions; amounts as exact decimal text; marked experimental | `src/reconciliation/report.ts`, worker `exportReport` | Worker test on a completed October with carried items |
+| Excel version: Summary, Matches, Outstanding, Problems and Decisions sheets of fresh text cells, through the writer shared with Compare, with its row, column, cell, size and text limits refusing rather than truncating | `src/engine/xlsx-report.ts` (`writeWorkbook`), `report.ts` | Worker test reading the written XML: shared-string cells only, no formulas; Compare's Excel tests unchanged |
+| Report (JSON) and Report (Excel) on the status panel | `StatusPanel.tsx` | Playwright: both downloads after a completed October |
+
+Checks run locally: `npm test` 430 passed; `npm run lint` clean; `npm run build`
+passed; `npm run test:ui` 33 passed in each of two repeated runs (Chrome).
+
+Milestone 4 is then complete in code. Before it ships: the milestone 3 durability
+checks (cancellation recovery, simultaneous tabs, storage failures, realistic session
+sizes) and the owner's milestone 4 browser run.
 
 ### Not implemented in this snapshot
 

@@ -38,6 +38,7 @@ export function StatusPanel({
   nextSeq,
   onCompleted,
   sessionId,
+  revision,
   onDownload,
 }: {
   client: ReconcileClient
@@ -51,7 +52,8 @@ export function StatusPanel({
   nextSeq: () => number
   onCompleted: (event: DecisionEvent) => void
   sessionId: string
-  onDownload: (text: string, fileName: string) => void
+  revision: number
+  onDownload: (content: string | Blob, fileName: string) => void
 }) {
   const [report, setReport] = useState<AccountingReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -73,6 +75,17 @@ export function StatusPanel({
       live = false
     }
   }, [client, matchId, setupJson, basis, version])
+
+  // The report states every status as it is now, completed or not.
+  async function downloadReport(format: 'json' | 'xlsx') {
+    try {
+      const generatedAt = new Date().toISOString()
+      const blob = await client.call('exportReport', { matchId, format, setup, basis, session: { id: sessionId, revision }, generatedAt })
+      onDownload(blob, `reconciliation-report-${setup.period?.end ?? generatedAt.slice(0, 10)}.${format}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   if (!report) return error ? <p className="error" role="alert">{error}</p> : null
   const { bridge, statuses } = report
@@ -128,6 +141,12 @@ export function StatusPanel({
           }}
         >
           Export outstanding items
+        </button>
+        <button type="button" disabled={busy} onClick={() => void downloadReport('json')}>
+          Report (JSON)
+        </button>
+        <button type="button" disabled={busy} onClick={() => void downloadReport('xlsx')}>
+          Report (Excel)
         </button>
         <span className="note">
           {setup.period === null

@@ -477,3 +477,7 @@ fieldset > label.choice { align-items: flex-start; margin: 0 0 12px; }
 @media (max-width: 600px) {
   .period-fields, .balance-grid { grid-template-columns: minmax(0, 1fr); }
 }
+.opening-panel { margin: 0 0 20px; }
+.opening-panel legend { font-weight: 600; font-size: 13px; padding: 0 6px; }
+.opening-files { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; font-size: 12px; }
+.opening-files li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
