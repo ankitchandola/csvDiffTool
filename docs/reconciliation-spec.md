@@ -1089,6 +1089,35 @@ Each test fails without its fix. Checks run locally: `npm test` 439 passed;
 `npm run lint` clean; `npm run build` passed; `npm run test:ui` 42 passed in each of
 two repeated runs (Chrome).
 
+### Local milestone 4 browser follow-up on `f5f867c`
+
+Tested the review-fix branch locally with installed Chrome 154.0.8037.98 on macOS
+ARM64, headless, at 1440 × 900. This is not a deployed-site check or a run in the
+owner's browser.
+
+| Check | Result |
+| --- | --- |
+| Period entry | Day-first keyboard entry (`en-IN`) survives step navigation, autosave, reload and resume with the same sources. Half-entered periods are excluded from backups, which still import. |
+| Overlapping exports | A current row repeating a carried item warns without discarding either; the source balance mismatch blocks completion. Two carry files containing the same lineage are refused; removing the duplicate restores a valid mapping check. |
+| Cleared items | October exports both inherited and newly cleared lineages. November refuses stale outstanding items in either import order; removing the stale file restores a valid mapping check. |
+| Liability and running balances | Both sides' stated liability balances convert once to negative cash balances. Consistent running balances allow completion; a wrong or unreadable first balance blocks it even when the stated opening/closing totals agree. JSON reports preserve the cash balances and completion status. |
+| Storage and tabs | Injected quota failures preserve an exportable backup that restores decisions after reload. Missing IndexedDB and corrupt saved sessions are reported. Concurrent tabs produce one winner and one refusal; the losing tab resumes the winner's actual confirmed pairs. |
+| Cancellation recovery | Cancelling while reading a 600,000-row file preserves the imported opening items and their confirmation after both files are read again. |
+
+Added six browser scenarios to `e2e/reconcile-months.spec.ts` and strengthened the
+date, quota-backup and simultaneous-tab recovery assertions in
+`e2e/reconcile-durability.spec.ts`. The two files passed 17 scenarios in each of two
+repeated runs (34 executions). `npm test` passed 439 tests; typecheck and lint passed.
+No application code changed.
+
+Limits: quota failures remain injected, not natural storage exhaustion. An attempted
+Chrome origin-quota override did not cause the write to fail, so it supplies no quota
+failure evidence. Month-first native entry was not verified: this machine kept
+day-first controls even with an `en-US` browser context and document language; typing
+month-first digits into a plain native input without the app reproduced the same
+date conversion. Cancellation during matching, other browsers and lower-memory
+devices remain unverified.
+
 ### Not implemented in this snapshot
 
 - In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
