@@ -35,9 +35,21 @@ test('a full browser storage reports the failure and a backup still protects the
   await expect(page.locator('.session-bar .warning')).toContainText('reloading the page loses them')
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export session backup' }).click()
-  await download
+  const chunks: Buffer[] = []
+  for await (const chunk of await (await download).createReadStream()) chunks.push(Buffer.from(chunk))
+  const text = Buffer.concat(chunks).toString()
+  expect(JSON.parse(text).events).toMatchObject([{ action: 'confirm' }])
   await expect(page.locator('.save-status')).toContainText(/Backup at revision \d+/)
   await expect(page.locator('.session-bar .warning')).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: /Reconcile/ }).click()
+  await page.getByLabel('Import session file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(text) })
+  await expect(page.getByText(/Loaded a session/)).toBeVisible()
+  await loadFilesAgain(page)
+  await findSuggestions(page)
+  await expect(page.getByRole('tab', { name: /^Confirmed/ }).locator('.tab-count')).toHaveText('1')
+  await page.getByRole('tab', { name: /^Confirmed/ }).click()
+  await expect(page.locator('.review-row')).toContainText('Salary in')
 })
 
 test('without IndexedDB the page offers backups only and never claims to save', async ({ page }) => {
@@ -51,7 +63,6 @@ test('without IndexedDB the page offers backups only and never claims to save', 
   await expect(page.locator('.save-status')).toContainText('Not saved in this browser')
   await expect(page.getByRole('button', { name: 'Export session backup' })).toBeEnabled()
 })
-
 test('a corrupted saved session is reported on resume and can be deleted', async ({ page }) => {
   await loadAndMap(page)
   await findSuggestions(page)
@@ -110,6 +121,11 @@ test('two tabs saving at the same moment: one saves, the other is refused and ca
   const loser = statuses[0].includes('Not saved') ? page : other
   await loser.getByRole('button', { name: 'Resume the saved session' }).click()
   await expect(loser.getByText(/Loaded a session at revision \d+ with 2 decisions\./)).toBeVisible()
+  await loadFilesAgain(loser)
+  await findSuggestions(loser)
+  await expect(loser.getByRole('tab', { name: /^Confirmed/ }).locator('.tab-count')).toHaveText('2')
+  await loser.getByRole('tab', { name: /^Confirmed/ }).click()
+  await expect(loser.locator('.review-row', { hasText: loser === other ? 'Rent' : 'Subscription' })).toBeVisible()
 })
 
 // A file picked while a resume is still reading browser storage is read again with the
@@ -203,6 +219,15 @@ test.describe('period dates', () => {
     await expect(page.getByLabel('Period end')).toHaveValue('2026-09-30')
     await page.getByRole('button', { name: 'Back to files' }).click()
     await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+    await expect(page.getByLabel('Period start')).toHaveValue('2026-09-01')
+    await expect(page.getByLabel('Period end')).toHaveValue('2026-09-30')
+    await page.getByLabel('Save this session in this browser').check()
+    await expect(page.locator('.save-status')).toContainText('Saved in this browser')
+    await page.reload()
+    await page.getByRole('button', { name: /Reconcile/ }).click()
+    await page.getByRole('button', { name: 'Resume it' }).click()
+    await expect(page.getByText(/Loaded a session/)).toBeVisible()
+    await loadFilesAgain(page)
     await expect(page.getByLabel('Period start')).toHaveValue('2026-09-01')
     await expect(page.getByLabel('Period end')).toHaveValue('2026-09-30')
   })
