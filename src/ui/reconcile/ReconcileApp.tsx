@@ -204,6 +204,12 @@ function Metric({ label, value }: { label: string; value: string }) {
 export function ReconcileApp() {
   const [requestedStep, setStep] = useState<Step>('files')
   const [files, setFiles] = useState<Record<ReconSide, SourceState>>({ bank: { status: 'empty' }, books: { status: 'empty' } })
+  // The files as of the latest render, for work that finishes after an await (resuming a
+  // saved session) and must re-read whatever is loaded by then.
+  const filesRef = useRef(files)
+  useEffect(() => {
+    filesRef.current = files
+  }, [files])
   const [drafts, setDrafts] = useState<Record<ReconSide, MappingDraft>>({ bank: emptyDraft(), books: emptyDraft() })
   const [context, setContext] = useState<SessionContext>({ account: '', currency: '', minorUnits: 2 })
   const [accounting, setAccounting] = useState<AccountingSetup>(emptyAccounting)
@@ -474,7 +480,7 @@ export function ReconcileApp() {
       text: `Loaded a session at revision ${file.revision} with ${file.events.length} decision${file.events.length === 1 ? '' : 's'}. Load the same files, then find suggestions to apply them.`,
     })
     for (const side of RECON_SIDES) {
-      const state = files[side]
+      const state = filesRef.current[side]
       const draft = draftFromMapping(file.mappings[side])
       if (state.status !== 'empty') load(side, state.file, draft, file.sources[side].sheet ?? undefined)
     }
