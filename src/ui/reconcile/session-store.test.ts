@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SESSION_FORMAT, type SessionFile } from '../../reconciliation/session'
+import { emptyAccounting, SESSION_FORMAT, type SessionFile } from '../../reconciliation/session'
 import { DEFAULT_MATCHING, type SideMapping } from '../../reconciliation/types'
 import { memorySessionStore, StorageConflictError } from './session-store'
 
@@ -27,6 +27,7 @@ function session(id: string, revision: number): SessionFile {
     sources: { bank: { fileName: 'b.csv', fingerprint: FP, sheet: null, recordCount: 1 }, books: { fileName: 'l.csv', fingerprint: FP, sheet: null, recordCount: 1 } },
     events: [],
     snapshots: [],
+    accounting: emptyAccounting(),
   }
 }
 

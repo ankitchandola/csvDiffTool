@@ -1,4 +1,4 @@
-import type { MatchingRules, ReconSide, Transaction } from './types'
+import type { Direction, MatchingRules, ReconSide, Transaction } from './types'
 
 // A transaction's identity across reruns: its side, the SHA-256 of its source file and
 // its record number. Replacing the file changes the fingerprint, so decisions about the
@@ -18,18 +18,20 @@ export function parseTxnKey(key: TxnKey): { side: ReconSide; fingerprint: string
   return { side, fingerprint, recordNumber }
 }
 
-export type DecisionAction = 'confirm' | 'reject' | 'restore' | 'unmatch'
+export type PairAction = 'confirm' | 'reject' | 'restore' | 'unmatch'
+
+export type DecisionAction = PairAction | 'classify' | 'complete'
 
 export type ConfirmOrigin = 'suggested' | 'manual' | 'set'
 
 // Soft rules a manual pair may break, with a reason. Direction is never one of them.
 export type RuleException = 'amount' | 'date' | 'reference'
 
-export interface DecisionEvent {
+export interface PairEvent {
   // 1-based position in the session's history.
   seq: number
   at: string
-  action: DecisionAction
+  action: PairAction
   bank: TxnKey
   books: TxnKey
   // confirm only. 'set': one pair of a bulk-confirmed interchangeable set, whose
@@ -37,6 +39,59 @@ export interface DecisionEvent {
   origin?: ConfirmOrigin
   exceptions?: RuleException[]
   reason?: string
+}
+
+// What a remaining unmatched transaction is, once the reviewer has looked at it.
+export type Classification = 'outstanding-payment' | 'deposit-in-transit' | 'record-in-books' | 'investigate'
+
+export const CLASSIFICATION_LABELS: Record<Classification, string> = {
+  'outstanding-payment': 'Outstanding payment (not yet cleared by the bank)',
+  'deposit-in-transit': 'Deposit in transit (not yet credited by the bank)',
+  'record-in-books': 'Bank entry to record in the books',
+  investigate: 'Error to investigate',
+}
+
+// The classifications that make sense for a transaction; the first is the default the O
+// key applies. Bank-only items need a books entry; books-only items await the bank.
+export function classificationsFor(side: ReconSide, direction: Direction): Classification[] {
+  if (side === 'bank') return ['record-in-books', 'investigate']
+  return direction === 'out' ? ['outstanding-payment', 'investigate'] : ['deposit-in-transit', 'investigate']
+}
+
+export interface ClassifyEvent {
+  seq: number
+  at: string
+  action: 'classify'
+  key: TxnKey
+  // Null clears an earlier classification.
+  classification: Classification | null
+  note?: string
+}
+
+// The reviewer's "mark complete". basis identifies the files, mappings, rules, balances
+// and opening items it was given for; any change to them, or any later event, withdraws it.
+export interface CompleteEvent {
+  seq: number
+  at: string
+  action: 'complete'
+  basis: string
+}
+
+export type DecisionEvent = PairEvent | ClassifyEvent | CompleteEvent
+
+// A decision before the history numbers and dates it. Distributes over the union so each
+// kind keeps its own fields.
+export type NewDecision = DecisionEvent extends infer E ? (E extends DecisionEvent ? Omit<E, 'seq' | 'at'> : never) : never
+
+// The transactions an event is about.
+export function eventKeys(event: DecisionEvent): TxnKey[] {
+  if (event.action === 'complete') return []
+  if (event.action === 'classify') return [event.key]
+  return [event.bank, event.books]
+}
+
+export function isPairEvent(event: DecisionEvent): event is PairEvent {
+  return event.action !== 'classify' && event.action !== 'complete'
 }
 
 export function edgeKey(bank: TxnKey, books: TxnKey): string {
@@ -48,19 +103,29 @@ export interface DecisionState {
   bankMatch: Map<TxnKey, TxnKey>
   booksMatch: Map<TxnKey, TxnKey>
   // Confirm event of each active match, by edge.
-  active: Map<string, DecisionEvent>
-  rejected: Map<string, DecisionEvent>
+  active: Map<string, PairEvent>
+  rejected: Map<string, PairEvent>
+  classifications: Map<TxnKey, ClassifyEvent>
+  // The latest mark-complete, if any; whether it still holds is decided by the caller.
+  completion: CompleteEvent | null
+  lastSeq: number
 }
 
 export function emptyState(): DecisionState {
-  return { bankMatch: new Map(), booksMatch: new Map(), active: new Map(), rejected: new Map() }
+  return { bankMatch: new Map(), booksMatch: new Map(), active: new Map(), rejected: new Map(), classifications: new Map(), completion: null, lastSeq: 0 }
 }
 
 export type Verdict = { ok: true } | { ok: false; reason: string }
 
 // Rules that hold whatever the data: one active match per transaction, and a pair is
 // active, rejected or neither.
-export function structuralCheck(state: DecisionState, event: Pick<DecisionEvent, 'action' | 'bank' | 'books'>): Verdict {
+export function structuralCheck(state: DecisionState, event: Pick<PairEvent, 'action' | 'bank' | 'books'> | NewDecision): Verdict {
+  if (event.action === 'complete') return { ok: true }
+  if (event.action === 'classify') {
+    if (state.bankMatch.has(event.key) || state.booksMatch.has(event.key)) return { ok: false, reason: 'A transaction in a confirmed match is not classified' }
+    if (event.classification === null && !state.classifications.has(event.key)) return { ok: false, reason: 'This transaction is not classified' }
+    return { ok: true }
+  }
   const edge = edgeKey(event.bank, event.books)
   switch (event.action) {
     case 'confirm':
@@ -80,6 +145,16 @@ export function structuralCheck(state: DecisionState, event: Pick<DecisionEvent,
 }
 
 export function applyToState(state: DecisionState, event: DecisionEvent): void {
+  state.lastSeq = event.seq
+  if (event.action === 'complete') {
+    state.completion = event
+    return
+  }
+  if (event.action === 'classify') {
+    if (event.classification === null) state.classifications.delete(event.key)
+    else state.classifications.set(event.key, event)
+    return
+  }
   const edge = edgeKey(event.bank, event.books)
   switch (event.action) {
     case 'confirm':
@@ -146,9 +221,17 @@ export interface ReplayData {
 }
 
 // Checks a new decision against the history and the current data.
-export function checkDecision(state: DecisionState, event: Omit<DecisionEvent, 'seq' | 'at'>, data: ReplayData): Verdict {
+export function checkDecision(state: DecisionState, event: NewDecision, data: ReplayData): Verdict {
   const structural = structuralCheck(state, event)
   if (!structural.ok) return structural
+  if (event.action === 'classify') {
+    const t = data.transaction(event.key)
+    if (!t) return { ok: false, reason: 'Only a valid, nonzero transaction in the current files can be classified' }
+    if (event.classification !== null && !classificationsFor(t.side, t.amount.units > 0n ? 'in' : 'out').includes(event.classification)) {
+      return { ok: false, reason: `“${CLASSIFICATION_LABELS[event.classification]}” does not fit this transaction` }
+    }
+    return { ok: true }
+  }
   if (event.action !== 'confirm') return { ok: true }
   const pair = checkPair(data.transaction(event.bank), data.transaction(event.books), data.rules)
   if (pair.blocked) return { ok: false, reason: pair.blocked }
@@ -174,6 +257,16 @@ export function replay(events: DecisionEvent[], data: ReplayData): Replay {
   const lapsed: LapsedDecision[] = []
   const lapsedConfirms = new Set<string>()
   for (const event of events) {
+    if (event.action === 'complete') {
+      applyToState(state, event)
+      continue
+    }
+    if (event.action === 'classify') {
+      const verdict = data.sourcePresent(event.key) ? checkDecision(state, event, data) : { ok: false as const, reason: 'Its source file was replaced or is not loaded' }
+      if (verdict.ok) applyToState(state, event)
+      else lapsed.push({ event, reason: verdict.reason })
+      continue
+    }
     const edge = edgeKey(event.bank, event.books)
     if (!data.sourcePresent(event.bank) || !data.sourcePresent(event.books)) {
       lapsed.push({ event, reason: 'Its source file was replaced or is not loaded' })

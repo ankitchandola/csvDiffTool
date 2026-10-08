@@ -260,3 +260,42 @@ test('details show the whole source row, open alternatives and variance, and ope
   await expect(dialog).toHaveCount(0)
   await expect(row).toBeFocused()
 })
+
+test('completion needs validated balances, every unmatched item classified, and the reviewer’s mark', async ({ page }) => {
+  await mapSetFiles(page)
+  await page.getByRole('button', { name: 'Edit mapping' }).click()
+  await page.getByLabel('Period start').fill('2026-09-01')
+  await page.getByLabel('Period end').fill('2026-09-30')
+  await page.getByLabel('Bank opening balance').fill('1000.00')
+  await page.getByLabel('Bank closing balance').fill('920.03')
+  await page.getByLabel('Books opening balance').fill('1000.00')
+  await page.getByLabel('Books closing balance').fill('880.02')
+  await page.getByRole('button', { name: '3 Review' }).click()
+  const panel = page.getByRole('region', { name: 'Reconciliation status' })
+  await expect(panel.locator('.status.earned')).toHaveCount(2)
+  await expect(panel).toContainText('Outstanding items reviewed: not yet — 8 unmatched items are not classified')
+  await expect(panel.getByRole('button', { name: 'Mark reconciliation complete' })).toBeDisabled()
+
+  await page.locator('.review-row', { hasText: 'Identical set' }).first().getByRole('button', { name: 'Confirm set…' }).click()
+  await page.getByRole('region', { name: /Confirm set/ }).getByRole('button', { name: 'Confirm 2 pairs' }).click()
+  await page.locator('.review-row', { hasText: 'Rent' }).filter({ hasNotText: 'Other rent' }).first().getByRole('button', { name: 'Confirm' }).click()
+  await expect(panel).toContainText('2 unmatched items are not classified')
+
+  await page.getByRole('tab', { name: /^Unmatched/ }).click()
+  await page.locator('.review-row', { hasText: 'NETFLIX' }).focus()
+  await page.keyboard.press('o')
+  await expect(page.locator('.review-row', { hasText: 'NETFLIX' }).locator('.chip')).toHaveText('Record in books')
+  await choose(page, 'Classification for Books record 4 · line 5', 'Outstanding payment (not yet cleared by the bank)')
+  await expect(panel.locator('.status.earned')).toHaveCount(3)
+
+  await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
+  await expect(panel).toContainText('Reconciliation completed: yes')
+  await expect(page.locator('.history summary')).toHaveText('Decision history (6)')
+
+  // A changed balance withdraws the completion.
+  await page.getByRole('button', { name: 'Edit mapping' }).click()
+  await page.getByLabel('Books closing balance').fill('880.03')
+  await page.getByRole('button', { name: '3 Review' }).click()
+  await expect(panel).toContainText('Reconciliation completed: not yet')
+  await expect(panel).toContainText('Source balances validated: not yet')
+})

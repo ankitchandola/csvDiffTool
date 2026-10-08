@@ -1,8 +1,11 @@
 import type { Layout, ParseIssue } from '../engine/parse'
 import type { Delimiter, FileFormat, Span } from '../engine/types'
-import type { DecisionEvent, Pair, PairCheck, TxnKey } from '../reconciliation/decisions'
+import type { Decimal } from '../engine/decimal'
+import type { Bridge, SideBalances } from '../reconciliation/accounting'
+import type { Classification, DecisionEvent, NewDecision, Pair, PairCheck, PairEvent, TxnKey } from '../reconciliation/decisions'
+import type { ReviewFacts, Statuses } from '../reconciliation/statuses'
 import type { Tier } from '../reconciliation/match'
-import type { TransactionSnapshot } from '../reconciliation/session'
+import type { AccountingSetup, TransactionSnapshot } from '../reconciliation/session'
 import type { Direction, MatchingRules, ProblemField, ReconSide, SessionContext, SideMapping } from '../reconciliation/types'
 import type { FileInfo, IssuesPage, Preview } from './protocol'
 
@@ -132,7 +135,7 @@ export interface InspectDetail {
   // The whole source row, in the file's column order.
   headers: string[]
   values: string[]
-  match: { other: TransactionView; event: DecisionEvent } | null
+  match: { other: TransactionView; event: PairEvent } | null
   // Open suggestions this transaction is in, first few of total.
   alternatives: SuggestionItem[]
   alternativesTotal: number
@@ -149,7 +152,7 @@ export interface ProblemItem extends Location {
 export interface ConfirmedItem {
   bank: TransactionView
   books: TransactionView
-  event: DecisionEvent
+  event: PairEvent
   // Set when the pair is also a current suggestion.
   tier: Tier | null
   gap: number
@@ -158,7 +161,23 @@ export interface ConfirmedItem {
 export interface UnmatchedItem extends TransactionView {
   // Current suggestions this transaction still appears in.
   suggestions: number
+  classification: { value: Classification; note: string | null } | null
 }
+
+export interface AccountingReport {
+  bridge: Bridge
+  statuses: Statuses
+  // Balances in cash terms, as used; null where not entered or not valid.
+  balances: Record<ReconSide, SideBalances>
+  // Balance text that could not be read, per side and field.
+  balanceErrors: string[]
+  movement: Record<ReconSide, Decimal>
+  facts: ReviewFacts
+}
+
+export type MarkCompleteResult =
+  | { ok: true; event: DecisionEvent; report: AccountingReport }
+  | { ok: false; reason: string }
 
 // Views are null when the transaction is no longer valid in the current files.
 export interface RejectedItem {
@@ -166,7 +185,7 @@ export interface RejectedItem {
   booksKey: TxnKey
   bank: TransactionView | null
   books: TransactionView | null
-  event: DecisionEvent
+  event: PairEvent
 }
 
 export interface ReviewItems {
@@ -198,7 +217,7 @@ export interface DecisionSummary {
   lapsed: LapsedView[]
 }
 
-export type DecisionInput = Omit<DecisionEvent, 'seq' | 'at'>
+export type DecisionInput = NewDecision
 
 export type DecideResult =
   | { ok: true; event: DecisionEvent; snapshots: TransactionSnapshot[]; summary: DecisionSummary }
@@ -230,6 +249,9 @@ export interface ReconRequests {
   decideSet: { matchId: number; group: number; seq: number; at: string; pairs: Pair[] }
   // Null for a key that is not a valid transaction in the current files.
   inspect: { matchId: number; keys: TxnKey[] }
+  // basis: the setup fingerprint a completion must match to stay current.
+  accounting: { matchId: number; setup: AccountingSetup; basis: string }
+  markComplete: { matchId: number; seq: number; at: string; setup: AccountingSetup; basis: string }
 }
 
 export interface ReconResults {
@@ -244,6 +266,8 @@ export interface ReconResults {
   getSet: SetView
   decideSet: DecideSetResult
   inspect: (InspectDetail | null)[]
+  accounting: AccountingReport
+  markComplete: MarkCompleteResult
 }
 
 export type ReconRequest = {

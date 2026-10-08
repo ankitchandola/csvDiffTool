@@ -64,7 +64,11 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
               <div className="help-content">
                 <h2>Reconciling a bank statement</h2>
                 <p>Load the bank statement and your books, map each file's date, amount and reference, then review suggested pairs.</p>
-                <p>This mode is experimental. You confirm every match yourself; nothing is confirmed automatically, and it does not yet show that an account is reconciled.</p>
+                <p>This mode is experimental. You confirm every match yourself; nothing is confirmed automatically.</p>
+                <details>
+                  <summary>Balances and completion</summary>
+                  <p>Enter the period and each side's opening and closing balances on the Map step. Four statuses then show what is earned: source balances validated, balance bridge complete, outstanding items reviewed (every unmatched item classified; O applies the usual classification), and reconciliation completed, which also needs no problem rows and your explicit mark. A balancing bridge alone is not completion. Any later decision or change to files, mappings, rules or balances withdraws the mark.</p>
+                </details>
                 <details>
                   <summary>Review decisions and keys</summary>
                   <p>Confirm or reject suggested pairs, unmatch a confirmed pair, restore a rejected one, or pair two unmatched transactions by hand; a hand-made pair that breaks the rules needs a reason. On a focused row, J/K or ↓/↑ move, C confirms, X rejects and Enter shows its details: the whole source row, any confirmed match and other open suggestions.</p>

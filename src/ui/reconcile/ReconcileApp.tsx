@@ -5,7 +5,8 @@ import { contextIssues } from '../../reconciliation/normalize'
 import { DEFAULT_MATCHING, type MatchingRules, RECON_SIDES, type ReconSide, type SessionContext, type SideMapping } from '../../reconciliation/types'
 import { CancelledError, createReconcileClient } from '../../worker/client'
 import type { Pair } from '../../reconciliation/decisions'
-import { importSession, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
+import { type AccountingSetup, emptyAccounting, importSession, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
+import { setupFingerprint } from '../../reconciliation/statuses'
 import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
 import type { Activity } from '../activity'
 import { ActivityBar } from '../ActivityBar'
@@ -14,6 +15,8 @@ import { fileLabel, type FileState } from '../file-state'
 import { FilePanel } from '../FilePanel'
 import { count, counted, formatValue } from '../format'
 import { Select } from '../Select'
+import { AccountingFields } from './AccountingFields'
+import { StatusPanel } from './StatusPanel'
 import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
 import { MappingForm } from './MappingForm'
 import { NumberField } from './NumberField'
@@ -172,6 +175,7 @@ export function ReconcileApp() {
   const [files, setFiles] = useState<Record<ReconSide, SourceState>>({ bank: { status: 'empty' }, books: { status: 'empty' } })
   const [drafts, setDrafts] = useState<Record<ReconSide, MappingDraft>>({ bank: emptyDraft(), books: emptyDraft() })
   const [context, setContext] = useState<SessionContext>({ account: '', currency: '', minorUnits: 2 })
+  const [accounting, setAccounting] = useState<AccountingSetup>(emptyAccounting)
   const [rules, setRules] = useState<MatchingRules>(DEFAULT_MATCHING)
   const [dataVersion, setDataVersion] = useState(0)
   const [check, setCheck] = useState<Outcome<NormalizeResult> | null>(null)
@@ -279,7 +283,9 @@ export function ReconcileApp() {
   // References can only be compared when both sides map a reference column.
   const bothReferences = drafts.bank.reference !== '' && drafts.books.reference !== ''
   const effectiveRules: MatchingRules = bothReferences ? rules : { ...rules, referencesShared: false, referenceCaseInsensitive: false }
-  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules: effectiveRules, sources } : null
+  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules: effectiveRules, sources, accounting } : null
+  // What a mark-complete is made for: any change to it withdraws the completion.
+  const basis = config ? setupFingerprint(config) : ''
   const session = useSession(store, config)
   const checkInputs = JSON.stringify({ dataVersion, context, mappings })
   const reviewInputs = JSON.stringify({ checkInputs, rules: effectiveRules })
@@ -390,6 +396,7 @@ export function ReconcileApp() {
     session.load(file, fromBrowser)
     setContext(file.context)
     setRules(file.rules)
+    setAccounting(file.accounting)
     setDrafts({ bank: draftFromMapping(file.mappings.bank), books: draftFromMapping(file.mappings.books) })
     setReview(null)
     setCheck(null)
@@ -454,8 +461,8 @@ export function ReconcileApp() {
       <ActivityBar activity={activity} onCancel={cancel} taskLabels={TASK_LABELS} phaseLabels={PHASE_LABELS} />
       <div className="workspace-surface">
         <p className="experimental-note">
-          <FlaskConical size={16} aria-hidden="true" /> Experimental. You confirm every match; nothing is confirmed automatically, and nothing
-          here shows that an account is reconciled.
+          <FlaskConical size={16} aria-hidden="true" /> Experimental. You confirm every match; nothing is confirmed automatically. A reconciliation
+          counts as completed only when every status is earned and you mark it complete.
         </p>
         <SessionBar
           revision={session.revision}
@@ -593,6 +600,7 @@ export function ReconcileApp() {
                 )
               })}
             </div>
+            <AccountingFields setup={accounting} onChange={setAccounting} />
             <fieldset className="panel matching-fields">
               <legend>Matching</legend>
               <p className="note">Amounts must match exactly, with the same cash direction. Amount tolerance is not available yet.</p>
@@ -685,6 +693,19 @@ export function ReconcileApp() {
               {summary.rules.referencesShared ? `references compared${summary.rules.referenceCaseInsensitive ? ', ignoring case' : ''}` : 'references for context only'}.
               {' '}Account: {context.account || 'unnamed'}, {context.currency} (stated, not checked).
             </p>
+            <StatusPanel
+              client={client}
+              matchId={summary.matchId}
+              setup={accounting}
+              basis={basis}
+              version={decisionVersion}
+              busy={deciding}
+              nextSeq={() => session.eventsRef.current.length + 1}
+              onCompleted={(event) => {
+                session.record([event], [])
+                setDecisionVersion((v) => v + 1)
+              }}
+            />
             <ReviewView
               key={summary.matchId}
               client={client}

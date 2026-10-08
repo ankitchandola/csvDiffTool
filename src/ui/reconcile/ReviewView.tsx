@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeftRight, CheckCircle2, CircleSlash, Search, XCircle } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react'
-import { type DecisionEvent, EXCEPTION_LABELS, type Pair, type TxnKey } from '../../reconciliation/decisions'
+import { type Classification, CLASSIFICATION_LABELS, classificationsFor, type DecisionEvent, eventKeys, EXCEPTION_LABELS, type Pair, type PairEvent, type TxnKey } from '../../reconciliation/decisions'
 import type { TransactionSnapshot } from '../../reconciliation/session'
 import type { Direction, MatchingRules, ReconSide } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
@@ -106,7 +106,43 @@ function SuggestionRow({
   )
 }
 
-function decisionNote(event: DecisionEvent): string {
+const SHORT_CLASSIFICATIONS: Record<Classification, string> = {
+  'outstanding-payment': 'Outstanding payment',
+  'deposit-in-transit': 'Deposit in transit',
+  'record-in-books': 'Record in books',
+  investigate: 'Investigate',
+}
+
+function ClassifyControls({ t, formats, busy, onDecide }: { t: UnmatchedItem; formats: Formats; busy: boolean; onDecide: Decide }) {
+  const options = classificationsFor(t.side, t.direction)
+  const current = t.classification?.value ?? ''
+  const choose = (value: Classification | '') => {
+    if (value === current) return
+    void onDecide({ action: 'classify', key: t.key, classification: value === '' ? null : value })
+  }
+  return (
+    <>
+      {t.classification ? (
+        <span className="chip" title={CLASSIFICATION_LABELS[t.classification.value]}>
+          {SHORT_CLASSIFICATIONS[t.classification.value]}
+        </span>
+      ) : (
+        <button type="button" className="secondary" data-action="classify" aria-keyshortcuts="O" disabled={busy} onClick={() => choose(options[0])}>
+          {SHORT_CLASSIFICATIONS[options[0]]}
+        </button>
+      )}
+      <Select<Classification | ''>
+        label={`Classification for ${locationText(t, formats)}`}
+        value={current}
+        disabled={busy}
+        onChange={choose}
+        options={[{ value: '', label: 'Not classified' }, ...options.map((value) => ({ value, label: CLASSIFICATION_LABELS[value] }))]}
+      />
+    </>
+  )
+}
+
+function decisionNote(event: PairEvent): string {
   if (event.origin === 'set') return 'Confirmed as part of an identical set; the pairing within the set is arbitrary'
   if (event.origin !== 'manual') return 'Confirmed from a suggestion'
   const broken = (event.exceptions ?? []).map((e) => EXCEPTION_LABELS[e])
@@ -284,8 +320,8 @@ const TABS: [ReviewTab, string, typeof Search][] = [
 
 const IGNORE_KEYS_IN = 'input, textarea, [role="combobox"], [role="tab"]'
 
-// J/K or the arrow keys move between rows; C confirms, X rejects and Enter opens the
-// details of the focused row.
+// J/K or the arrow keys move between rows; C confirms, X rejects, O classifies an
+// unmatched row the usual way, and Enter opens the details of the focused row.
 function reviewKeys(event: KeyboardEvent<HTMLElement>) {
   const target = event.target as HTMLElement
   if (target.closest(IGNORE_KEYS_IN) || event.altKey || event.ctrlKey || event.metaKey) return
@@ -304,7 +340,7 @@ function reviewKeys(event: KeyboardEvent<HTMLElement>) {
     return
   }
   if (!row || target !== row) return
-  const action = key === 'c' ? 'confirm' : key === 'x' ? 'reject' : key === 'enter' ? 'inspect' : null
+  const action = key === 'c' ? 'confirm' : key === 'x' ? 'reject' : key === 'o' ? 'classify' : key === 'enter' ? 'inspect' : null
   if (!action) return
   const button = row.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)
   if (!button || button.disabled) return
@@ -313,9 +349,15 @@ function reviewKeys(event: KeyboardEvent<HTMLElement>) {
 }
 
 function eventText(event: DecisionEvent): string {
+  const when = new Date(event.at).toLocaleString()
+  if (event.action === 'complete') return `${count(event.seq)}. Marked complete · ${when}`
+  if (event.action === 'classify') {
+    const what = event.classification === null ? 'Cleared the classification of' : `Classified as “${CLASSIFICATION_LABELS[event.classification]}”:`
+    return `${count(event.seq)}. ${what} ${keyLabel(event.key)}${event.note ? ` — “${event.note}”` : ''} · ${when}`
+  }
   const verb = { confirm: 'Confirmed', reject: 'Rejected', restore: 'Restored', unmatch: 'Unmatched' }[event.action]
   const note = event.action === 'confirm' ? ` · ${decisionNote(event)}` : ''
-  return `${count(event.seq)}. ${verb} ${keyLabel(event.bank)} ↔ ${keyLabel(event.books)}${note} · ${new Date(event.at).toLocaleString()}`
+  return `${count(event.seq)}. ${verb} ${keyLabel(event.bank)} ↔ ${keyLabel(event.books)}${note} · ${when}`
 }
 
 export function ReviewView({
@@ -492,7 +534,10 @@ export function ReviewView({
               onDecide={onDecide}
               onClear={() => setSelection({})}
             />
-            <p className="note">Valid transactions not in a confirmed match. They are not outstanding items: nothing has been classified.</p>
+            <p className="note">
+              Valid transactions not in a confirmed match. Classify each one that stays unmatched: completion needs them all classified. O applies
+              the usual classification to the focused row.
+            </p>
             <VirtualList<UnmatchedItem>
               key={listKey}
               fetchPage={fetchPage('unmatched')}
@@ -515,6 +560,7 @@ export function ReviewView({
                         >
                           {selection[t.side]?.key === t.key ? 'Selected' : 'Select for pair'}
                         </button>
+                        <ClassifyControls t={t} formats={formats} busy={busy} onDecide={onDecide} />
                         <DetailsButton keys={[t.key]} onInspect={setInspecting} />
                       </div>
                     </div>
@@ -575,7 +621,9 @@ export function ReviewView({
             {[...events].reverse().map((event) => (
               <li key={event.seq}>
                 {eventText(event)}
-                {snapshots.get(event.bank)?.description && <span className="muted"> · {snapshots.get(event.bank)?.description}</span>}
+                {eventKeys(event).map((key) => snapshots.get(key)?.description).filter(Boolean).slice(0, 1).map((description) => (
+                  <span key="description" className="muted"> · {description}</span>
+                ))}
               </li>
             ))}
           </ol>
