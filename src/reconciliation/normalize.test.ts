@@ -21,6 +21,7 @@ const signedMapping: SideMapping = {
   amountFormat: { grouped: true, trailingMinus: true, parentheses: false },
   reference: 'ref',
   description: null,
+  balance: null,
 }
 
 const splitMapping: SideMapping = {

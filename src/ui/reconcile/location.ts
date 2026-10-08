@@ -9,7 +9,8 @@ export const SIDE_LABELS: Record<ReconSide, string> = { bank: 'Bank', books: 'Bo
 
 export type Formats = Record<ReconSide, FileFormat | undefined>
 
-export function locationText({ side, recordNumber, span }: Location, formats: Formats): string {
+export function locationText({ side, recordNumber, span, carried }: Location, formats: Formats): string {
+  if (carried) return `Carried · ${SIDE_LABELS[side]} record ${count(recordNumber)} of ${carried.fileName} (${carried.period.start} to ${carried.period.end})`
   const base = `${SIDE_LABELS[side]} record ${count(recordNumber)}`
   if (!span) return base
   if (formats[side]?.kind === 'xlsx') return `${base} · row ${count(span.first)}`

@@ -35,6 +35,8 @@ export interface SideMapping {
   amountFormat: AmountFormat
   reference: string | null
   description: string | null
+  // Optional running balance after each row, checked against the opening balance.
+  balance: string | null
 }
 
 // Stated by the user: the files carry no account or currency metadata to check it against.
@@ -71,6 +73,9 @@ export interface Transaction {
   amount: Decimal
   // Trimmed text; null when the column is unmapped or the cell is blank.
   reference: string | null
+  // Set for an opening item carried from an earlier period: which imported file and which
+  // of that side's items in it. index is then the item's position, not a source row.
+  opening?: { file: number; item: number }
 }
 
 export type ProblemField = 'date' | 'amount'

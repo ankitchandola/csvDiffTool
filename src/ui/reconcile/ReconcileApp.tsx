@@ -5,9 +5,9 @@ import { contextIssues } from '../../reconciliation/normalize'
 import { DEFAULT_MATCHING, type MatchingRules, RECON_SIDES, type ReconSide, type SessionContext, type SideMapping } from '../../reconciliation/types'
 import { CancelledError, createReconcileClient } from '../../worker/client'
 import type { Pair } from '../../reconciliation/decisions'
-import { type AccountingSetup, emptyAccounting, importSession, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
+import { type AccountingSetup, emptyAccounting, importSession, type OpeningFile, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
 import { setupFingerprint } from '../../reconciliation/statuses'
-import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
+import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, OpeningFileInfo, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
 import type { Activity } from '../activity'
 import { ActivityBar } from '../ActivityBar'
 import { WORKSPACE_IDS } from '../mode'
@@ -16,6 +16,7 @@ import { FilePanel } from '../FilePanel'
 import { count, counted, formatValue } from '../format'
 import { Select } from '../Select'
 import { AccountingFields } from './AccountingFields'
+import { OpeningPanel } from './OpeningPanel'
 import { StatusPanel } from './StatusPanel'
 import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
 import { MappingForm } from './MappingForm'
@@ -56,7 +57,7 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function download(text: string, fileName: string) {
+function download(text: string, fileName: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
   const link = document.createElement('a')
   link.href = url
@@ -114,6 +115,36 @@ function SkippedRecords({ info }: { info: SourceInfo }) {
       {before.items.length > 0 && <pre className="skipped">{before.items.join('\n')}</pre>}
       {after.items.length > 0 && <pre className="skipped">{after.items.join('\n')}</pre>}
     </details>
+  )
+}
+
+function OpeningCheck({ result }: { result: Extract<NormalizeResult, { ok: true }> }) {
+  const { items, warnings, overlaps } = result.opening
+  if (items.bank + items.books === 0) return null
+  return (
+    <div className={warnings.length > 0 ? 'warning' : 'note'}>
+      <p>
+        Opening items: {counted(items.bank, 'bank item')} and {counted(items.books, 'books item')} carried from earlier periods. They are
+        matched against this period's transactions and not counted in its movement.
+      </p>
+      {warnings.length > 0 && (
+        <ul>
+          {warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
+      {overlaps.length > 0 && (
+        <ul>
+          {overlaps.map((o) => (
+            <li key={o.lineage}>
+              A carried {SIDE_LABELS[o.side].toLowerCase()} item may repeat {o.records.length === 1 ? 'record' : 'records'} {o.records.join(', ')} of this
+              period's {SIDE_LABELS[o.side].toLowerCase()} file. If the export overlaps the previous period, its balances will not validate.
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 
@@ -176,6 +207,9 @@ export function ReconcileApp() {
   const [drafts, setDrafts] = useState<Record<ReconSide, MappingDraft>>({ bank: emptyDraft(), books: emptyDraft() })
   const [context, setContext] = useState<SessionContext>({ account: '', currency: '', minorUnits: 2 })
   const [accounting, setAccounting] = useState<AccountingSetup>(emptyAccounting)
+  const [openingFiles, setOpeningFiles] = useState<OpeningFile[]>([])
+  const [openingInfo, setOpeningInfo] = useState<OpeningFileInfo[]>([])
+  const [openingErrors, setOpeningErrors] = useState<string[]>([])
   const [rules, setRules] = useState<MatchingRules>(DEFAULT_MATCHING)
   const [dataVersion, setDataVersion] = useState(0)
   const [check, setCheck] = useState<Outcome<NormalizeResult> | null>(null)
@@ -283,11 +317,14 @@ export function ReconcileApp() {
   // References can only be compared when both sides map a reference column.
   const bothReferences = drafts.bank.reference !== '' && drafts.books.reference !== ''
   const effectiveRules: MatchingRules = bothReferences ? rules : { ...rules, referencesShared: false, referenceCaseInsensitive: false }
-  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules: effectiveRules, sources, accounting } : null
+  const config: SessionConfig | null = ready && mappings && sources ? { context, mappings, rules: effectiveRules, sources, accounting, opening: openingFiles } : null
   // What a mark-complete is made for: any change to it withdraws the completion.
   const basis = config ? setupFingerprint(config) : ''
   const session = useSession(store, config)
-  const checkInputs = JSON.stringify({ dataVersion, context, mappings })
+  // With opening items imported, the period decides whether they are accepted; without
+  // any, it doesn't affect matching, so editing it keeps the review.
+  const openingKey = openingFiles.length > 0 ? { period: accounting.period, opening: openingFiles.map((f) => f.name + f.text.length) } : null
+  const checkInputs = JSON.stringify({ dataVersion, context, mappings, openingKey })
   const reviewInputs = JSON.stringify({ checkInputs, rules: effectiveRules })
   const currentCheck = check?.inputs === checkInputs ? check : null
   const currentReview = review?.inputs === reviewInputs ? review : null
@@ -310,7 +347,12 @@ export function ReconcileApp() {
     setReview(null)
     setCheck({ inputs, status: 'pending' })
     try {
-      const value = await client.call('normalize', { context, mappings }, task.progress)
+      // The worker may have lost its copy (Cancel, a crash), so it is sent with every check.
+      if (openingFiles.length > 0) {
+        const sent = await client.call('setOpening', { files: openingFiles })
+        if (!sent.ok) throw new Error(sent.errors.map((e) => `${e.name}: ${e.message}`).join('; '))
+      }
+      const value = await client.call('normalize', { context, mappings, period: accounting.period }, task.progress)
       setCheck({ inputs, status: 'done', value })
       return value
     } catch (error) {
@@ -319,6 +361,29 @@ export function ReconcileApp() {
     } finally {
       task.end()
     }
+  }
+
+  // Validated by the worker before it is kept; a file that can't be read is refused whole.
+  async function replaceOpening(files: OpeningFile[]) {
+    setOpeningErrors([])
+    try {
+      const result = await client.call('setOpening', { files })
+      if (!result.ok) {
+        setOpeningErrors(result.errors.map((e) => `${e.name}: ${e.message}`))
+        return
+      }
+      setOpeningFiles(files)
+      setOpeningInfo(result.files)
+      setDataVersion((v) => v + 1)
+    } catch (error) {
+      setOpeningErrors([message(error)])
+    }
+  }
+
+  async function addOpening(picked: File[]) {
+    const added = await Promise.all(picked.map(async (file) => ({ name: file.name, text: await file.text() })))
+    const names = new Set(added.map((f) => f.name))
+    await replaceOpening([...openingFiles.filter((f) => !names.has(f.name)), ...added])
   }
 
   async function findSuggestions() {
@@ -397,6 +462,9 @@ export function ReconcileApp() {
     setContext(file.context)
     setRules(file.rules)
     setAccounting(file.accounting)
+    setOpeningFiles(file.opening)
+    setOpeningInfo([])
+    setOpeningErrors([])
     setDrafts({ bank: draftFromMapping(file.mappings.bank), books: draftFromMapping(file.mappings.books) })
     setReview(null)
     setCheck(null)
@@ -601,6 +669,13 @@ export function ReconcileApp() {
               })}
             </div>
             <AccountingFields setup={accounting} onChange={setAccounting} />
+            <OpeningPanel
+              files={openingFiles}
+              info={openingInfo}
+              errors={openingErrors}
+              onAdd={(picked) => void addOpening(picked)}
+              onRemove={(name) => void replaceOpening(openingFiles.filter((f) => f.name !== name))}
+            />
             <fieldset className="panel matching-fields">
               <legend>Matching</legend>
               <p className="note">Amounts must match exactly, with the same cash direction. Amount tolerance is not available yet.</p>
@@ -649,6 +724,7 @@ export function ReconcileApp() {
             )}
             {currentCheck?.status === 'done' && currentCheck.value.ok && (
               <section aria-label="Mapping check" className="mapping-check">
+                <OpeningCheck result={currentCheck.value as Extract<NormalizeResult, { ok: true }>} />
                 {RECON_SIDES.map((side) => (
                   <SideCheck key={side} side={side} summary={(currentCheck.value as Extract<NormalizeResult, { ok: true }>).sides[side]} formats={formats} />
                 ))}
@@ -705,6 +781,8 @@ export function ReconcileApp() {
                 session.record([event], [])
                 setDecisionVersion((v) => v + 1)
               }}
+              sessionId={session.id}
+              onDownload={download}
             />
             <ReviewView
               key={summary.matchId}

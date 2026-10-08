@@ -27,6 +27,7 @@ const bankMapping: SideMapping = {
   amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
   reference: 'Ref',
   description: 'Details',
+  balance: null,
 }
 
 const booksMapping: SideMapping = {
@@ -37,6 +38,7 @@ const booksMapping: SideMapping = {
   amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
   reference: 'ref',
   description: 'memo',
+  balance: null,
 }
 
 async function loaded() {
@@ -61,7 +63,7 @@ describe('reconcile handler', () => {
 
   it('blocks a mapping that names a missing column, per side', async () => {
     const { call } = await loaded()
-    const result = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: { ...booksMapping, reference: 'Reference' } } })
+    const result = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: { ...booksMapping, reference: 'Reference' } }, period: null })
     expect(result).toEqual({ ok: false, issues: [{ side: 'books', message: 'Column "Reference" is not in this file' }] })
   })
 
@@ -70,6 +72,7 @@ describe('reconcile handler', () => {
     const result: { ok: true; sides: Record<'bank' | 'books', { valid: number; zero: number; problemRows: number; moneyIn: number; sample: unknown[] }> } = await call('normalize', {
       context: CONTEXT,
       mappings: { bank: bankMapping, books: booksMapping },
+      period: null,
     })
     expect(result.sides.bank).toMatchObject({ rows: 5, valid: 3, moneyIn: 1, moneyOut: 2, zero: 1, problemRows: 1 })
     expect(result.sides.bank.sample[1]).toEqual({
@@ -86,7 +89,7 @@ describe('reconcile handler', () => {
 
   it('suggests pairs, shows competition, and pages every tab from the worker', async () => {
     const { call } = await loaded()
-    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping }, period: null })
     const summary = await call('match', { revision, rules: { ...DEFAULT_MATCHING, referencesShared: true } })
     expect(summary).toMatchObject({
       pairs: 4,
@@ -123,7 +126,7 @@ describe('reconcile handler', () => {
 
   it('rejects stale suggestions and matches after a source is replaced', async () => {
     const { call } = await loaded()
-    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping }, period: null })
     const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
     await call('parse', { side: 'books', file: new File([BOOKS], 'books.csv'), delimiter: 'auto', layout: booksMapping.layout })
     await expect(call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10 })).rejects.toThrow()
@@ -137,7 +140,7 @@ describe('reconcile handler decisions', () => {
   async function suggested() {
     const loaded_ = await loaded()
     const { call } = loaded_
-    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping }, period: null })
     const { matchId } = await call('match', { revision, rules: { ...DEFAULT_MATCHING, referencesShared: true } })
     await call('setDecisions', { matchId, events: [] })
     const page: { items: Item[] } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 10 })
@@ -200,11 +203,11 @@ describe('reconcile handler decisions', () => {
     const salary = find('Salary', 'Salary in')
     const confirm = { seq: 1, at: AT, action: 'confirm' as const, bank: salary.bank.key, books: salary.books.key, origin: 'suggested' as const }
     await call('setDecisions', { matchId, events: [confirm] })
-    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping }, period: null })
     const rerun = await call('match', { revision, rules: DEFAULT_MATCHING })
     expect(await call('setDecisions', { matchId: (rerun as { matchId: number }).matchId, events: [confirm] })).toMatchObject({ confirmed: 1, lapsed: [] })
     await call('parse', { side: 'books', file: new File([BOOKS + '\n2026-09-30,Extra,1,'], 'books.csv'), delimiter: 'auto', layout: booksMapping.layout })
-    const again = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping } })
+    const again = await call('normalize', { context: CONTEXT, mappings: { bank: bankMapping, books: booksMapping }, period: null })
     const third = await call('match', { revision: (again as { revision: number }).revision, rules: DEFAULT_MATCHING })
     expect(await call('setDecisions', { matchId: (third as { matchId: number }).matchId, events: [confirm] })).toMatchObject({
       confirmed: 0,
@@ -224,6 +227,7 @@ describe('reconcile handler sets and inspection', () => {
     amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
     reference: null,
     description: 'memo',
+    balance: null,
   }
 
   async function run() {
@@ -232,7 +236,7 @@ describe('reconcile handler sets and inspection', () => {
     const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
     await call('parse', { side: 'bank', file: new File([SET_BANK], 'bank.csv'), delimiter: ',', layout: mapping.layout })
     await call('parse', { side: 'books', file: new File([SET_BOOKS], 'books.csv'), delimiter: ',', layout: mapping.layout })
-    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping } })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping }, period: null })
     const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
     await call('setDecisions', { matchId, events: [] })
     const page: { items: { group: number; set: string | null; bank: { original: { description: string } } }[] } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 50 })
@@ -303,6 +307,7 @@ describe('reconcile handler classification and completion', () => {
     amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
     reference: null,
     description: 'memo',
+    balance: null,
   }
   const setup = {
     period: { start: '2026-09-01', end: '2026-09-30' },
@@ -316,7 +321,7 @@ describe('reconcile handler classification and completion', () => {
     const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
     await call('parse', { side: 'bank', file: new File([BANK_SET], 'bank.csv'), delimiter: ',', layout: mapping.layout })
     await call('parse', { side: 'books', file: new File([BOOKS_SET], 'books.csv'), delimiter: ',', layout: mapping.layout })
-    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping } })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping }, period: null })
     const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
     await call('setDecisions', { matchId, events: [] })
     const page: { items: { group: number; bank: { key: string; original: { description: string } }; books: { key: string; original: { description: string } } }[] } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 50 })
@@ -389,5 +394,164 @@ describe('reconcile handler classification and completion', () => {
     })) as { balanceErrors: string[]; statuses: { sourcesValidated: { earned: boolean } } }
     expect(bad.balanceErrors).toEqual(['Bank closing balance "920.031" is not an amount with at most 2 decimal places'])
     expect(bad.statuses.sourcesValidated.earned).toBe(false)
+  })
+})
+
+describe('reconcile handler carry-forward', () => {
+  const mapping = (format: 'DD/MM/YYYY' | 'YYYY-MM-DD'): SideMapping => ({
+    delimiter: ',',
+    layout: { headerRecord: 1, skipTrailing: 0 },
+    date: { column: 'date', format, kind: 'posting' },
+    amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
+    amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
+    reference: 'ref',
+    description: 'memo',
+    balance: null,
+  })
+  const SEP = { start: '2026-09-01', end: '2026-09-30' }
+  const OCT = { start: '2026-10-01', end: '2026-10-31' }
+  const RULES = { ...DEFAULT_MATCHING, referencesShared: true, bankDaysAfter: 40 }
+  const AT = '2026-10-08T00:00:00Z'
+
+  async function session(bank: string, books: string, period: { start: string; end: string }, openingText?: string) {
+    const handle = createReconcileHandler()
+    let id = 1
+    const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
+    await call('parse', { side: 'bank', file: new File([bank], 'bank.csv'), delimiter: ',', layout: { headerRecord: 1, skipTrailing: 0 } })
+    await call('parse', { side: 'books', file: new File([books], 'books.csv'), delimiter: ',', layout: { headerRecord: 1, skipTrailing: 0 } })
+    if (openingText) expect(await call('setOpening', { files: [{ name: 'outstanding-sep.json', text: openingText }] })).toMatchObject({ ok: true })
+    const normalized: { ok: boolean; revision: number; opening?: { items: object; overlaps: unknown[] }; issues?: unknown[] } = await call('normalize', {
+      context: CONTEXT,
+      mappings: { bank: mapping('DD/MM/YYYY'), books: mapping('YYYY-MM-DD') },
+      period,
+    })
+    const none = { decide: async () => ({ ok: false }), suggestions: async () => [], unmatched: async () => [], nextSeq: () => 1 }
+    if (!normalized.ok) return { call, normalized, matchId: 0, ...none }
+    const { matchId } = await call('match', { revision: normalized.revision, rules: RULES })
+    await call('setDecisions', { matchId, events: [] })
+    let seq = 0
+    const decide = async (decision: object) => {
+      const result = (await call('decide', { matchId, seq: seq + 1, at: AT, decision } as never)) as { ok: boolean; reason?: string }
+      if (result.ok) seq++
+      return result
+    }
+    const suggestions = async () =>
+      ((await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 50 })) as { items: { bank: { key: string; original: { description: string } }; books: { key: string; carried?: unknown; original: { description: string } } }[] }).items
+    const unmatched = async () => ((await call('getReview', { matchId, tab: 'unmatched', offset: 0, limit: 50 })) as { items: { key: string; side: string; carried?: unknown; original: { description: string } }[] }).items
+    return { call, normalized, matchId, decide, suggestions, unmatched, nextSeq: () => seq + 1 }
+  }
+
+  const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'
+  const BOOKS_SEP = 'date,amount,ref,memo\n2026-09-10,300.00,,Receipt\n2026-09-15,-50.00,CHQ102,Cheque 102 issued\n2026-09-29,-200.00,CHQ101,Cheque 101 issued\n'
+  const BANK_OCT = 'date,amount,ref,memo\n02/10/2026,-200.00,CHQ101,Cheque 101 cleared\n20/10/2026,-50.00,CHQ102,Cheque 102 cleared\n31/10/2026,-10.00,,Bank charge\n'
+  const BOOKS_OCT = 'date,amount,ref,memo\n2026-10-30,500.00,,Receipt\n'
+
+  async function september() {
+    const sep = await session(BANK_SEP, BOOKS_SEP, SEP)
+    const [receipt] = await sep.suggestions()
+    await sep.decide({ action: 'confirm', bank: receipt.bank.key, books: receipt.books.key, origin: 'suggested' })
+    for (const u of await sep.unmatched()) await sep.decide({ action: 'classify', key: u.key, classification: 'outstanding-payment' })
+    const exported: { text: string; items: number; cleared: number } = await sep.call('exportOutstanding', { matchId: sep.matchId, sessionId: 'sep', period: SEP, exportedAt: AT })
+    return { sep, exported }
+  }
+
+  it('exports September’s outstanding cheques with their lineage and provenance', async () => {
+    const { exported } = await september()
+    expect(exported).toMatchObject({ items: 2, cleared: 0 })
+    const file = JSON.parse(exported.text)
+    expect(file.items.map((i: { side: string; amount: string; date: string; origin: { fileName: string; recordNumber: number } }) => [i.side, i.amount, i.date, i.origin.fileName, i.origin.recordNumber])).toEqual([
+      ['books', '-50.00', '2026-09-15', 'books.csv', 2],
+      ['books', '-200.00', '2026-09-29', 'books.csv', 3],
+    ])
+  })
+
+  it('clears the carried cheques in October without counting them in October’s movement', async () => {
+    const { exported } = await september()
+    const oct = await session(BANK_OCT, BOOKS_OCT, OCT, exported.text)
+    expect(oct.normalized.opening).toEqual({ items: { bank: 0, books: 2 }, warnings: [], overlaps: [] })
+    const pairs = await oct.suggestions()
+    expect(pairs.map((p) => [p.bank.original.description, p.books.original.description, Boolean(p.books.carried)])).toEqual([
+      ['Cheque 101 cleared', 'Cheque 101 issued', true],
+      ['Cheque 102 cleared', 'Cheque 102 issued', true],
+    ])
+    for (const p of pairs) await oct.decide({ action: 'confirm', bank: p.bank.key, books: p.books.key, origin: 'suggested' })
+    for (const u of await oct.unmatched()) await oct.decide({ action: 'classify', key: u.key, classification: u.side === 'bank' ? 'record-in-books' : 'deposit-in-transit' })
+    const setup = {
+      period: OCT,
+      balances: { bank: { opening: '1300.00', closing: '1040.00', basis: 'cash' as const }, books: { opening: '1050.00', closing: '1550.00', basis: 'cash' as const } },
+    }
+    const report: { bridge: { complete: boolean; opening: { status: string } }; movement: { books: { units: bigint } }; statuses: { canMarkComplete: boolean } } = await oct.call('accounting', { matchId: oct.matchId, setup, basis: 'x' })
+    expect(report.bridge.opening.status).toBe('pass')
+    expect(report.movement.books.units).toBe(50000n)
+    expect(report.bridge.complete).toBe(true)
+    expect(report.statuses.canMarkComplete).toBe(true)
+    const next: { text: string; items: number; cleared: number } = await oct.call('exportOutstanding', { matchId: oct.matchId, sessionId: 'oct', period: OCT, exportedAt: AT })
+    expect(next).toMatchObject({ items: 2, cleared: 2 })
+    expect(JSON.parse(next.text).cleared.sort()).toEqual(JSON.parse(exported.text).items.map((i: { lineage: string }) => i.lineage).sort())
+  })
+
+  it('needs the period to import opening items, and refuses a file from the same period', async () => {
+    const { exported } = await september()
+    const noPeriod = await session(BANK_OCT, BOOKS_OCT, null as never, exported.text)
+    expect(noPeriod.normalized).toMatchObject({ ok: false, issues: [{ message: 'Enter the period before importing opening items' }] })
+    const samePeriod = await session(BANK_OCT, BOOKS_OCT, SEP, exported.text)
+    expect(samePeriod.normalized.ok).toBe(false)
+  })
+
+  it('reports a carried item that the current files repeat, and refuses unreadable files whole', async () => {
+    const { exported } = await september()
+    const overlapping = await session(BANK_OCT, 'date,amount,ref,memo\n2026-09-29,-200.00,CHQ101,Cheque 101 issued\n' + BOOKS_OCT.split('\n').slice(1).join('\n'), OCT, exported.text)
+    expect(overlapping.normalized.opening?.overlaps).toEqual([{ lineage: JSON.parse(exported.text).items[1].lineage, side: 'books', records: [1] }])
+    const bad = createReconcileHandler()
+    expect(await bad({ id: 1, type: 'setOpening', files: [{ name: 'a.json', text: '{' }, { name: 'b.json', text: '{"format":"other"}' }] })).toEqual({
+      ok: false,
+      errors: [
+        { name: 'a.json', message: 'The file is not valid JSON' },
+        { name: 'b.json', message: 'This is not an outstanding-items file' },
+      ],
+    })
+  })
+
+  it('inspects a carried item with where it first appeared', async () => {
+    const { exported } = await september()
+    const oct = await session(BANK_OCT, BOOKS_OCT, OCT, exported.text)
+    const carried = (await oct.unmatched()).find((u) => u.carried) as { key: string }
+    const [detail]: { headers: string[]; values: string[] }[] = await oct.call('inspect', { matchId: oct.matchId, keys: [carried.key] })
+    expect(detail.headers[0]).toBe('Lineage')
+    expect(detail.values.slice(1, 3)).toEqual(['2026-09-15', '-50.00'])
+  })
+})
+
+describe('reconcile handler running balance', () => {
+  const mapping: SideMapping = {
+    delimiter: ',',
+    layout: { headerRecord: 1, skipTrailing: 0 },
+    date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
+    amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
+    amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
+    reference: null,
+    description: null,
+    balance: 'balance',
+  }
+
+  async function report(bank: string) {
+    const handle = createReconcileHandler()
+    let id = 1
+    const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
+    const layout = { headerRecord: 1, skipTrailing: 0 }
+    await call('parse', { side: 'bank', file: new File([bank], 'bank.csv'), delimiter: ',', layout })
+    await call('parse', { side: 'books', file: new File(['date,amount,balance\n2026-09-01,10,1010\n'], 'books.csv'), delimiter: ',', layout })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping }, period: null })
+    const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
+    await call('setDecisions', { matchId, events: [] })
+    const setup = { period: null, balances: { bank: { opening: '1000', closing: null, basis: 'cash' as const }, books: { opening: '1000', closing: null, basis: 'cash' as const } } }
+    return call('accounting', { matchId, setup, basis: 'x' }) as Promise<{ running: { bank: { status: string } }; statuses: { sourcesValidated: { reasons: string[] } } }>
+  }
+
+  it('accepts a consistent running balance and reports the first break as a source issue', async () => {
+    expect((await report('date,amount,balance\n2026-09-01,10,1010\n2026-09-02,-5,1005\n')).running.bank).toEqual({ status: 'consistent' })
+    const broken = await report('date,amount,balance\n2026-09-01,10,1010\n2026-09-03,-5,"1,004.00"\n')
+    expect(broken.running.bank.status).toBe('break')
+    expect(broken.statuses.sourcesValidated.reasons).toContain('Bank: the running balance breaks at record 2 (expected 1005.00, found 1004.00)')
   })
 })

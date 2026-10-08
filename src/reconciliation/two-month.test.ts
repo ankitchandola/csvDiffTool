@@ -26,6 +26,7 @@ const mapping = (format: 'DD/MM/YYYY' | 'YYYY-MM-DD'): SideMapping => ({
   amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
   reference: 'ref',
   description: 'memo',
+  balance: null,
 })
 
 const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'

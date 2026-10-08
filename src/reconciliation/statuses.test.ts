@@ -20,7 +20,7 @@ const IDENTITY: BridgeInput = {
   incompleteSearch: false,
 }
 
-const REVIEWED: ReviewFacts = { unclassified: 0, problems: 0, unexplainedVariances: 0, completion: { marked: true, current: true } }
+const REVIEWED: ReviewFacts = { unclassified: 0, problems: 0, sourceIssues: [], unexplainedVariances: 0, completion: { marked: true, current: true } }
 
 describe('computeStatuses', () => {
   it('never marks complete on a balanced bridge alone', () => {

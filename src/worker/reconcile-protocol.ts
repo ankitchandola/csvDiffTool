@@ -1,9 +1,10 @@
 import type { Layout, ParseIssue } from '../engine/parse'
 import type { Delimiter, FileFormat, Span } from '../engine/types'
 import type { Decimal } from '../engine/decimal'
-import type { Bridge, SideBalances } from '../reconciliation/accounting'
+import type { Bridge, RunningBalanceCheck, SideBalances } from '../reconciliation/accounting'
 import type { Classification, DecisionEvent, NewDecision, Pair, PairCheck, PairEvent, TxnKey } from '../reconciliation/decisions'
 import type { ReviewFacts, Statuses } from '../reconciliation/statuses'
+import type { Period } from '../reconciliation/carryforward'
 import type { Tier } from '../reconciliation/match'
 import type { AccountingSetup, TransactionSnapshot } from '../reconciliation/session'
 import type { Direction, MatchingRules, ProblemField, ReconSide, SessionContext, SideMapping } from '../reconciliation/types'
@@ -45,6 +46,9 @@ export interface Location {
   recordNumber: number
   // Physical lines for a CSV, worksheet rows for an .xlsx.
   span: Span | null
+  // Set for an opening item: recordNumber is then its record in the file it first
+  // appeared in, an earlier period's file.
+  carried?: { lineage: string; fileName: string; period: Period }
 }
 
 export interface SampleRow extends Location {
@@ -67,9 +71,32 @@ export interface SideSummary {
   sample: SampleRow[]
 }
 
+export interface OpeningOverlap {
+  lineage: string
+  side: ReconSide
+  // Current records with the same date, amount and reference as the carried item.
+  records: number[]
+}
+
 export type NormalizeResult =
   | { ok: false; issues: { side: ReconSide | null; message: string }[] }
-  | { ok: true; revision: number; sides: Record<ReconSide, SideSummary> }
+  | {
+      ok: true
+      revision: number
+      sides: Record<ReconSide, SideSummary>
+      opening: { items: Record<ReconSide, number>; warnings: string[]; overlaps: OpeningOverlap[] }
+    }
+
+export interface OpeningFileInfo {
+  name: string
+  fingerprint: string
+  period: Period
+  account: string
+  items: number
+  cleared: number
+}
+
+export type SetOpeningResult = { ok: true; files: OpeningFileInfo[] } | { ok: false; errors: { name: string; message: string }[] }
 
 export interface MatchSummary {
   matchId: number
@@ -173,6 +200,8 @@ export interface AccountingReport {
   balanceErrors: string[]
   movement: Record<ReconSide, Decimal>
   facts: ReviewFacts
+  // Null where no running-balance column is mapped or the opening balance is missing.
+  running: Record<ReconSide, RunningBalanceCheck | null>
 }
 
 export type MarkCompleteResult =
@@ -235,7 +264,7 @@ export interface PairCheckResult extends PairCheck {
 export interface ReconRequests {
   parse: { side: ReconSide; file: File; delimiter: 'auto' | Delimiter; sheet?: string; layout: Layout }
   getIssues: { side: ReconSide; offset: number; limit: number }
-  normalize: { context: SessionContext; mappings: Record<ReconSide, SideMapping> }
+  normalize: { context: SessionContext; mappings: Record<ReconSide, SideMapping>; period: Period | null }
   match: { revision: number; rules: MatchingRules }
   // search keeps items whose shown text contains it, case-insensitively; direction keeps one cash direction.
   getReview: { matchId: number; tab: ReviewTab; offset: number; limit: number; search?: string; direction?: Direction }
@@ -252,6 +281,9 @@ export interface ReconRequests {
   // basis: the setup fingerprint a completion must match to stay current.
   accounting: { matchId: number; setup: AccountingSetup; basis: string }
   markComplete: { matchId: number; seq: number; at: string; setup: AccountingSetup; basis: string }
+  // Replaces the imported opening-items files; each is validated whole.
+  setOpening: { files: { name: string; text: string }[] }
+  exportOutstanding: { matchId: number; sessionId: string; period: Period; exportedAt: string }
 }
 
 export interface ReconResults {
@@ -268,6 +300,8 @@ export interface ReconResults {
   inspect: (InspectDetail | null)[]
   accounting: AccountingReport
   markComplete: MarkCompleteResult
+  setOpening: SetOpeningResult
+  exportOutstanding: { text: string; items: number; cleared: number }
 }
 
 export type ReconRequest = {

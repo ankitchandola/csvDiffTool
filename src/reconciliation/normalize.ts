@@ -6,7 +6,7 @@ import type { AmountMapping, Direction, NormalizationProblem, NormalizedSide, Re
 export function mappedColumns(mapping: SideMapping): string[] {
   const { amount } = mapping
   const amountColumns = amount.kind === 'signed' ? [amount.column] : [amount.inColumn, amount.outColumn]
-  return [mapping.date.column, ...amountColumns, mapping.reference, mapping.description].filter((c): c is string => c !== null)
+  return [mapping.date.column, ...amountColumns, mapping.reference, mapping.description, mapping.balance].filter((c): c is string => c !== null)
 }
 
 // A missing column blocks the mapping; it is never replaced by another column.

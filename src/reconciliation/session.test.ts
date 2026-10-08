@@ -15,6 +15,7 @@ const mapping: SideMapping = {
   amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
   reference: null,
   description: 'memo',
+  balance: null,
 }
 
 function session(overrides: Partial<SessionFile> = {}): SessionFile {
@@ -37,6 +38,7 @@ function session(overrides: Partial<SessionFile> = {}): SessionFile {
     ],
     snapshots: [{ key: B1, date: '2026-09-01', amount: '12345678901234567890.05', direction: 'in', reference: '0007', description: null }],
     accounting: emptyAccounting(),
+    opening: [],
     ...overrides,
   }
 }
@@ -103,5 +105,13 @@ describe('session files with review decisions and balances', () => {
     expect(() => readSession(bad)).toThrow('accounting.balances.bank.opening must be text')
     const event = { seq: 1, at: '2026-10-07T10:00:00Z', action: 'classify', key: B1, classification: 'lost' }
     expect(() => readSession({ ...session(), events: [event] })).toThrow(/classification must be one of/)
+  })
+})
+
+describe('session files with opening items', () => {
+  it('keeps imported outstanding-items files whole and rejects a broken one', () => {
+    const text = JSON.stringify({ format: 'reconciliation-outstanding', version: 1, exportedAt: '2026-10-01T00:00:00Z', sessionId: 's', account: '', currency: 'INR', minorUnits: 2, period: { start: '2026-09-01', end: '2026-09-30' }, items: [], cleared: [] })
+    expect(roundTrip(session({ opening: [{ name: 'sep.json', text }] })).opening).toEqual([{ name: 'sep.json', text }])
+    expect(() => readSession({ ...session(), opening: [{ name: 'bad.json', text: '{}' }] })).toThrow(/bad.json\) is not a valid outstanding-items file/)
   })
 })

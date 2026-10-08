@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { type DecisionEvent, eventKeys, type TxnKey } from '../../reconciliation/decisions'
-import { type AccountingSetup, exportSession, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
+import { type AccountingSetup, exportSession, type OpeningFile, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
 import type { MatchingRules, ReconSide, SessionContext, SideMapping } from '../../reconciliation/types'
 import type { StorageState } from './save-status'
 import { type SavedRef, StorageConflictError, type SessionStore } from './session-store'
@@ -13,6 +13,7 @@ export interface SessionConfig {
   rules: MatchingRules
   sources: Record<ReconSide, SourceDescriptor>
   accounting: AccountingSetup
+  opening: OpeningFile[]
 }
 
 function message(error: unknown): string {

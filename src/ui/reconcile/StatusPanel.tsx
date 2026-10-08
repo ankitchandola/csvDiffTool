@@ -5,7 +5,9 @@ import type { DecisionEvent } from '../../reconciliation/decisions'
 import type { AccountingSetup } from '../../reconciliation/session'
 import type { Status } from '../../reconciliation/statuses'
 import type { ReconcileClient } from '../../worker/client'
+import { RECON_SIDES } from '../../reconciliation/types'
 import type { AccountingReport } from '../../worker/reconcile-protocol'
+import { SIDE_LABELS } from './location'
 
 const LABELS: [keyof Omit<AccountingReport['statuses'], 'canMarkComplete'>, string][] = [
   ['sourcesValidated', 'Source balances validated'],
@@ -35,6 +37,8 @@ export function StatusPanel({
   busy,
   nextSeq,
   onCompleted,
+  sessionId,
+  onDownload,
 }: {
   client: ReconcileClient
   matchId: number
@@ -46,6 +50,8 @@ export function StatusPanel({
   busy: boolean
   nextSeq: () => number
   onCompleted: (event: DecisionEvent) => void
+  sessionId: string
+  onDownload: (text: string, fileName: string) => void
 }) {
   const [report, setReport] = useState<AccountingReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -87,11 +93,50 @@ export function StatusPanel({
         unmatched items and variances: {formatDecimal(bridge.explained)}.
         {bridge.unexplained !== null && bridge.unexplained.units !== 0n && ` Unexplained: ${formatDecimal(bridge.unexplained)}.`}
       </p>
+      {RECON_SIDES.map((side) => {
+        const check = report.running[side]
+        if (!check) return null
+        return (
+          <p key={side} className={check.status === 'consistent' ? 'note' : 'warning'}>
+            {SIDE_LABELS[side]} running balance:{' '}
+            {check.status === 'consistent'
+              ? 'consistent with every row'
+              : check.status === 'break'
+                ? `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}. A row may be missing, extra or out of order.`
+                : `can't be checked past record ${check.row}, which has no valid amount or balance.`}
+          </p>
+        )
+      })}
       <p className="note">
         A balancing bridge alone proves nothing: it balances whenever every transaction is either matched or unmatched. Completion also needs
         every unmatched item classified and your mark.
       </p>
       {error && <p className="error" role="alert">{error}</p>}
+      <div className="row">
+        <button
+          type="button"
+          disabled={busy || setup.period === null}
+          title={setup.period === null ? 'Enter the period on the Map step first' : undefined}
+          onClick={async () => {
+            if (!setup.period) return
+            try {
+              const result = await client.call('exportOutstanding', { matchId, sessionId, period: setup.period, exportedAt: new Date().toISOString() })
+              onDownload(result.text, `outstanding-${setup.period.end}.json`)
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+        >
+          Export outstanding items
+        </button>
+        <span className="note">
+          {setup.period === null
+            ? 'Needs the period.'
+            : statuses.completed.earned
+              ? "For the next period's opening items."
+              : 'Not marked complete yet: the file will carry whatever is unmatched now.'}
+        </span>
+      </div>
       {!statuses.completed.earned && (
         <button
           type="button"
