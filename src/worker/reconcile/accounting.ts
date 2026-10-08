@@ -131,10 +131,7 @@ export function markComplete(ws: Workspace, { matchId, seq, at, setup, basis }: 
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
   if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
   const before = report(ws, run, data, state, setup, basis)
-  if (!before.statuses.canMarkComplete) {
-    const reasons = [before.statuses.sourcesValidated, before.statuses.bridgeComplete, before.statuses.outstandingReviewed].flatMap((s) => s.reasons)
-    return { ok: false, reason: `Not ready to mark complete: ${[...reasons, ...before.statuses.completed.reasons.filter((r) => r !== 'Not marked complete' && !r.startsWith('Marked complete'))].filter((r, i, all) => all.indexOf(r) === i).join('; ')}` }
-  }
+  if (!before.statuses.canMarkComplete) return { ok: false, reason: `Not ready to mark complete: ${before.statuses.notReady.join('; ')}` }
   const event: DecisionEvent = { seq, at, action: 'complete', basis }
   state.events.push(event)
   applyToState(state.replay.state, event)

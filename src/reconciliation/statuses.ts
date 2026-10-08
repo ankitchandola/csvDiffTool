@@ -28,6 +28,8 @@ export interface Statuses {
   completed: Status
   // Everything except the reviewer's own mark is in place.
   canMarkComplete: boolean
+  // Why it can't be marked complete yet, in plain words; empty when it can.
+  notReady: string[]
 }
 
 function status(reasons: string[]): Status {
@@ -50,7 +52,8 @@ export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
     ...(facts.problems > 0 ? [`${plural(facts.problems, 'row has a problem', 'rows have problems')}`] : []),
     ...(facts.unexplainedVariances > 0 ? [`${plural(facts.unexplainedVariances, 'confirmed match has', 'confirmed matches have')} an unexplained difference`] : []),
   ]
-  const canMarkComplete = sourcesValidated.earned && bridgeComplete.earned && outstandingReviewed.earned && blockers.length === 0
+  const notReady = [...new Set([...sourcesValidated.reasons, ...bridgeComplete.reasons, ...outstandingReviewed.reasons, ...blockers])]
+  const canMarkComplete = notReady.length === 0
   const completed = status([
     ...(sourcesValidated.earned ? [] : ['Source balances are not validated']),
     ...(bridgeComplete.earned ? [] : ['The balance bridge is not complete']),
@@ -62,7 +65,7 @@ export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
         ? ['Marked complete earlier, but decisions or the setup changed since']
         : []),
   ])
-  return { sourcesValidated, bridgeComplete, outstandingReviewed, completed, canMarkComplete }
+  return { sourcesValidated, bridgeComplete, outstandingReviewed, completed, canMarkComplete, notReady }
 }
 
 // A short, stable fingerprint of the setup a completion was made for (files, mappings,

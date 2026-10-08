@@ -10,7 +10,7 @@ import type { AccountingReport } from '../../worker/reconcile-protocol'
 import { download, errorMessage, jsonBlob } from '../browser'
 import { SIDE_LABELS } from './location'
 
-const LABELS: [keyof Omit<AccountingReport['statuses'], 'canMarkComplete'>, string][] = [
+const LABELS: [keyof Omit<AccountingReport['statuses'], 'canMarkComplete' | 'notReady'>, string][] = [
   ['sourcesValidated', 'Source balances validated'],
   ['bridgeComplete', 'Balance bridge complete'],
   ['outstandingReviewed', 'Outstanding items reviewed'],
