@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { txnKey } from './decisions'
-import { exportSession, importSession, readSession, SESSION_FORMAT, SessionError, type SessionFile } from './session'
+import { emptyAccounting, exportSession, importSession, readSession, SESSION_FORMAT, SessionError, type SessionFile } from './session'
 import { DEFAULT_MATCHING, type SideMapping } from './types'
 
 const FP = 'c'.repeat(64)
@@ -36,6 +36,7 @@ function session(overrides: Partial<SessionFile> = {}): SessionFile {
       { seq: 2, at: '2026-10-07T10:01:00.000Z', action: 'unmatch', bank: B1, books: L1 },
     ],
     snapshots: [{ key: B1, date: '2026-09-01', amount: '12345678901234567890.05', direction: 'in', reference: '0007', description: null }],
+    accounting: emptyAccounting(),
     ...overrides,
   }
 }
@@ -76,5 +77,31 @@ describe('session files', () => {
     expect(() => readSession({ ...session(), context: { account: '', currency: '', minorUnits: 2 } })).toThrow(SessionError)
     const badFormat = { ...mapping, date: { ...mapping.date, format: 'D/M/Y' } }
     expect(() => readSession({ ...session(), mappings: { bank: badFormat, books: mapping } })).toThrow(/date.format must be one of/)
+  })
+})
+
+describe('session files with review decisions and balances', () => {
+  it('reads a milestone 3 session without balances as having none', () => {
+    const { accounting: _, ...old } = session()
+    expect(readSession(JSON.parse(JSON.stringify(old))).accounting).toEqual(emptyAccounting())
+  })
+
+  it('round-trips classification, completion and balances', () => {
+    const file = session({
+      events: [
+        { seq: 1, at: '2026-10-07T10:00:00.000Z', action: 'classify', key: B1, classification: 'record-in-books', note: 'Fee' },
+        { seq: 2, at: '2026-10-07T10:01:00.000Z', action: 'classify', key: B1, classification: null },
+        { seq: 3, at: '2026-10-07T10:02:00.000Z', action: 'complete', basis: 'abc' },
+      ],
+      accounting: { period: { start: '2026-09-01', end: '2026-09-30' }, balances: { bank: { opening: '1000.00', closing: '1300.00', basis: 'cash' }, books: { opening: null, closing: null, basis: 'liability' } } },
+    })
+    expect(roundTrip(file)).toEqual(file)
+  })
+
+  it('rejects a numeric balance and an unknown classification', () => {
+    const bad = { ...session(), accounting: { period: null, balances: { bank: { opening: 1000, closing: null, basis: 'cash' }, books: { opening: null, closing: null, basis: 'cash' } } } }
+    expect(() => readSession(bad)).toThrow('accounting.balances.bank.opening must be text')
+    const event = { seq: 1, at: '2026-10-07T10:00:00Z', action: 'classify', key: B1, classification: 'lost' }
+    expect(() => readSession({ ...session(), events: [event] })).toThrow(/classification must be one of/)
   })
 })

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DecisionEvent, TxnKey } from '../../reconciliation/decisions'
-import { exportSession, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
+import { type DecisionEvent, eventKeys, type TxnKey } from '../../reconciliation/decisions'
+import { type AccountingSetup, exportSession, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
 import type { MatchingRules, ReconSide, SessionContext, SideMapping } from '../../reconciliation/types'
 import type { StorageState } from './save-status'
 import { type SavedRef, StorageConflictError, type SessionStore } from './session-store'
@@ -12,6 +12,7 @@ export interface SessionConfig {
   mappings: Record<ReconSide, SideMapping>
   rules: MatchingRules
   sources: Record<ReconSide, SourceDescriptor>
+  accounting: AccountingSetup
 }
 
 function message(error: unknown): string {
@@ -65,7 +66,7 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
   }, [store])
 
   function build(from: SessionConfig): SessionFile {
-    const referenced = new Set(eventsRef.current.flatMap((e) => [e.bank, e.books]))
+    const referenced = new Set(eventsRef.current.flatMap(eventKeys))
     return {
       format: SESSION_FORMAT,
       version: SESSION_VERSION,

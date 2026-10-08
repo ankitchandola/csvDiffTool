@@ -1,4 +1,7 @@
-import { formatDecimal } from '../engine/decimal'
+import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../engine/decimal'
+import { cashBalance, computeBridge, sum } from '../reconciliation/accounting'
+import { computeStatuses, type ReviewFacts } from '../reconciliation/statuses'
+import type { AccountingSetup } from '../reconciliation/session'
 import { DEFAULT_LIMITS, type Limits } from '../engine/limits'
 import type { ParseIssue } from '../engine/parse'
 import type { ParsedFile } from '../engine/types'
@@ -10,6 +13,8 @@ import {
   type DecisionEvent,
   type DecisionState,
   edgeKey,
+  eventKeys,
+  type PairEvent,
   parseTxnKey,
   type Replay,
   replay,
@@ -28,12 +33,14 @@ import {
   type NormalizedSide,
   RECON_SIDES,
   type ReconSide,
+  type SessionContext,
   type SideMapping,
   type Transaction,
 } from '../reconciliation/types'
 import { MAX_PAGE_SIZE, type Preview, PREVIEW_ISSUES, PREVIEW_RECORDS } from './protocol'
 import { readSource } from './read-source'
 import {
+  type AccountingReport,
   type ConfirmedItem,
   type DecisionSummary,
   type Location,
@@ -78,6 +85,7 @@ interface Source {
 
 interface Normalized {
   revision: number
+  context: SessionContext
   mappings: Record<ReconSide, SideMapping>
   sides: Record<ReconSide, NormalizedSide>
   // Problems grouped per source row, in row order, with zero-value rows interleaved.
@@ -241,7 +249,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       sides[side] = normalizeSide(side, (sources[side] as Source).file, mappings[side], context)
     })
     onProgress?.('normalize', RECON_SIDES.length, RECON_SIDES.length)
-    normalized = { revision, mappings, sides, problemRows: null }
+    normalized = { revision, context, mappings, sides, problemRows: null }
     return {
       ok: true,
       revision,
@@ -532,14 +540,17 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       booksMatch: new Map(state.replay.state.booksMatch),
       active: new Map(state.replay.state.active),
       rejected: new Map(state.replay.state.rejected),
+      classifications: new Map(state.replay.state.classifications),
+      completion: state.replay.state.completion,
+      lastSeq: state.replay.state.lastSeq,
     }
     const data_ = replayData(run.rules)
-    const events: DecisionEvent[] = []
+    const events: PairEvent[] = []
     for (const [i, pair] of pairs.entries()) {
       const decision = { action: 'confirm' as const, ...pair, origin: 'set' as const }
       const verdict = checkDecision(trial, decision, data_)
       if (!verdict.ok) return verdict
-      const event: DecisionEvent = { seq: seq + i, at, ...decision }
+      const event: PairEvent = { seq: seq + i, at, ...decision }
       applyToState(trial, event)
       events.push(event)
     }
@@ -550,6 +561,77 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     derive(state, data)
     const snapshots = events.flatMap((e) => [snapshot(e.bank), snapshot(e.books)]).filter((s): s is TransactionSnapshot => s !== null)
     return { ok: true, events, snapshots, summary: summary(state, run.outcome) }
+  }
+
+  // Balance text as typed, in cash terms; errors name what could not be read.
+  function statedBalances(setup: AccountingSetup, minorUnits: number) {
+    const errors: string[] = []
+    const read = (side: ReconSide, field: 'opening' | 'closing'): Decimal | null => {
+      const text = setup.balances[side][field]
+      if (text === null || text.trim() === '') return null
+      const value = parseDecimal(text.trim(), { grouped: true })
+      const scaled = value && toScale(value, minorUnits)
+      if (!scaled) {
+        errors.push(`${side === 'bank' ? 'Bank' : 'Books'} ${field} balance "${text}" is not an amount with at most ${minorUnits} decimal places`)
+        return null
+      }
+      return cashBalance(scaled, setup.balances[side].basis)
+    }
+    const balances = {
+      bank: { opening: read('bank', 'opening'), closing: read('bank', 'closing') },
+      books: { opening: read('books', 'opening'), closing: read('books', 'closing') },
+    }
+    return { balances, errors }
+  }
+
+  function report(run: NonNullable<typeof latest>, data: Normalized, state: NonNullable<typeof review>, setup: AccountingSetup, basis: string): AccountingReport {
+    const { balances, errors } = statedBalances(setup, data.context.minorUnits)
+    const amounts = (ts: Transaction[]) => ts.map((t) => t.amount)
+    const unmatched = (side: ReconSide) => data.sides[side].transactions.filter((_, p) => !state.used[side][p])
+    const invalid = (side: ReconSide) => new Set(data.sides[side].problems.map((p) => p.index)).size
+    const movement = { bank: sum(amounts(data.sides.bank.transactions)), books: sum(amounts(data.sides.books.transactions)) }
+    const confirmed = [...state.replay.state.active.values()]
+    const differences = confirmed.map((event) => subtractDecimal((resolve(event.bank) as Transaction).amount, (resolve(event.books) as Transaction).amount))
+    const bridge = computeBridge({
+      sides: {
+        bank: { balances: balances.bank, movement: movement.bank, invalidRows: invalid('bank') },
+        books: { balances: balances.books, movement: movement.books, invalidRows: invalid('books') },
+      },
+      openingAll: { bank: [], books: [] },
+      openingRemaining: { bank: [], books: [] },
+      unmatched: { bank: amounts(unmatched('bank')), books: amounts(unmatched('books')) },
+      confirmedDifferences: differences,
+      incompleteSearch: run.outcome.incomplete !== null,
+    })
+    const classifications = state.replay.state.classifications
+    const unclassified = RECON_SIDES.reduce((n, side) => n + unmatched(side).filter((t) => !classifications.has(keyOf(t))).length, 0)
+    const completion = state.replay.state.completion
+    const facts: ReviewFacts = {
+      unclassified,
+      problems: invalid('bank') + invalid('books'),
+      unexplainedVariances: confirmed.filter((event, i) => differences[i].units !== 0n && !event.reason?.trim()).length,
+      completion: { marked: completion !== null, current: completion !== null && completion.seq === state.replay.state.lastSeq && completion.basis === basis },
+    }
+    return { bridge, statuses: computeStatuses(bridge, facts), balances, balanceErrors: errors, movement, facts }
+  }
+
+  function accounting({ matchId, setup, basis }: ReconRequests['accounting']): ReconResults['accounting'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    return report(run, data, state, setup, basis)
+  }
+
+  function markComplete({ matchId, seq, at, setup, basis }: ReconRequests['markComplete']): ReconResults['markComplete'] {
+    const { latest: run, normalized: data, review: state } = currentReview(matchId)
+    if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+    const before = report(run, data, state, setup, basis)
+    if (!before.statuses.canMarkComplete) {
+      const reasons = [before.statuses.sourcesValidated, before.statuses.bridgeComplete, before.statuses.outstandingReviewed].flatMap((s) => s.reasons)
+      return { ok: false, reason: `Not ready to mark complete: ${[...reasons, ...before.statuses.completed.reasons.filter((r) => r !== 'Not marked complete' && !r.startsWith('Marked complete'))].filter((r, i, all) => all.indexOf(r) === i).join('; ')}` }
+    }
+    const event: DecisionEvent = { seq, at, action: 'complete', basis }
+    state.events.push(event)
+    applyToState(state.replay.state, event)
+    return { ok: true, event, report: report(run, data, state, setup, basis) }
   }
 
   const ALTERNATIVES = 20
@@ -584,13 +666,15 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
   function decide({ matchId, seq, at, decision }: ReconRequests['decide']): ReconResults['decide'] {
     const { latest: run, normalized: data, review: state } = currentReview(matchId)
     if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+    // Mark-complete needs the balances and statuses; it goes through markComplete.
+    if (decision.action === 'complete') throw new Error('Mark complete through the completion check')
     const verdict = checkDecision(state.replay.state, decision, replayData(run.rules))
     if (!verdict.ok) return verdict
-    const event: DecisionEvent = { seq, at, ...decision }
+    const event = { seq, at, ...decision } as DecisionEvent
     state.events.push(event)
     applyToState(state.replay.state, event)
     derive(state, data)
-    const snapshots = [snapshot(event.bank), snapshot(event.books)].filter((s): s is TransactionSnapshot => s !== null)
+    const snapshots = eventKeys(event).map(snapshot).filter((s): s is TransactionSnapshot => s !== null)
     return { ok: true, event, snapshots, summary: summary(state, run.outcome) }
   }
 
@@ -659,7 +743,12 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
           () => RECON_SIDES.flatMap((side) => sides[side].transactions.filter((_, p) => !state.used[side][p])),
           (t) => isDirection(directionOf(t)) && (needle === '' || searchText(data, t.side, position(t)).includes(needle)),
         )
-        const items = all.slice(start, end).map((t): UnmatchedItem => ({ ...view(t, mappings[t.side]), suggestions: per[t.side][position(t)] }))
+        const items = all.slice(start, end).map((t): UnmatchedItem => {
+          const v = view(t, mappings[t.side])
+          const classified = state.replay.state.classifications.get(v.key)
+          const classification = classified?.classification ? { value: classified.classification, note: classified.note ?? null } : null
+          return { ...v, suggestions: per[t.side][position(t)], classification }
+        })
         return { tab, total: all.length, offset: start, items }
       }
       case 'rejected': {
@@ -715,6 +804,10 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         return decideSet(request)
       case 'inspect':
         return inspect(request)
+      case 'accounting':
+        return accounting(request)
+      case 'markComplete':
+        return markComplete(request)
     }
   }
 }

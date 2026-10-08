@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkDecision, checkPair, type DecisionEvent, edgeKey, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
+import { checkDecision, checkPair, edgeKey, type PairEvent, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
 import { DEFAULT_MATCHING, type Transaction } from './types'
 
 const FP_BANK = 'a'.repeat(64)
@@ -31,7 +31,7 @@ function data(overrides: Partial<ReplayData> = {}): ReplayData {
 }
 
 let seq = 0
-function ev(action: DecisionEvent['action'], bank: string, books: string, extra: Partial<DecisionEvent> = {}): DecisionEvent {
+function ev(action: PairEvent['action'], bank: string, books: string, extra: Partial<PairEvent> = {}): PairEvent {
   return { seq: ++seq, at: '2026-10-07T00:00:00Z', action, bank, books, ...(action === 'confirm' ? { origin: 'suggested' as const } : {}), ...extra }
 }
 

@@ -291,3 +291,103 @@ describe('reconcile handler sets and inspection', () => {
     expect(confirmed).toMatchObject({ match: { event: { seq: 1 } }, alternativesTotal: 0 })
   })
 })
+
+describe('reconcile handler classification and completion', () => {
+  const BANK_SET = ['date,amount,memo', '2026-09-05,-9.99,NETFLIX', '2026-09-05,-9.99,NETFLIX', '2026-09-05,-9.99,NETFLIX', '2026-09-06,-50.00,Rent'].join('\n')
+  const BOOKS_SET = ['date,amount,memo', '2026-09-05,-9.99,Netflix', '2026-09-05,-9.99,Netflix', '2026-09-06,-50.00,Rent', '2026-09-06,-50.00,Other rent'].join('\n')
+  const mapping: SideMapping = {
+    delimiter: ',',
+    layout: { headerRecord: 1, skipTrailing: 0 },
+    date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
+    amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
+    amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
+    reference: null,
+    description: 'memo',
+  }
+  const setup = {
+    period: { start: '2026-09-01', end: '2026-09-30' },
+    balances: { bank: { opening: '1000.00', closing: '920.03', basis: 'cash' as const }, books: { opening: '1000.00', closing: '880.02', basis: 'cash' as const } },
+  }
+  const AT = '2026-10-08T00:00:00Z'
+
+  async function reviewed() {
+    const handle = createReconcileHandler()
+    let id = 1
+    const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
+    await call('parse', { side: 'bank', file: new File([BANK_SET], 'bank.csv'), delimiter: ',', layout: mapping.layout })
+    await call('parse', { side: 'books', file: new File([BOOKS_SET], 'books.csv'), delimiter: ',', layout: mapping.layout })
+    const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping } })
+    const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
+    await call('setDecisions', { matchId, events: [] })
+    const page: { items: { group: number; bank: { key: string; original: { description: string } }; books: { key: string; original: { description: string } } }[] } = await call('getReview', { matchId, tab: 'suggested', offset: 0, limit: 50 })
+    let seq = 0
+    // The sequence advances only when the worker records the decision.
+    const decide = async (decision: object) => {
+      const result = (await call('decide', { matchId, seq: seq + 1, at: AT, decision } as never)) as { ok: boolean; reason?: string }
+      if (result.ok) seq++
+      return result
+    }
+    const status = () => call('accounting', { matchId, setup, basis: 'b1' }) as Promise<{ statuses: { [k: string]: { earned: boolean; reasons: string[] }; canMarkComplete: never }; facts: { unclassified: number } }>
+    const mark = async (basis = 'b1') => {
+      const result = (await call('markComplete', { matchId, seq: seq + 1, at: AT, setup, basis })) as { ok: boolean; reason?: string }
+      if (result.ok) seq++
+      return result
+    }
+    const pair = (bank: string, books: string, nth = 0) => page.items.filter((i) => i.bank.original.description === bank && i.books.original.description === books)[nth]
+    return { call, matchId, page, decide, status, mark, pair, seq: () => seq }
+  }
+
+  it('validates the sources from typed balances, and needs every unmatched item classified', async () => {
+    const r = await reviewed()
+    const before = await r.status()
+    expect(before.statuses.sourcesValidated.earned).toBe(true)
+    expect(before.statuses.bridgeComplete.earned).toBe(true)
+    expect(before.facts.unclassified).toBe(8)
+    expect(before.statuses.completed.earned).toBe(false)
+    expect(await r.mark()).toMatchObject({ ok: false, reason: expect.stringContaining('8 unmatched items are not classified') })
+  })
+
+  it('classifies with fitting choices only, and completes once everything is reviewed', async () => {
+    const r = await reviewed()
+    const netflix = r.pair('NETFLIX', 'Netflix')
+    const rent = r.pair('Rent', 'Rent')
+    for (const [bank, books] of [[netflix.bank.key, netflix.books.key], [rent.bank.key, rent.books.key]]) {
+      await r.decide({ action: 'confirm', bank, books, origin: 'suggested' })
+    }
+    const second = (await r.call('getSet', { matchId: r.matchId, group: netflix.group })) as { bank: { key: string }[]; books: { key: string }[] }
+    await r.decide({ action: 'confirm', bank: second.bank[0].key, books: second.books[0].key, origin: 'suggested' })
+    const unmatched: { items: { key: string; side: string; original: { description: string } }[] } = await r.call('getReview', { matchId: r.matchId, tab: 'unmatched', offset: 0, limit: 10 })
+    expect(unmatched.items.map((u) => u.original.description)).toEqual(['NETFLIX', 'Other rent'])
+    const [bankLeft, booksLeft] = unmatched.items
+    expect(await r.decide({ action: 'classify', key: bankLeft.key, classification: 'deposit-in-transit' })).toMatchObject({ ok: false, reason: expect.stringContaining('does not fit') })
+    await r.decide({ action: 'classify', key: bankLeft.key, classification: 'record-in-books', note: 'Duplicate charge' })
+    await r.decide({ action: 'classify', key: booksLeft.key, classification: 'outstanding-payment' })
+    expect((await r.status()).statuses.canMarkComplete).toBe(true)
+    expect(await r.mark()).toMatchObject({ ok: true })
+    expect((await r.status()).statuses.completed).toEqual({ earned: true, reasons: [] })
+
+    // A changed setup or any later decision withdraws completion.
+    const changed = (await r.call('accounting', { matchId: r.matchId, setup, basis: 'b2' })) as { statuses: { completed: { reasons: string[] } } }
+    expect(changed.statuses.completed.reasons).toEqual(['Marked complete earlier, but decisions or the setup changed since'])
+    await r.decide({ action: 'classify', key: booksLeft.key, classification: 'investigate' })
+    expect((await r.status()).statuses.completed.earned).toBe(false)
+  })
+
+  it('refuses to classify a transaction in a confirmed match', async () => {
+    const r = await reviewed()
+    const rent = r.pair('Rent', 'Rent')
+    await r.decide({ action: 'confirm', bank: rent.bank.key, books: rent.books.key, origin: 'suggested' })
+    expect(await r.decide({ action: 'classify', key: rent.bank.key, classification: 'record-in-books' })).toMatchObject({ ok: false, reason: 'A transaction in a confirmed match is not classified' })
+  })
+
+  it('reports balance text it cannot read and does not validate that side', async () => {
+    const r = await reviewed()
+    const bad = (await r.call('accounting', {
+      matchId: r.matchId,
+      setup: { ...setup, balances: { ...setup.balances, bank: { ...setup.balances.bank, closing: '920.031' } } },
+      basis: 'b1',
+    })) as { balanceErrors: string[]; statuses: { sourcesValidated: { earned: boolean } } }
+    expect(bad.balanceErrors).toEqual(['Bank closing balance "920.031" is not an amount with at most 2 decimal places'])
+    expect(bad.statuses.sourcesValidated.earned).toBe(false)
+  })
+})

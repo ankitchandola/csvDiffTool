@@ -27,7 +27,7 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
   await expect(page.locator('#recon-panel').getByText('Unpaid')).toBeVisible()
   await page.getByRole('tab', { name: /Problems/ }).click()
   await expect(page.locator('#recon-panel').getByText('Bank record 4 · line 7')).toBeVisible()
-  await expect(page.locator('.experimental-note')).toContainText('nothing here shows that an account is reconciled')
+  await expect(page.locator('.experimental-note')).toContainText('counts as completed only when every status is earned and you mark it complete')
 
   await page.getByRole('button', { name: 'Edit mapping' }).click()
   await page.getByLabel('Bank date up to this many days after books').fill('0')

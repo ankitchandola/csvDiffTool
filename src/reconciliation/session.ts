@@ -1,7 +1,19 @@
 import { parseDecimal } from '../engine/decimal'
 import { layoutIssues } from '../engine/parse'
-import { DATE_FORMATS, type DateFormat, parseDate } from './dates'
-import { applyToState, type DecisionEvent, emptyState, parseTxnKey, type RuleException, structuralCheck } from './decisions'
+import type { BalanceBasis } from './accounting'
+import type { Period } from './carryforward'
+import { DATE_FORMATS, type DateFormat, isoDate, parseDate } from './dates'
+import {
+  applyToState,
+  type Classification,
+  type ClassifyEvent,
+  type DecisionEvent,
+  emptyState,
+  type PairEvent,
+  parseTxnKey,
+  type RuleException,
+  structuralCheck,
+} from './decisions'
 import { contextIssues } from './normalize'
 import type { Direction, MatchingRules, ReconSide, SessionContext, SideMapping } from './types'
 
@@ -45,6 +57,57 @@ export interface SessionFile {
   sources: Record<ReconSide, SourceDescriptor>
   events: DecisionEvent[]
   snapshots: TransactionSnapshot[]
+  accounting: AccountingSetup
+}
+
+// Balances as the reviewer typed them (exact decimal text), with each side's basis.
+export interface StatedBalances {
+  opening: string | null
+  closing: string | null
+  basis: BalanceBasis
+}
+
+export interface AccountingSetup {
+  period: Period | null
+  balances: Record<ReconSide, StatedBalances>
+}
+
+export function emptyAccounting(): AccountingSetup {
+  const side = (): StatedBalances => ({ opening: null, closing: null, basis: 'cash' })
+  return { period: null, balances: { bank: side(), books: side() } }
+}
+
+function readBalance(value: unknown, where: string): string | null {
+  if (value === null) return null
+  const text = string(value, where)
+  if (parseDecimal(text) === null) fail(`${where} must be exact decimal text`)
+  return text
+}
+
+// Absent in sessions saved before balances existed; those start with none.
+function readAccounting(value: unknown): AccountingSetup {
+  if (value === undefined) return emptyAccounting()
+  const a = object(value, 'accounting')
+  const side = (v: unknown, where: string): StatedBalances => {
+    const b = object(v, where)
+    return {
+      opening: readBalance(b.opening, `${where}.opening`),
+      closing: readBalance(b.closing, `${where}.closing`),
+      basis: oneOf<BalanceBasis>(b.basis, ['cash', 'liability'], `${where}.basis`),
+    }
+  }
+  let period: Period | null = null
+  if (a.period !== null) {
+    const p = object(a.period, 'accounting.period')
+    const start = string(p.start, 'accounting.period.start')
+    const end = string(p.end, 'accounting.period.end')
+    const s = parseDate(start, 'YYYY-MM-DD')
+    const e = parseDate(end, 'YYYY-MM-DD')
+    if (!s.ok || !e.ok || s.day > e.day) fail('accounting.period must be two YYYY-MM-DD dates in order')
+    period = { start: isoDate(s.day), end: isoDate(e.day) }
+  }
+  const balances = object(a.balances, 'accounting.balances')
+  return { period, balances: { bank: side(balances.bank, 'accounting.balances.bank'), books: side(balances.books, 'accounting.balances.books') } }
 }
 
 type Json = Record<string, unknown>
@@ -130,14 +193,24 @@ function readEvent(value: unknown, index: number): DecisionEvent {
   const e = object(value, where)
   const seq = integer(e.seq, `${where}.seq`, 1)
   if (seq !== index + 1) fail(`${where}.seq must be ${index + 1}: the history must be complete and in order`)
-  const action = oneOf(e.action, ['confirm', 'reject', 'restore', 'unmatch'] as const, `${where}.action`)
+  const action = oneOf(e.action, ['confirm', 'reject', 'restore', 'unmatch', 'classify', 'complete'] as const, `${where}.action`)
+  const at = string(e.at, `${where}.at`)
+  if (Number.isNaN(Date.parse(at))) fail(`${where}.at must be a timestamp`)
+  if (action === 'complete') return { seq, at, action, basis: string(e.basis, `${where}.basis`) }
+  if (action === 'classify') {
+    const key = string(e.key, `${where}.key`)
+    if (!parseTxnKey(key)) fail(`${where}.key is not a transaction key`)
+    const classification =
+      e.classification === null ? null : oneOf<Classification>(e.classification, ['outstanding-payment', 'deposit-in-transit', 'record-in-books', 'investigate'], `${where}.classification`)
+    const event: ClassifyEvent = { seq, at, action, key, classification }
+    if (e.note !== undefined) event.note = string(e.note, `${where}.note`)
+    return event
+  }
   const bank = string(e.bank, `${where}.bank`)
   const books = string(e.books, `${where}.books`)
   if (parseTxnKey(bank)?.side !== 'bank') fail(`${where}.bank is not a bank transaction key`)
   if (parseTxnKey(books)?.side !== 'books') fail(`${where}.books is not a books transaction key`)
-  const at = string(e.at, `${where}.at`)
-  if (Number.isNaN(Date.parse(at))) fail(`${where}.at must be a timestamp`)
-  const event: DecisionEvent = { seq, at, action, bank, books }
+  const event: PairEvent = { seq, at, action, bank, books }
   if (action === 'confirm') {
     event.origin = oneOf(e.origin, ['suggested', 'manual', 'set'] as const, `${where}.origin`)
     if (e.exceptions !== undefined) {
@@ -213,6 +286,7 @@ export function readSession(value: unknown): SessionFile {
     sources: { bank: readSource(sources.bank, 'sources.bank'), books: readSource(sources.books, 'sources.books') },
     events,
     snapshots: root.snapshots.map(readSnapshot),
+    accounting: readAccounting(root.accounting),
   }
 }
 

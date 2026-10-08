@@ -988,6 +988,24 @@ decision (milestone 4b); balances, period and carry-forward in the UI, opening i
 the worker, and reports (milestone 4c); and the milestone 3 durability checks named as a
 condition for shipping milestone 4.
 
+### Milestone 4b: outstanding-item review and completion (not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Classify events (outstanding payment, deposit in transit, bank entry to record in books, error to investigate) limited to the choices that fit the side and direction; refused for a transaction in a confirmed match; lapse with their source | `decisions.ts` | Unit and worker tests |
+| Mark-complete events carrying a fingerprint of the setup (files, mappings, rules, period, balances); current only while it is the latest decision and the fingerprint matches | `decisions.ts`, `statuses.ts` | Unit and worker tests |
+| Four statuses from the bridge and review facts; a balancing bridge never completes on its own; problems and unexplained variances block completion | `statuses.ts`, worker `accounting` | Unit tests, including the spec's identity example |
+| Mark complete refused by the worker until everything but the mark is earned | worker `markComplete` | Worker tests |
+| Period and per-side balances with cash or liability basis, saved in the session (older sessions read as having none) | `AccountingFields.tsx`, `session.ts` | Unit and Playwright |
+| Status panel, classification controls and the O key | `StatusPanel.tsx`, `ReviewView.tsx` | Playwright: classification by key and by menu, completion, withdrawal after a balance change |
+
+Checks run locally: `npm test` 421 passed; `npm run lint` clean; `npm run build`
+passed; `npm run test:ui` 31 passed in each of two repeated runs (Chrome).
+
+Not yet: the period is stored and dated but does not yet order carry-forward in the
+UI; opening items, the running-balance column, carry-forward screens and reports are
+milestone 4c. Before milestone 4 ships: the milestone 3 durability checks.
+
 ### Not implemented in this snapshot
 
 - In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
