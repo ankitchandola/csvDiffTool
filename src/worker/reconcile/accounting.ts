@@ -1,14 +1,14 @@
-import { type Decimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
+import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
 import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, runningText, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
-import { applyToState, type DecisionEvent } from '../../reconciliation/decisions'
+import { applyToState, type DecisionEvent, parseTxnKey } from '../../reconciliation/decisions'
 import { SIDE_LABELS } from '../../reconciliation/location'
 import { invalidRowCount } from '../../reconciliation/normalize'
 import { type AccountingSetup } from '../../reconciliation/session'
 import { computeStatuses, type ReviewFacts } from '../../reconciliation/statuses'
 import { RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type AccountingReport, type ReconRequests, type ReconResults } from '../reconcile-protocol'
-import { currentReview, expectNextSeq, descriptionOf, keyOf, type Normalized, openingItem, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
+import { currentReview, expectNextSeq, descriptionOf, type Normalized, openingItem, positions, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
 
 // Balances, the bridge, statuses, completion and the outstanding-items export.
 
@@ -37,6 +37,16 @@ export function statedBalances(setup: AccountingSetup, minorUnits: number) {
 export function runningBalance(ws: Workspace, data: Normalized, side: ReconSide, opening: Decimal | null, basis: BalanceBasis): RunningBalanceCheck | null {
   const column = data.mappings[side].balance
   if (column === null || opening === null) return null
+  data.running ??= new Map()
+  const key = `${side} ${formatDecimal(opening)} ${basis}`
+  const cached = data.running.get(key)
+  if (cached !== undefined) return cached
+  const check = walkRunningBalance(ws, data, side, column, opening, basis)
+  data.running.set(key, check)
+  return check
+}
+
+function walkRunningBalance(ws: Workspace, data: Normalized, side: ReconSide, column: string, opening: Decimal, basis: BalanceBasis): RunningBalanceCheck {
   const { minorUnits } = data.context
   const amounts = new Map(data.sides[side].transactions.map((t) => [t.index, t.amount]))
   const zero = new Set(data.sides[side].zero)
@@ -54,14 +64,30 @@ export function runningIssue(side: ReconSide, check: RunningBalanceCheck | null)
   return `${SIDE_LABELS[side]}: the running balance ${runningText(check)}`
 }
 
+// Sums that depend only on the data, so each decision doesn't add up every row again.
+function totals(data: Normalized): NonNullable<Normalized['totals']> {
+  const side = (s: ReconSide) => {
+    const pool = data.pool[s]
+    return { current: sum(pool.filter((t) => !t.opening).map((t) => t.amount)), opening: sum(pool.filter((t) => t.opening).map((t) => t.amount)) }
+  }
+  data.totals ??= { bank: side('bank'), books: side('books') }
+  return data.totals
+}
+
 export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewState, setup: AccountingSetup, basis: string): AccountingReport {
   const { balances, errors } = statedBalances(setup, data.context.minorUnits)
-  const amounts = (ts: Transaction[]) => ts.map((t) => t.amount)
-  const unmatched = (side: ReconSide) => data.pool[side].filter((t, p) => !t.opening && !state.used[side][p])
-  const openingAll = (side: ReconSide) => data.pool[side].filter((t) => t.opening)
-  const openingRemaining = (side: ReconSide) => data.pool[side].filter((t, p) => t.opening && !state.used[side][p])
+  const fixed = totals(data)
+  const remaining = { bank: { ...fixed.bank }, books: { ...fixed.books } }
+  let open = 0
+  for (const side of RECON_SIDES) {
+    data.pool[side].forEach((t, p) => {
+      if (!state.used[side][p]) open++
+      else if (t.opening) remaining[side].opening = subtractDecimal(remaining[side].opening, t.amount)
+      else remaining[side].current = subtractDecimal(remaining[side].current, t.amount)
+    })
+  }
   const invalid = (side: ReconSide) => invalidRowCount(data.sides[side])
-  const movement = { bank: sum(amounts(data.sides.bank.transactions)), books: sum(amounts(data.sides.books.transactions)) }
+  const movement = { bank: fixed.bank.current, books: fixed.books.current }
   const confirmed = [...state.replay.state.active.values()]
   const differences = confirmed.map((event) => subtractDecimal((resolve(ws, event.bank) as Transaction).amount, (resolve(ws, event.books) as Transaction).amount))
   const bridge = computeBridge({
@@ -69,15 +95,23 @@ export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewS
       bank: { balances: balances.bank, movement: movement.bank, invalidRows: invalid('bank') },
       books: { balances: balances.books, movement: movement.books, invalidRows: invalid('books') },
     },
-    openingAll: { bank: amounts(openingAll('bank')), books: amounts(openingAll('books')) },
-    openingRemaining: { bank: amounts(openingRemaining('bank')), books: amounts(openingRemaining('books')) },
-    unmatched: { bank: amounts(unmatched('bank')), books: amounts(unmatched('books')) },
+    openingAll: { bank: fixed.bank.opening, books: fixed.books.opening },
+    openingRemaining: { bank: remaining.bank.opening, books: remaining.books.opening },
+    unmatched: { bank: remaining.bank.current, books: remaining.books.current },
     confirmedDifferences: differences,
     incompleteSearch: run.outcome.incomplete !== null,
   })
   const classifications = state.replay.state.classifications
   // Remaining opening items need a classification as much as unmatched movements do.
-  const unclassified = RECON_SIDES.reduce((n, side) => n + [...unmatched(side), ...openingRemaining(side)].filter((t) => !classifications.has(keyOf(ws, t))).length, 0)
+  const where = positions(ws, data)
+  let classifiedOpen = 0
+  for (const key of classifications.keys()) {
+    const parsed = parseTxnKey(key)
+    if (!parsed) continue
+    const p = where[parsed.side].get(key)
+    if (p !== undefined && !state.used[parsed.side][p]) classifiedOpen++
+  }
+  const unclassified = open - classifiedOpen
   const completion = state.replay.state.completion
   const running = {
     bank: runningBalance(ws, data, 'bank', balances.bank.opening, setup.balances.bank.basis),

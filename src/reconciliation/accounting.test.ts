@@ -8,7 +8,7 @@ function d(text: string): Decimal {
   return value
 }
 
-const none = { bank: [], books: [] }
+const none = { bank: d('0'), books: d('0') }
 
 function input(overrides: Partial<BridgeInput> = {}): BridgeInput {
   return {
@@ -18,7 +18,7 @@ function input(overrides: Partial<BridgeInput> = {}): BridgeInput {
     },
     openingAll: none,
     openingRemaining: none,
-    unmatched: { bank: [d('100')], books: [d('100')] },
+    unmatched: { bank: d('100'), books: d('100') },
     confirmedDifferences: [],
     incompleteSearch: false,
     ...overrides,

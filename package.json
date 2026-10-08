@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "bench": "node --expose-gc --import tsx scripts/bench/run.ts",
     "bench:reconcile": "tsx scripts/bench/reconcile-browser.ts",
-    "bench:session": "tsx scripts/bench/reconcile-session.ts"
+    "bench:session": "tsx scripts/bench/reconcile-session.ts",
+    "bench:worker": "tsx scripts/bench/reconcile-worker.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

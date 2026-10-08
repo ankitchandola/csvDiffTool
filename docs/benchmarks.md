@@ -192,3 +192,40 @@ Measured 2026-10-08 on an Apple M4 with 16 GB RAM, Chrome 154.0.8037.98:
   cost well under a second for every step.
 - **Not measured:** lower-memory devices, other browsers, storage quotas near their
   limit, and sessions with large imported opening-item files.
+
+## Reconcile worker requests in Node
+
+`npm run bench:worker` (`scripts/bench/reconcile-worker.ts`) times each worker request
+in Node, without a browser, so rendering and storage don't hide worker cost. Each side
+has 200,000 rows with distinct amounts on 28 days. The bank side has a running balance
+column, and both sides have stated balances.
+
+Measured 2026-10-09 on an Apple M4 with 16 GB RAM, Node 24.15.0:
+
+| Request | Time |
+| --- | ---: |
+| Read bank / books | 0.4 s / 0.3 s |
+| Normalize | 0.4 s |
+| Match | 0.4 s |
+| Suggested, first page | 30 ms |
+| Unmatched, first page (builds its index) | 0.25 s |
+| Search, first (builds the text index) | 0.9 s |
+| Search, later queries | 0.12 s |
+| Status, first (builds totals and the running-balance check) | 0.42 s |
+| Decide | 25–35 ms |
+| Status after a decision | 7 ms (410 ms before this change) |
+| Unmatched page after a decision | 37 ms |
+| Outstanding-items export | 0.7 s |
+| Report (JSON) | 1.6–2.6 s |
+
+- **The status refresh after every decision was the main repeated cost.** It re-summed
+  every amount, rebuilt a key for every unmatched transaction and re-walked the running
+  balance on each call. Totals and the running-balance check now stay with the
+  normalized data, and unclassified items are counted from the classifications. The
+  browser session benchmark is unchanged, since its files have no balance column and
+  its decisions are dominated by saving.
+- **Index builds happen once per run.** Search and the Unmatched tab pay them on first
+  use. Later searches are about 0.1 s, and the box waits 250 ms after typing before
+  searching.
+- **Exports are one-off and under 3 s at this size.** The .xlsx report refuses it
+  (3.6 million cells against a 1 million limit) and points to the JSON report.

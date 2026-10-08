@@ -640,7 +640,7 @@ describe('reconcile handler running balance', () => {
     balance: 'balance',
   }
 
-  async function report(bank: string) {
+  async function report(bank: string, opening = '1000') {
     const handle = createReconcileHandler()
     let id = 1
     const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
@@ -650,8 +650,12 @@ describe('reconcile handler running balance', () => {
     const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping }, period: null })
     const { matchId } = await call('match', { revision, rules: DEFAULT_MATCHING })
     await call('setDecisions', { matchId, events: [] })
-    const setup = { period: null, balances: { bank: { opening: '1000', closing: null, basis: 'cash' as const }, books: { opening: '1000', closing: null, basis: 'cash' as const } } }
-    return call('accounting', { matchId, setup, basis: 'x' }) as Promise<{ running: { bank: { status: string } }; statuses: { sourcesValidated: { reasons: string[] } } }>
+    type Result = { running: { bank: { status: string } }; statuses: { sourcesValidated: { reasons: string[] } } }
+    const check = (bankOpening: string, basis: 'cash' | 'liability' = 'cash') => {
+      const setup = { period: null, balances: { bank: { opening: bankOpening, closing: null, basis }, books: { opening: '1000', closing: null, basis: 'cash' as const } } }
+      return call('accounting', { matchId, setup, basis: 'x' }) as Promise<Result>
+    }
+    return Object.assign(await check(opening), { check })
   }
 
   it('accepts a consistent running balance and reports the first break as a source issue', async () => {
@@ -659,5 +663,14 @@ describe('reconcile handler running balance', () => {
     const broken = await report('date,amount,balance\n2026-09-01,10,1010\n2026-09-03,-5,"1,004.00"\n')
     expect(broken.running.bank.status).toBe('break')
     expect(broken.statuses.sourcesValidated.reasons).toContain('Bank: the running balance breaks at record 2: expected 1005.00, found 1004.00')
+  })
+
+  // The check is kept between requests, so it must follow the stated balance and basis.
+  it('checks again when the opening balance or the basis changes', async () => {
+    const result = await report('date,amount,balance\n2026-09-01,10,1010\n2026-09-02,-5,1005\n')
+    expect(result.running.bank.status).toBe('consistent')
+    expect((await result.check('999')).running.bank.status).toBe('break')
+    expect((await result.check('1000', 'liability')).running.bank.status).toBe('break')
+    expect((await result.check('1000')).running.bank.status).toBe('consistent')
   })
 })

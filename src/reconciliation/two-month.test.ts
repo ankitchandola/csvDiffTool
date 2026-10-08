@@ -230,18 +230,19 @@ function bridgeInputs(m: Month, balances: Record<ReconSide, [string, string]>) {
   const usedBank = new Set(m.confirmed.map((p) => p[0]))
   const usedBooks = new Set(m.confirmed.map((p) => p[1]))
   const amounts = (ts: Transaction[]) => ts.map((t) => t.amount)
+  const total = (ts: Transaction[]) => sum(amounts(ts))
   return {
     sides: {
       // Movement is current-period rows only: opening items are never counted again.
       bank: { balances: { opening: d(balances.bank[0]), closing: d(balances.bank[1]) }, movement: sum(amounts(m.current.bank)), invalidRows: 0 },
       books: { balances: { opening: d(balances.books[0]), closing: d(balances.books[1]) }, movement: sum(amounts(m.current.books)), invalidRows: 0 },
     },
-    openingAll: { bank: amounts(m.opening.bank), books: amounts(m.opening.books) },
+    openingAll: { bank: total(m.opening.bank), books: total(m.opening.books) },
     openingRemaining: {
-      bank: amounts(m.opening.bank.filter((_, i) => !usedBank.has(m.current.bank.length + i))),
-      books: amounts(m.opening.books.filter((_, i) => !usedBooks.has(m.current.books.length + i))),
+      bank: total(m.opening.bank.filter((_, i) => !usedBank.has(m.current.bank.length + i))),
+      books: total(m.opening.books.filter((_, i) => !usedBooks.has(m.current.books.length + i))),
     },
-    unmatched: { bank: amounts(m.current.bank.filter((_, p) => !usedBank.has(p))), books: amounts(m.current.books.filter((_, p) => !usedBooks.has(p))) },
+    unmatched: { bank: total(m.current.bank.filter((_, p) => !usedBank.has(p))), books: total(m.current.books.filter((_, p) => !usedBooks.has(p))) },
     confirmedDifferences: m.confirmed.map(([b, l]): Decimal => ({ units: m.pool.bank[b].amount.units - m.pool.books[l].amount.units, scale: CONTEXT.minorUnits })),
     incompleteSearch: m.candidates.incomplete !== null,
   }
