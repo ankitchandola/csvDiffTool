@@ -3,7 +3,7 @@ import { type TransactionSnapshot } from '../../reconciliation/session'
 import { type Direction, RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type ConfirmedItem, type ReconRequests, type ReconResults, type RejectedItem, type TransactionView, type UnmatchedItem } from '../reconcile-protocol'
 import { pageBounds } from '../paging'
-import { matches, normaliseSearch } from '../search'
+import { matches, normalizeSearch } from '../search'
 import { available, counts, currentReview, derive, expectNextSeq, directionOf, evidence, openingItem, position, problemRows, replayData, resolve, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
 
 // Review: replaying and recording decisions, sets, inspection and paged review tabs.
@@ -139,15 +139,15 @@ export function decide(ws: Workspace, { matchId, seq, at, decision }: ReconReque
 
 export function pairCheck(ws: Workspace, { matchId, bank, books }: ReconRequests['checkPair']): ReconResults['checkPair'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
-  const b = resolve(ws, bank)
-  const l = resolve(ws, books)
-  const pair = checkPair(b, l, run.rules)
+  const bankTxn = resolve(ws, bank)
+  const booksTxn = resolve(ws, books)
+  const pair = checkPair(bankTxn, booksTxn, run.rules)
   const structural = structuralCheck(state.replay.state, { action: 'confirm', bank, books })
   return {
     blocked: pair.blocked ?? (structural.ok ? null : structural.reason),
     exceptions: pair.exceptions,
-    bank: b ? view(ws, b, data.mappings.bank) : null,
-    books: l ? view(ws, l, data.mappings.books) : null,
+    bank: bankTxn ? view(ws, bankTxn, data.mappings.bank) : null,
+    books: booksTxn ? view(ws, booksTxn, data.mappings.books) : null,
   }
 }
 
@@ -156,7 +156,7 @@ export function getReview(ws: Workspace, { matchId, tab, offset, limit, search, 
   const { outcome } = run
   const { pool, mappings } = data
   const [start, end] = pageBounds(offset, limit)
-  const needle = normaliseSearch(search)
+  const needle = normalizeSearch(search)
   const filtered = <T,>(build: () => T[], keep: (item: T) => boolean): T[] =>
     ws.searchCache.get(`${matchId}\u0000${state.version}\u0000${tab}\u0000${direction ?? ''}\u0000${needle}`, () =>
       needle === '' && direction === undefined ? build() : build().filter(keep),

@@ -92,7 +92,7 @@ describe('diffFiles', () => {
     expect(diff('schema-change', profile({ columns: ['id'] })).summary.changesByColumn).toEqual({ name: 1 })
   })
 
-  it('does not let key normalisation hide a value change in the key column', () => {
+  it('does not let key normalization hide a value change in the key column', () => {
     const oldFile = { headers: ['sku', 'qty'], rows: [{ sku: 'abc', qty: '1' }], format: CSV, notes: [] }
     const newFile = { headers: ['sku', 'qty'], rows: [{ sku: 'ABC', qty: '1' }], format: CSV, notes: [] }
     const { summary } = diffFiles(oldFile, newFile, profile({ columns: ['sku'], caseInsensitive: true }))

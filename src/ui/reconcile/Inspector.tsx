@@ -18,9 +18,9 @@ function day(iso: string): number {
 
 // Amount and date difference between a bank and a books transaction, exactly.
 function variance(bank: InspectDetail, books: InspectDetail): string {
-  const a = parseDecimal(bank.view.amount)
-  const b = parseDecimal(books.view.amount)
-  const amount = a && b ? subtractDecimal(a, b) : null
+  const bankAmount = parseDecimal(bank.view.amount)
+  const booksAmount = parseDecimal(books.view.amount)
+  const amount = bankAmount && booksAmount ? subtractDecimal(bankAmount, booksAmount) : null
   const amountText = amount === null ? 'unknown' : amount.units === 0n ? 'none' : formatDecimal(amount)
   return `Amount difference (bank − books): ${amountText}. Dates: ${dateEvidence(day(bank.view.date) - day(books.view.date))}.`
 }

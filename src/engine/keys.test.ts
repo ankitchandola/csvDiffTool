@@ -46,7 +46,7 @@ describe('classifyKeys', () => {
     expect(result.removed).toEqual([])
   })
 
-  it('reports a normalisation collision with the original values', () => {
+  it('reports a normalization collision with the original values', () => {
     const result = classify('collision', { columns: ['sku'], caseInsensitive: true })
     expect(result.ambiguous).toEqual([
       {

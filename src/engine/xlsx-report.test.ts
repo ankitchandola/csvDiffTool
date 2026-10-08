@@ -166,7 +166,7 @@ describe('buildXlsxReport', () => {
   })
 
   // SheetJS's reader drops an escaped carriage return, so this checks the written XML.
-  it('escapes a carriage return inside a value rather than letting XML normalise it', () => {
+  it('escapes a carriage return inside a value rather than letting XML normalize it', () => {
     const bytes = buildXlsxReport(input('id,v\n1,a\n', 'id,v\n1,"crlf\r\nline"\n'), LIMITS)
     const zip = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' })
     const strings = new TextDecoder().decode(
