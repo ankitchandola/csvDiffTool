@@ -2,7 +2,7 @@ import { DEFAULT_LAYOUT, type Layout } from '../../engine/parse'
 import type { Delimiter } from '../../engine/types'
 import type { DateFormat } from '../../reconciliation/dates'
 import { mappingIssues } from '../../reconciliation/normalize'
-import type { DateKind, Direction, SideMapping } from '../../reconciliation/types'
+import type { BalanceMarks, DateKind, Direction, SideMapping } from '../../reconciliation/types'
 
 // Form state for one side. Both amount layouts keep their column choices, so switching
 // between them loses nothing. Empty strings mean "not chosen".
@@ -24,6 +24,7 @@ export interface MappingDraft {
   reference: string
   description: string
   balance: string
+  balanceMarks: BalanceMarks
 }
 
 export function emptyDraft(): MappingDraft {
@@ -45,6 +46,7 @@ export function emptyDraft(): MappingDraft {
     reference: '',
     description: '',
     balance: '',
+    balanceMarks: 'none',
   }
 }
 
@@ -63,6 +65,7 @@ export function toMapping(draft: MappingDraft, headers: string[]): DraftOutcome 
     reference: draft.reference || null,
     description: draft.description || null,
     balance: draft.balance || null,
+    balanceMarks: draft.balanceMarks,
   }
   const issues = mappingIssues(mapping, headers)
   if (draft.dateFormat === '') issues.push('Choose the date format')
@@ -84,6 +87,7 @@ export function draftFromMapping(mapping: SideMapping): MappingDraft {
     reference: mapping.reference ?? '',
     description: mapping.description ?? '',
     balance: mapping.balance ?? '',
+    balanceMarks: mapping.balanceMarks,
   }
   return mapping.amount.kind === 'signed'
     ? { ...draft, amountKind: 'signed', amountColumn: mapping.amount.column, positiveIs: mapping.amount.positiveIs }

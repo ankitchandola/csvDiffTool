@@ -16,7 +16,7 @@ import {
   structuralCheck,
 } from './decisions'
 import { contextIssues } from './normalize'
-import type { Direction, MatchingRules, ReconSide, SessionContext, SideMapping } from './types'
+import { BALANCE_MARKS, type Direction, type MatchingRules, type ReconSide, type SessionContext, type SideMapping } from './types'
 
 export const SESSION_FORMAT = 'reconciliation-session'
 export const SESSION_VERSION = 1
@@ -173,7 +173,12 @@ function oneOf<T extends string>(value: unknown, options: readonly T[], where: s
 function readMapping(value: unknown, where: string): SideMapping {
   const m = object(value, where)
   const layout = object(m.layout, `${where}.layout`)
-  const parsedLayout = { headerRecord: integer(layout.headerRecord, `${where}.layout.headerRecord`, 1), skipTrailing: integer(layout.skipTrailing, `${where}.layout.skipTrailing`, 0) }
+  const parsedLayout = {
+    headerRecord: integer(layout.headerRecord, `${where}.layout.headerRecord`, 1),
+    // Added after the first sessions were saved; they skipped nothing after the header.
+    skipLeading: layout.skipLeading === undefined ? 0 : integer(layout.skipLeading, `${where}.layout.skipLeading`, 0),
+    skipTrailing: integer(layout.skipTrailing, `${where}.layout.skipTrailing`, 0),
+  }
   if (layoutIssues(parsedLayout).length > 0) fail(`${where}.layout is invalid`)
   const date = object(m.date, `${where}.date`)
   const amount = object(m.amount, `${where}.amount`)
@@ -205,6 +210,7 @@ function readMapping(value: unknown, where: string): SideMapping {
     description: optionalString(m.description, `${where}.description`),
     // Absent in sessions saved before running balances were mapped.
     balance: m.balance === undefined ? null : optionalString(m.balance, `${where}.balance`),
+    balanceMarks: m.balanceMarks === undefined ? 'none' : oneOf(m.balanceMarks, BALANCE_MARKS, `${where}.balanceMarks`),
   }
 }
 

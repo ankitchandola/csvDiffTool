@@ -27,6 +27,9 @@ export interface AmountFormat {
 
 export type DateKind = 'posting' | 'value' | 'transaction'
 
+export const BALANCE_MARKS = ['none', 'cr-positive', 'dr-positive'] as const
+export type BalanceMarks = (typeof BALANCE_MARKS)[number]
+
 export interface SideMapping {
   delimiter: 'auto' | Delimiter
   layout: Layout
@@ -37,6 +40,8 @@ export interface SideMapping {
   description: string | null
   // Optional running balance after each row, checked against the opening balance.
   balance: string | null
+  // Which Cr/Dr mark after a balance means a positive balance in the column's own terms.
+  balanceMarks: BalanceMarks
 }
 
 // Stated by the user: the files carry no account or currency metadata to check it against.

@@ -139,7 +139,7 @@ export function parseXlsx(
   onProgress?: ProgressFn,
   layout?: Layout,
 ): ParseOutcome {
-  const { headerRecord, skipTrailing } = layout ?? DEFAULT_LAYOUT
+  const { headerRecord, skipLeading, skipTrailing } = layout ?? DEFAULT_LAYOUT
   const headerIndex = headerRecord - 1
   const unpacked = unpackedSize(bytes)
   if (unpacked === null) return fail('file', NOT_XLSX_MESSAGE)
@@ -174,8 +174,9 @@ export function parseXlsx(
   }
   const { rows: cells, sheetRows, untypedEmpty } = grid
   // Skipped rows are not data: a missing result there changes nothing that is read.
-  const dataEnd = Math.max(headerIndex + 1, cells.length - skipTrailing)
-  const uncached = grid.uncached.filter(([index]) => index >= headerIndex && index < dataEnd)
+  const dataStart = Math.min(headerIndex + 1 + skipLeading, cells.length)
+  const dataEnd = Math.max(dataStart, cells.length - skipTrailing)
+  const uncached = grid.uncached.filter(([index]) => index === headerIndex || (index >= dataStart && index < dataEnd))
 
   const uncachedMessage = (where: string, formula: string) =>
     `${where} has a formula (=${formula}) with no saved result. Open the workbook in Excel and save it so results are stored.`
@@ -189,7 +190,7 @@ export function parseXlsx(
   if (width === 0) return failIn('header', `Sheet "${name}" has no header row`)
   const problems = headerIssues(headers)
   if (problems.length > 0) return { ok: false, issues: problems, format }
-  if ((dataEnd - headerIndex - 1) * width > limits.maxXlsxFields) return failIn('file', tooManyFieldsMessage(limits.maxXlsxFields))
+  if ((dataEnd - dataStart) * width > limits.maxXlsxFields) return failIn('file', tooManyFieldsMessage(limits.maxXlsxFields))
 
   const rows: Row[] = []
   const spans: Span[] = []
@@ -197,12 +198,12 @@ export function parseXlsx(
   // Treating a formula with no saved result as empty would report a change that isn't there.
   for (const [index, column, formula] of uncached) {
     const message = uncachedMessage(`Column "${headers[column] ?? column + 1}"`, formula)
-    issues.push({ kind: 'record', recordNumber: index - headerIndex, message, raw: cells[index].join(', ') })
+    issues.push({ kind: 'record', recordNumber: index - dataStart + 1, message, raw: cells[index].join(', ') })
   }
-  for (let i = headerIndex + 1; i < dataEnd; i++) {
+  for (let i = dataStart; i < dataEnd; i++) {
     const values = cells[i]
     if (values.slice(width).some((value) => value !== '')) {
-      issues.push({ kind: 'record', recordNumber: i - headerIndex, message: `Has values beyond the ${width} named columns`, raw: values.join(', ') })
+      issues.push({ kind: 'record', recordNumber: i - dataStart + 1, message: `Has values beyond the ${width} named columns`, raw: values.join(', ') })
       continue
     }
     const row: Row = emptyDict()
@@ -220,6 +221,6 @@ export function parseXlsx(
   }
   const file: ParsedFile = { headers, rows, format, notes }
   if (!layout) return { ok: true, file }
-  const skipped = { before: cells.slice(0, headerIndex).map(rawText), after: cells.slice(dataEnd).map(rawText) }
+  const skipped = { before: cells.slice(0, headerIndex).map(rawText), afterHeader: cells.slice(headerIndex + 1, dataStart).map(rawText), after: cells.slice(dataEnd).map(rawText) }
   return { ok: true, file: { ...file, spans, skipped } }
 }

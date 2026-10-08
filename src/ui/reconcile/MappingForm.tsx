@@ -1,5 +1,5 @@
 import { DATE_FORMATS, type DateFormat } from '../../reconciliation/dates'
-import type { DateKind, Direction } from '../../reconciliation/types'
+import type { BalanceMarks, DateKind, Direction } from '../../reconciliation/types'
 import { Select } from '../Select'
 import type { MappingDraft } from './mapping-draft'
 
@@ -59,7 +59,7 @@ export function MappingForm({
           label={`${title} date format`}
           value={draft.dateFormat}
           onChange={(v) => set('dateFormat', v)}
-          options={[{ value: '', label: 'Choose a format' }, ...DATE_FORMATS.map((f) => ({ value: f, label: f }))]}
+          options={[{ value: '', label: 'Choose a format' }, ...DATE_FORMATS.map((f) => ({ value: f, label: f.endsWith('YYYY') || f.startsWith('YYYY') ? f : `${f} (26 is 2026)` }))]}
         />
       </div>
       <div className="field">
@@ -156,6 +156,21 @@ export function MappingForm({
         optional
         onChange={(v) => set('balance', v)}
       />
+      {draft.balance !== '' && (
+        <div className="field">
+          <span>Balances marked Cr or Dr</span>
+          <Select<BalanceMarks>
+            label={`${title} balance marks`}
+            value={draft.balanceMarks}
+            onChange={(v) => set('balanceMarks', v)}
+            options={[
+              { value: 'none', label: 'Not marked: signed numbers' },
+              { value: 'cr-positive', label: 'Cr is positive (bank statements)' },
+              { value: 'dr-positive', label: 'Dr is positive (ledgers)' },
+            ]}
+          />
+        </div>
+      )}
       {issues.length > 0 && (
         <ul className="mapping-issues">
           {issues.map((issue) => (

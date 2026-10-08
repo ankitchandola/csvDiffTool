@@ -20,13 +20,14 @@ const FP: Record<string, string> = { 'bank-sep': '1'.repeat(64), 'books-sep': '2
 
 const mapping = (format: 'DD/MM/YYYY' | 'YYYY-MM-DD'): SideMapping => ({
   delimiter: ',',
-  layout: { headerRecord: 1, skipTrailing: 0 },
+  layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
   date: { column: 'date', format, kind: 'posting' },
   amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
   amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
   reference: 'ref',
   description: 'memo',
   balance: null,
+  balanceMarks: 'none',
 })
 
 const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'

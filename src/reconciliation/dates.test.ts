@@ -45,8 +45,9 @@ describe('parseDate', () => {
     expect(parseDate(text, format)).toEqual({ ok: false, message: `"${text}" is not a ${format} date` })
   })
 
-  it('rejects two-digit years with a reason, as SheetJS shows m/d/yy', () => {
-    expect(parseDate('1/5/26', 'MM/DD/YYYY')).toEqual({ ok: false, message: '"1/5/26" has a two-digit year; only four-digit years are read' })
+  it('rejects two-digit years in a four-digit format and names the format that reads them', () => {
+    expect(parseDate('1/5/26', 'MM/DD/YYYY')).toEqual({ ok: false, message: '"1/5/26" has a two-digit year; choose the MM/DD/YY format to read it as 2026' })
+    expect(parseDate('01.09.26', 'DD.MM.YYYY')).toEqual({ ok: false, message: '"01.09.26" has a two-digit year' })
   })
 
   it('reports an empty date', () => {
@@ -67,5 +68,29 @@ describe('day numbers', () => {
       const [y, m, d] = isoDate(day).split('-').map(Number)
       expect(dayNumber(y, m, d)).toBe(day)
     }
+  })
+})
+
+describe('two-digit years and spelled-out months', () => {
+  const day = (y: number, m: number, d: number) => ({ ok: true, day: dayNumber(y, m, d) })
+
+  it('reads two-digit years as 20YY in the formats that declare them', () => {
+    expect(parseDate('01/09/26', 'DD/MM/YY')).toEqual(day(2026, 9, 1))
+    expect(parseDate('1-9-26', 'DD-MM-YY')).toEqual(day(2026, 9, 1))
+    expect(parseDate('1-Sep-26', 'DD-Mon-YY')).toEqual(day(2026, 9, 1))
+    expect(parseDate('9/1/26', 'MM/DD/YY')).toEqual(day(2026, 9, 1))
+    expect(parseDate('29/02/00', 'DD/MM/YY')).toEqual(day(2000, 2, 29))
+  })
+
+  it('refuses four-digit years and impossible dates in a two-digit format', () => {
+    expect(parseDate('01/09/2026', 'DD/MM/YY')).toEqual({ ok: false, message: '"01/09/2026" is not a DD/MM/YY date' })
+    expect(parseDate('29/02/27', 'DD/MM/YY')).toEqual({ ok: false, message: '"29/02/27" is not a real date' })
+  })
+
+  it('reads a day, month name and year separated by spaces', () => {
+    expect(parseDate('1 Sep 2026', 'DD Mon YYYY')).toEqual(day(2026, 9, 1))
+    expect(parseDate(' 01 SEP 2026 ', 'DD Mon YYYY')).toEqual(day(2026, 9, 1))
+    expect(parseDate('1  Sep 2026', 'DD Mon YYYY')).toEqual({ ok: false, message: '"1  Sep 2026" is not a DD Mon YYYY date' })
+    expect(parseDate('1-Sep-2026', 'DD Mon YYYY')).toEqual({ ok: false, message: '"1-Sep-2026" is not a DD Mon YYYY date' })
   })
 })

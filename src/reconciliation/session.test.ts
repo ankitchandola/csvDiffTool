@@ -9,13 +9,14 @@ const L1 = txnKey('books', FP, 1)
 
 const mapping: SideMapping = {
   delimiter: ',',
-  layout: { headerRecord: 1, skipTrailing: 0 },
+  layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
   date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
   amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
   amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
   reference: null,
   description: 'memo',
   balance: null,
+  balanceMarks: 'none',
 }
 
 function session(overrides: Partial<SessionFile> = {}): SessionFile {
@@ -86,6 +87,22 @@ describe('session files with review decisions and balances', () => {
   it('reads a milestone 3 session without balances as having none', () => {
     const { accounting: _, ...old } = session()
     expect(readSession(JSON.parse(JSON.stringify(old))).accounting).toEqual(emptyAccounting())
+  })
+
+  it('reads a session saved before records could be skipped after the header as skipping none', () => {
+    const old = JSON.parse(JSON.stringify(session()))
+    delete old.mappings.bank.layout.skipLeading
+    expect(readSession(old).mappings.bank.layout).toEqual({ headerRecord: 1, skipLeading: 0, skipTrailing: 0 })
+    old.mappings.bank.layout.skipLeading = -1
+    expect(() => readSession(old)).toThrow(SessionError)
+  })
+
+  it('reads a session saved before balance marks as unmarked, and refuses an unknown mark', () => {
+    const old = JSON.parse(JSON.stringify(session()))
+    delete old.mappings.books.balanceMarks
+    expect(readSession(old).mappings.books.balanceMarks).toBe('none')
+    old.mappings.books.balanceMarks = 'cr'
+    expect(() => readSession(old)).toThrow(SessionError)
   })
 
   it('round-trips classification, completion and balances', () => {

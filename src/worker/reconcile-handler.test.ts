@@ -22,24 +22,26 @@ const BOOKS = ['date,memo,amount,ref', '2026-08-31,Salary in,50000,', '2026-09-0
 
 const bankMapping: SideMapping = {
   delimiter: ',',
-  layout: { headerRecord: 3, skipTrailing: 1 },
+  layout: { headerRecord: 3, skipLeading: 0, skipTrailing: 1 },
   date: { column: 'Date', format: 'DD/MM/YYYY', kind: 'posting' },
   amount: { kind: 'split', inColumn: 'Credit', outColumn: 'Debit', unused: 'blank' },
   amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
   reference: 'Ref',
   description: 'Details',
   balance: null,
+  balanceMarks: 'none',
 }
 
 const booksMapping: SideMapping = {
   delimiter: ',',
-  layout: { headerRecord: 1, skipTrailing: 0 },
+  layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
   date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
   amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
   amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
   reference: 'ref',
   description: 'memo',
   balance: null,
+  balanceMarks: 'none',
 }
 
 async function loaded() {
@@ -222,13 +224,14 @@ describe('reconcile handler sets and inspection', () => {
   const SET_BOOKS = ['date,amount,memo', '2026-09-05,-9.99,Netflix', '2026-09-05,-9.99,Netflix', '2026-09-06,-50.00,Rent', '2026-09-06,-50.00,Other rent'].join('\n')
   const mapping: SideMapping = {
     delimiter: ',',
-    layout: { headerRecord: 1, skipTrailing: 0 },
+    layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
     date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
     amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
     amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
     reference: null,
     description: 'memo',
     balance: null,
+    balanceMarks: 'none',
   }
 
   async function run() {
@@ -302,13 +305,14 @@ describe('reconcile handler classification and completion', () => {
   const BOOKS_SET = ['date,amount,memo', '2026-09-05,-9.99,Netflix', '2026-09-05,-9.99,Netflix', '2026-09-06,-50.00,Rent', '2026-09-06,-50.00,Other rent'].join('\n')
   const mapping: SideMapping = {
     delimiter: ',',
-    layout: { headerRecord: 1, skipTrailing: 0 },
+    layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
     date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
     amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
     amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
     reference: null,
     description: 'memo',
     balance: null,
+    balanceMarks: 'none',
   }
   const setup = {
     period: { start: '2026-09-01', end: '2026-09-30' },
@@ -401,13 +405,14 @@ describe('reconcile handler classification and completion', () => {
 describe('reconcile handler carry-forward', () => {
   const mapping = (format: 'DD/MM/YYYY' | 'YYYY-MM-DD'): SideMapping => ({
     delimiter: ',',
-    layout: { headerRecord: 1, skipTrailing: 0 },
+    layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
     date: { column: 'date', format, kind: 'posting' },
     amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
     amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
     reference: 'ref',
     description: 'memo',
     balance: null,
+    balanceMarks: 'none',
   })
   const SEP = { start: '2026-09-01', end: '2026-09-30' }
   const OCT = { start: '2026-10-01', end: '2026-10-31' }
@@ -418,8 +423,8 @@ describe('reconcile handler carry-forward', () => {
     const handle = createReconcileHandler()
     let id = 1
     const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
-    await call('parse', { side: 'bank', file: new File([bank], 'bank.csv'), delimiter: ',', layout: { headerRecord: 1, skipTrailing: 0 } })
-    await call('parse', { side: 'books', file: new File([books], 'books.csv'), delimiter: ',', layout: { headerRecord: 1, skipTrailing: 0 } })
+    await call('parse', { side: 'bank', file: new File([bank], 'bank.csv'), delimiter: ',', layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 } })
+    await call('parse', { side: 'books', file: new File([books], 'books.csv'), delimiter: ',', layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 } })
     if (openingText) expect(await call('setOpening', { files: [{ name: 'outstanding-sep.json', text: openingText }] })).toMatchObject({ ok: true })
     const normalized: { ok: boolean; revision: number; opening?: { items: object; overlaps: unknown[] }; issues?: unknown[] } = await call('normalize', {
       context: CONTEXT,
@@ -631,20 +636,21 @@ describe('reconcile handler carry-forward', () => {
 describe('reconcile handler running balance', () => {
   const mapping: SideMapping = {
     delimiter: ',',
-    layout: { headerRecord: 1, skipTrailing: 0 },
+    layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
     date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
     amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
     amountFormat: { grouped: true, trailingMinus: false, parentheses: false },
     reference: null,
     description: null,
     balance: 'balance',
+    balanceMarks: 'none',
   }
 
   async function report(bank: string, opening = '1000') {
     const handle = createReconcileHandler()
     let id = 1
     const call = <K extends keyof ReconRequests>(type: K, payload: ReconRequests[K]) => handle({ id: id++, type, ...payload } as never) as Promise<never>
-    const layout = { headerRecord: 1, skipTrailing: 0 }
+    const layout = { headerRecord: 1, skipLeading: 0, skipTrailing: 0 }
     await call('parse', { side: 'bank', file: new File([bank], 'bank.csv'), delimiter: ',', layout })
     await call('parse', { side: 'books', file: new File(['date,amount,balance\n2026-09-01,10,1010\n'], 'books.csv'), delimiter: ',', layout })
     const { revision } = await call('normalize', { context: CONTEXT, mappings: { bank: mapping, books: mapping }, period: null })

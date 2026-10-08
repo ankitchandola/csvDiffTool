@@ -118,8 +118,8 @@ describe('parseCsv with a layout', () => {
     '',
   ].join('\r\n')
 
-  function read(text: string, headerRecord: number, skipTrailing = 0) {
-    return parseCsv(text, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord, skipTrailing })
+  function read(text: string, headerRecord: number, skipTrailing = 0, skipLeading = 0) {
+    return parseCsv(text, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord, skipLeading, skipTrailing })
   }
 
   it('reads the header at a record number and skips trailing records before field-count checks', () => {
@@ -132,9 +132,24 @@ describe('parseCsv with a layout', () => {
     ])
     expect(outcome.file.skipped).toEqual({
       before: ['Account,12345678', 'Statement period,01/09/2026 to 30/09/2026'],
+      afterHeader: [],
       after: ['Closing balance,,-500.00,extra'],
     })
     expect(outcome.file.spans).toEqual([{ first: 5, last: 5 }, { first: 6, last: 6 }])
+  })
+
+  it('skips records right below the header and numbers data records after them', () => {
+    const outcome = read(statement, 3, 1, 1)
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
+    expect(outcome.file.rows).toEqual([{ Date: '02/09/2026', Details: 'Rent, September', Amount: '-500.00' }])
+    expect(outcome.file.skipped?.afterHeader).toEqual(['01/09/2026,Opening,0'])
+    expect(outcome.file.spans).toEqual([{ first: 6, last: 6 }])
+  })
+
+  it('rejects a record skipped after the header that does not parse, rather than guessing', () => {
+    const outcome = read('id,amount\n"Opening,5\n1,5\n', 1, 0, 1)
+    expect(outcome.ok).toBe(false)
+    expect(!outcome.ok && outcome.issues[0].message).toMatch(/^Record 2, set to be skipped after the header: /)
   })
 
   it('still rejects a trailing record that is not skipped', () => {
@@ -178,7 +193,7 @@ describe('parseCsv with a layout', () => {
 describe('parseCsv layout safeguards', () => {
   it('rejects a skipped trailing record with a parse error, which can hide transactions', () => {
     const text = 'date,amount\n01/09/2026,10\n"02/09/2026,20\n03/09/2026,30\nClosing,60\n'
-    const outcome = parseCsv(text, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 1, skipTrailing: 1 })
+    const outcome = parseCsv(text, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 1, skipLeading: 0, skipTrailing: 1 })
     expect(outcome.ok).toBe(false)
     expect(!outcome.ok && outcome.issues[0]).toMatchObject({ kind: 'record', recordNumber: 2, message: 'Quoted field unterminated (in a record set to be skipped at the end)' })
   })
@@ -186,14 +201,14 @@ describe('parseCsv layout safeguards', () => {
   it('detects the delimiter from the header record, not the details above it', () => {
     const preamble = Array.from({ length: 12 }, (_, i) => `Statement line ${i}`).join('\n')
     const text = `${preamble}\nDate;Amount;Ref\n01/09/2026;10;A\n02/09/2026;20;B\n`
-    const outcome = parseCsv(text, AUTO, undefined, undefined, { headerRecord: 13, skipTrailing: 0 })
+    const outcome = parseCsv(text, AUTO, undefined, undefined, { headerRecord: 13, skipLeading: 0, skipTrailing: 0 })
     if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
     expect(outcome.file.headers).toEqual(['Date', 'Amount', 'Ref'])
     expect(outcome.file.format).toEqual({ kind: 'csv', delimiter: ';' })
   })
 
   it('keeps an explicit delimiter as chosen', () => {
-    const outcome = parseCsv('Note\nDate;Amount\n1;2\n', { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 2, skipTrailing: 0 })
+    const outcome = parseCsv('Note\nDate;Amount\n1;2\n', { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 2, skipLeading: 0, skipTrailing: 0 })
     expect(outcome.ok && outcome.file.headers).toEqual(['Date;Amount'])
   })
 })
@@ -202,7 +217,7 @@ describe('parseCsv with long runs of line breaks', () => {
   it('reads a quoted field holding 200,000 line breaks in linear time, keeping them', () => {
     const breaks = '\n'.repeat(200_000)
     const started = performance.now()
-    const outcome = parseCsv(`id,note\n1,"a${breaks}b"\n2,c\n`, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 1, skipTrailing: 0 })
+    const outcome = parseCsv(`id,note\n1,"a${breaks}b"\n2,c\n`, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 1, skipLeading: 0, skipTrailing: 0 })
     // The previous trim was quadratic here: about 40 s on the development machine.
     expect(performance.now() - started).toBeLessThan(2_000)
     if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))

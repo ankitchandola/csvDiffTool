@@ -276,27 +276,37 @@ describe('parseXlsx with a layout', () => {
   })
 
   it('reads the header at a non-blank row and skips trailing rows', () => {
-    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipTrailing: 1 })
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipLeading: 0, skipTrailing: 1 })
     if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
     expect(outcome.file.headers).toEqual(['Date', 'Amount'])
     expect(outcome.file.rows).toEqual([{ Date: '2026-09-01', Amount: '10.00' }, { Date: '2026-09-02', Amount: '-4.00' }])
     expect(outcome.file.spans).toEqual([{ first: 4, last: 4 }, { first: 5, last: 5 }])
-    expect(outcome.file.skipped).toEqual({ before: ['Account, 12345678'], after: ['Closing, 6.00, extra'] })
+    expect(outcome.file.skipped).toEqual({ before: ['Account, 12345678'], afterHeader: [], after: ['Closing, 6.00, extra'] })
   })
 
   it('numbers records from the header and rejects unskipped extra values', () => {
-    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipTrailing: 0 })
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipLeading: 0, skipTrailing: 0 })
     expect(!outcome.ok && outcome.issues[0]).toMatchObject({ kind: 'record', recordNumber: 3 })
+  })
+
+  it('skips rows right below the header and numbers records after them', () => {
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipLeading: 1, skipTrailing: 0 })
+    expect(!outcome.ok && outcome.issues[0]).toMatchObject({ kind: 'record', recordNumber: 2 })
+    const skipped = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipLeading: 1, skipTrailing: 1 })
+    if (!skipped.ok) throw new Error(JSON.stringify(skipped.issues))
+    expect(skipped.file.rows).toEqual([{ Date: '2026-09-02', Amount: '-4.00' }])
+    expect(skipped.file.spans).toEqual([{ first: 5, last: 5 }])
+    expect(skipped.file.skipped?.afterHeader).toEqual(['2026-09-01, 10.00'])
   })
 
   it('ignores a missing formula result in a skipped row', () => {
     const uncachedFooter = withCellXml(bytes, 'B6', '<c r="B6"><f>B4+B5</f></c>')
-    const outcome = parseXlsx(uncachedFooter, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipTrailing: 1 })
+    const outcome = parseXlsx(uncachedFooter, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 2, skipLeading: 0, skipTrailing: 1 })
     expect(outcome.ok).toBe(true)
   })
 
   it('reports a header row beyond the sheet', () => {
-    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 9, skipTrailing: 0 })
+    const outcome = parseXlsx(bytes, undefined, DEFAULT_LIMITS, undefined, { headerRecord: 9, skipLeading: 0, skipTrailing: 0 })
     expect(!outcome.ok && outcome.issues[0].message).toBe('The header is set to record 9, but the file has only 5 non-blank records')
   })
 })

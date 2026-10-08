@@ -142,9 +142,12 @@ transaction date. Supported formats, chosen per side:
 | `DD/MM/YYYY` | `/`, `-` or `.` as declared by the format, not guessed |
 | `MM/DD/YYYY` | `/` or `-`; SheetJS renders Excel's default date format as `m/d/yy` |
 | `DD-Mon-YYYY` | English month abbreviations (`05-Jan-2026`), case-insensitive |
+| `DD Mon YYYY` | Single spaces (`1 Sep 2026`), as SBI writes them |
+| `DD/MM/YY`, `DD-MM-YY`, `DD-Mon-YY`, `MM/DD/YY` | Two-digit years read as 2000–2099: HDFC CSV downloads, Tally's default, Excel's default date display |
 
-Day and month may omit leading zeros. Two-digit years are rejected as Problems
-unless the profile declares an explicit century pivot; there is no default pivot.
+Day and month may omit leading zeros. A two-digit year is read only by a format that
+declares it, and always as 20YY; choosing that format is the declared pivot. In a
+four-digit format it is a Problem that names the matching two-digit format.
 A value that fits the format but is impossible (`31/02/2026`) is a Problem. An
 `.xlsx` date whose displayed text does not fit the declared format is a Problem, not
 reinterpreted from the stored serial number.
@@ -816,7 +819,7 @@ Preserve the project's existing test/build/lint checks throughout development.
 
 | Decision | Choice | Tests required |
 | --- | --- | --- |
-| Date formats | `YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, `DD-Mon-YYYY`, chosen explicitly per side; no two-digit years without a declared pivot | Each format, leap days, impossible dates, wrong-format values, `.xlsx` displayed dates |
+| Date formats | `YYYY-MM-DD`, `DD/MM/YYYY`, `MM/DD/YYYY`, `DD-Mon-YYYY`, chosen explicitly per side; no two-digit years without a declared pivot (2026-10-09: `DD Mon YYYY` and two-digit-year formats read as 20YY added, the format being the declared pivot) | Each format, leap days, impossible dates, wrong-format values, `.xlsx` displayed dates |
 | Default matching rules | Amount tolerance 0; date window 3 days before and 3 after, inclusive, adjustable per bound. Tolerance is fixed at 0 during milestones 1-3; tiers 2 and 4 are not implemented until a nonzero tolerance is offered | Window boundaries on both sides, exact amounts at differing scales |
 | Automatic confirmation | None in the initial usable release; every match is confirmed manually. The mode is labeled experimental and suggestion-only through milestone 2 | No code path creates a confirmed match without a reviewer action |
 | Conflicting references | Pairs whose shared-identifier references conflict are not suggested | Conflict excluded at every tier; context-only references ignored |
@@ -856,10 +859,10 @@ own checks; results from one do not carry over to another.
 | Area | Where | Tests |
 | --- | --- | --- |
 | Exact decimal add, subtract, compare, rescale, format | `src/engine/decimal.ts` | Unit tests |
-| Header record and trailing-record skip, counted in logical records; CSV line spans and `.xlsx` row numbers; skipped records kept as raw text; Compare unchanged without a layout | `src/engine/parse.ts`, `src/engine/xlsx.ts` | Unit tests, including a quoted multi-line preamble, an unterminated quote, an unsaved formula in a skipped row |
+| Header record, records skipped right below the header (a ledger's opening-balance line) and trailing-record skip, counted in logical records; CSV line spans and `.xlsx` row numbers; skipped records kept as raw text; Compare unchanged without a layout | `src/engine/parse.ts`, `src/engine/xlsx.ts` | Unit tests, including a quoted multi-line preamble, an unterminated quote, an unsaved formula in a skipped row |
 | File reading shared by both workers | `src/worker/read-source.ts` | Existing Compare handler tests |
 | Missing `.xlsx` formula results, in the browser | `e2e/xlsx-formula-cache.spec.ts` | Playwright, Chrome, with the XlsxWriter fixtures: missing result, formula-only row, header formula, saved zero/FALSE/empty string |
-| Strict dates in the seven accepted formats, calendar-day numbers without `Date` | `src/reconciliation/dates.ts` | Unit tests: leap days, impossible dates, wrong format, two-digit years |
+| Strict dates in the twelve accepted formats, two-digit years only in the formats that declare them, calendar-day numbers without `Date` | `src/reconciliation/dates.ts` | Unit tests: leap days, impossible dates, wrong format, two-digit years |
 | Normalization: signed or money-in/money-out amounts, currency scale, negative/conflicting/blank split amounts as problems, zero-value rows kept apart, missing columns blocking | `src/reconciliation/normalize.ts` | Unit tests |
 | 1:1 candidates: exact signed amount, inclusive asymmetric window, shared-reference tier 1, conflicting references excluded, conflict groups across both sides, candidate budget reported as incomplete | `src/reconciliation/match.ts` | Unit tests, including 20 shuffled input orders giving identical suggestions |
 | Reconcile worker: per-side layouts, SHA-256 fingerprints, revisions, stale-request rejection, worker-side search, direction filter and paging | `src/worker/reconcile-handler.ts` | Unit tests |
@@ -976,7 +979,7 @@ continuation UI and reports follow once they pass.
 | Area | Where | Tests |
 | --- | --- | --- |
 | Source check: opening plus current movement equals closing exactly; invalid rows block validation; missing balances reported | `src/reconciliation/accounting.ts` | Unit tests; a mutation letting invalid rows validate fails them |
-| Running-balance check reporting the first break or unreadable row | `accounting.ts` | Unit tests |
+| Running-balance check reporting the first break or unreadable row; balances marked Cr or Dr, with the mapping saying which mark is positive | `accounting.ts` | Unit tests; Playwright with an SBI-style statement |
 | Bridge with opening items: opening check, remaining opening items, unmatched movements, confirmed differences; incomplete with reasons; liability-basis balances | `accounting.ts` | Unit tests, including that a fully unmatched pair still bridges (so a bridge alone proves nothing) |
 | Outstanding-items file: versioned, exact decimal text, lineage and provenance, cleared lineages; import checks listed in section 14 | `src/reconciliation/carryforward.ts` | Unit tests |
 | Two-month fixture: section 9's example through the real parser, normalization, matching, bridge and carry-forward; cheque 101 clears from the opening pool without entering October's movement; cheque 102 clears outside the window only with a wider bound; repeated identical subscriptions; an overlapping October export flagged and failing the books check; a stale September file refused in November | `src/reconciliation/two-month.test.ts` | 4 tests; a mutation counting consumed opening items in the bridge fails 2 |

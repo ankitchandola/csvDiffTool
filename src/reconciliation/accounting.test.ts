@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { type Decimal, formatDecimal, parseDecimal } from '../engine/decimal'
-import { cashBalance, checkRunningBalance, checkSource, computeBridge, type BridgeInput } from './accounting'
+import { cashBalance, checkRunningBalance, checkSource, computeBridge, type BridgeInput, readBalance } from './accounting'
 
 function d(text: string): Decimal {
   const value = parseDecimal(text)
@@ -92,5 +92,24 @@ describe('computeBridge', () => {
     const one = computeBridge(input({ sides: { ...input().sides, bank: { ...input().sides.bank, invalidRows: 1 } } }))
     expect(one.gaps).toEqual(['Bank: 1 invalid record has no trustworthy amount'])
     expect(computeBridge(input({ incompleteSearch: true })).gaps).toEqual(['The candidate search is incomplete'])
+  })
+})
+
+describe('readBalance', () => {
+  const grouped = { grouped: true }
+  const text = (value: ReturnType<typeof readBalance>) => value && formatDecimal(value)
+
+  it('reads Cr and Dr marks as the sign the mapping gives them', () => {
+    expect(text(readBalance('5,00,000.00 Cr', grouped, 'cr-positive'))).toBe('500000.00')
+    expect(text(readBalance('1,250.50Dr', grouped, 'cr-positive'))).toBe('-1250.50')
+    expect(text(readBalance('45,628.00 Dr', grouped, 'dr-positive'))).toBe('45628.00')
+    expect(text(readBalance('45,628.00 CR', grouped, 'dr-positive'))).toBe('-45628.00')
+    expect(text(readBalance('0.00', grouped, 'cr-positive'))).toBe('0.00')
+  })
+
+  it('refuses a mark it was not told about, a signed marked balance, and a bare mark', () => {
+    expect(readBalance('5,00,000.00 Cr', grouped, 'none')).toBeNull()
+    expect(readBalance('-500.00 Cr', grouped, 'cr-positive')).toBeNull()
+    expect(readBalance('Cr', grouped, 'cr-positive')).toBeNull()
   })
 })
