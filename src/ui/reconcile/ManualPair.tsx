@@ -4,6 +4,7 @@ import { EXCEPTION_LABELS } from '../../reconciliation/decisions'
 import type { ReconSide } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
 import type { PairCheckResult, UnmatchedItem } from '../../worker/reconcile-protocol'
+import { errorMessage } from '../browser'
 import type { Formats } from './location'
 import type { Decide } from './ReviewRows'
 import { TransactionCard } from './TransactionCard'
@@ -28,18 +29,25 @@ export function ManualPair({
   onClear: () => void
 }) {
   const [check, setCheck] = useState<PairCheckResult | null>(null)
+  const [checkError, setCheckError] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const bankKey = selection.bank?.key
   const booksKey = selection.books?.key
   useEffect(() => {
     if (!bankKey || !booksKey) return
     let live = true
-    client.call('checkPair', { matchId, bank: bankKey, books: booksKey }).then((result) => {
-      if (live) setCheck(result)
-    })
+    client.call('checkPair', { matchId, bank: bankKey, books: booksKey }).then(
+      (result) => {
+        if (live) setCheck(result)
+      },
+      (error: unknown) => {
+        if (live) setCheckError(errorMessage(error))
+      },
+    )
     return () => {
       live = false
       setCheck(null)
+      setCheckError(null)
     }
   }, [client, matchId, bankKey, booksKey])
   const needsReason = (check?.exceptions.length ?? 0) > 0
@@ -51,6 +59,7 @@ export function ManualPair({
         <ArrowLeftRight size={16} aria-hidden="true" className="pair-arrow" />
         {selection.books ? <TransactionCard t={selection.books} formats={formats} /> : <div className="txn muted">No books transaction selected</div>}
       </div>
+      {checkError && <p className="error" role="alert">{checkError}</p>}
       {check?.blocked && <p className="error" role="alert">{check.blocked}</p>}
       {check && !check.blocked && (
         <>
