@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
+  // Several tests read 600,000-row files; in parallel runs the lighter ones slow down too.
+  timeout: 60_000,
   use: {
     channel: 'chrome',
     baseURL: 'http://127.0.0.1:4175',
