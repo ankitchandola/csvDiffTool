@@ -83,6 +83,20 @@ interface Pending {
   span: Span
 }
 
+function isLineBreak(code: number): boolean {
+  return code === 10 || code === 13
+}
+
+// Where text starts and ends once leading and trailing line breaks are left out, found by
+// walking in from each end: linear however long a run of line breaks is.
+function withoutOuterLineBreaks(text: string): [number, number] {
+  let start = 0
+  let end = text.length
+  while (start < end && isLineBreak(text.charCodeAt(start))) start++
+  while (end > start && isLineBreak(text.charCodeAt(end - 1))) end--
+  return [start, end]
+}
+
 // A CRLF pair is one line break; a lone CR or LF is one too. Looks one character past end
 // so a CRLF split across two calls is counted once.
 function lineBreaks(text: string, start: number, end: number): number {
@@ -174,8 +188,8 @@ export function parseCsv(
     step(result, parser) {
       const cursor = result.meta.cursor
       const segment = input.slice(previousCursor, cursor)
-      const leading = segment.length - segment.replace(/^[\r\n]+/, '').length
-      const raw = segment.replace(/^[\r\n]+|[\r\n]+$/g, '')
+      const [leading, end] = withoutOuterLineBreaks(segment)
+      const raw = segment.slice(leading, end)
       const first = breaksBefore + lineBreaks(input, previousCursor, previousCursor + leading) + 1
       const span = { first, last: first + lineBreaks(raw, 0, raw.length) }
       breaksBefore += lineBreaks(input, previousCursor, cursor)
