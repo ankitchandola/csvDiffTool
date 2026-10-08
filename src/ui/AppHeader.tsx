@@ -68,6 +68,7 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
                 <details>
                   <summary>Balances and completion</summary>
                   <p>Enter the period and each side's opening and closing balances on the Map step. Four statuses then show what is earned: source balances validated, balance bridge complete, outstanding items reviewed (every unmatched item classified; O applies the usual classification), and reconciliation completed, which also needs no problem rows and your explicit mark. A balancing bridge alone is not completion. Any later decision or change to files, mappings, rules or balances withdraws the mark.</p>
+                  <p>At month-end, Export outstanding items saves what is still unmatched. In the next period, import that file on the Map step: its items keep their original dates, are matched against the new period's transactions, and are not counted in its movement. An optional running-balance column is checked row by row and reports the first break.</p>
                 </details>
                 <details>
                   <summary>Review decisions and keys</summary>

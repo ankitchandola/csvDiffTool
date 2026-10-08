@@ -23,6 +23,7 @@ export interface MappingDraft {
   parentheses: boolean
   reference: string
   description: string
+  balance: string
 }
 
 export function emptyDraft(): MappingDraft {
@@ -43,6 +44,7 @@ export function emptyDraft(): MappingDraft {
     parentheses: false,
     reference: '',
     description: '',
+    balance: '',
   }
 }
 
@@ -60,6 +62,7 @@ export function toMapping(draft: MappingDraft, headers: string[]): DraftOutcome 
     amountFormat: { grouped: draft.grouped, trailingMinus: draft.trailingMinus, parentheses: draft.parentheses },
     reference: draft.reference || null,
     description: draft.description || null,
+    balance: draft.balance || null,
   }
   const issues = mappingIssues(mapping, headers)
   if (draft.dateFormat === '') issues.push('Choose the date format')
@@ -80,6 +83,7 @@ export function draftFromMapping(mapping: SideMapping): MappingDraft {
     parentheses: mapping.amountFormat.parentheses,
     reference: mapping.reference ?? '',
     description: mapping.description ?? '',
+    balance: mapping.balance ?? '',
   }
   return mapping.amount.kind === 'signed'
     ? { ...draft, amountKind: 'signed', amountColumn: mapping.amount.column, positiveIs: mapping.amount.positiveIs }

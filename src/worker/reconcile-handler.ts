@@ -1,5 +1,14 @@
 import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../engine/decimal'
-import { cashBalance, computeBridge, sum } from '../reconciliation/accounting'
+import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, sum } from '../reconciliation/accounting'
+import {
+  buildOutstandingFile,
+  checkImport,
+  type OutstandingFile,
+  type OutstandingItem,
+  type OutstandingSource,
+  openingTransactions,
+  readOutstandingFile,
+} from '../reconciliation/carryforward'
 import { computeStatuses, type ReviewFacts } from '../reconciliation/statuses'
 import type { AccountingSetup } from '../reconciliation/session'
 import { DEFAULT_LIMITS, type Limits } from '../engine/limits'
@@ -41,6 +50,7 @@ import { MAX_PAGE_SIZE, type Preview, PREVIEW_ISSUES, PREVIEW_RECORDS } from './
 import { readSource } from './read-source'
 import {
   type AccountingReport,
+  type OpeningOverlap,
   type ConfirmedItem,
   type DecisionSummary,
   type Location,
@@ -81,6 +91,17 @@ async function sha256(bytes: ArrayBuffer): Promise<string> {
 interface Source {
   file: ParsedFile
   fingerprint: string
+  name: string
+}
+
+// An outstanding-items file imported as opening items.
+interface OpeningSource {
+  file: OutstandingFile
+  // SHA-256 of the file's text, hex: the key prefix of its items.
+  fingerprint: string
+  name: string
+  // Each side's items, in file order; Transaction.opening.item indexes these.
+  items: Record<ReconSide, OutstandingItem[]>
 }
 
 interface Normalized {
@@ -88,12 +109,15 @@ interface Normalized {
   context: SessionContext
   mappings: Record<ReconSide, SideMapping>
   sides: Record<ReconSide, NormalizedSide>
+  // What matching and review work on: each side's current transactions, then its opening
+  // items. Movement sums use only the current ones.
+  pool: Record<ReconSide, Transaction[]>
   // Problems grouped per source row, in row order, with zero-value rows interleaved.
   problemRows: ProblemItem[] | null
   // Lower-cased searchable text per transaction position, built on first search.
   searchTexts?: Record<ReconSide, (string | undefined)[]>
-  // Each side's transaction position by source row index.
-  positions?: Record<ReconSide, Map<number, number>>
+  // Each side's pool position by transaction key.
+  positions?: Record<ReconSide, Map<TxnKey, number>>
 }
 
 // Owns parsed sources, normalized transactions and the latest suggestions, so full data
@@ -103,6 +127,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
   const sources: Partial<Record<ReconSide, Source>> = {}
   const issues: Partial<Record<ReconSide, ParseIssue[]>> = {}
   const generations: Record<ReconSide, number> = { bank: 0, books: 0 }
+  let opening: OpeningSource[] = []
   let revision = 0
   let normalized: Normalized | null = null
   let latest: { matchId: number; revision: number; outcome: MatchOutcome; rules: MatchingRules } | null = null
@@ -148,7 +173,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     }
     const fingerprint = await sha256(bytes as ArrayBuffer)
     if (generation !== generations[side]) throw new Error('Superseded by a newer file')
-    sources[side] = { file: outcome.file, fingerprint }
+    sources[side] = { file: outcome.file, fingerprint, name: file.name }
     const { headers, rows, format, notes, skipped } = outcome.file
     return {
       ok: true,
@@ -188,20 +213,35 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return { side, recordNumber: index + 1, span: (sources[side] as Source).file.spans?.[index] ?? null }
   }
 
+  function openingItem(t: Transaction): OutstandingItem | null {
+    return t.opening ? opening[t.opening.file].items[t.side][t.opening.item] : null
+  }
+
   function keyOf(t: Transaction): TxnKey {
+    if (t.opening) return txnKey(t.side, opening[t.opening.file].fingerprint, t.opening.item + 1)
     return txnKey(t.side, (sources[t.side] as Source).fingerprint, t.index + 1)
   }
 
   function view(t: Transaction, mapping: SideMapping): TransactionView {
-    return {
+    const base = {
       key: keyOf(t),
-      ...location(t.side, t.index),
       date: isoDate(t.day),
       amount: formatDecimal(t.amount),
-      direction: t.amount.units > 0n ? 'in' : 'out',
+      direction: t.amount.units > 0n ? ('in' as const) : ('out' as const),
       reference: t.reference,
-      original: original(t.side, t.index, mapping),
     }
+    const carried = openingItem(t)
+    if (carried) {
+      return {
+        ...base,
+        side: t.side,
+        recordNumber: carried.origin.recordNumber,
+        span: null,
+        carried: { lineage: carried.lineage, fileName: carried.origin.fileName, period: carried.origin.period },
+        original: { date: carried.date, amount: [carried.amount], reference: carried.reference, description: carried.description },
+      }
+    }
+    return { ...base, ...location(t.side, t.index), original: original(t.side, t.index, mapping) }
   }
 
   function summarize(side: ReconSide, result: NormalizedSide, mapping: SideMapping): SideSummary {
@@ -234,7 +274,29 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     }
   }
 
-  function normalize({ context, mappings }: ReconRequests['normalize'], onProgress?: Reporter): ReconResults['normalize'] {
+  async function setOpening({ files }: ReconRequests['setOpening']): Promise<ReconResults['setOpening']> {
+    const read: OpeningSource[] = []
+    const errors: { name: string; message: string }[] = []
+    for (const { name, text } of files) {
+      try {
+        const file = readOutstandingFile(JSON.parse(text))
+        const fingerprint = await sha256(new TextEncoder().encode(text).buffer as ArrayBuffer)
+        const items = { bank: file.items.filter((i) => i.side === 'bank'), books: file.items.filter((i) => i.side === 'books') }
+        read.push({ file, fingerprint, name, items })
+      } catch (error) {
+        errors.push({ name, message: error instanceof SyntaxError ? 'The file is not valid JSON' : error instanceof Error ? error.message : String(error) })
+      }
+    }
+    if (errors.length > 0) return { ok: false, errors }
+    opening = read
+    invalidate()
+    return {
+      ok: true,
+      files: read.map((o) => ({ name: o.name, fingerprint: o.fingerprint, period: o.file.period, account: o.file.account, items: o.file.items.length, cleared: o.file.cleared.length })),
+    }
+  }
+
+  function normalize({ context, mappings, period }: ReconRequests['normalize'], onProgress?: Reporter): ReconResults['normalize'] {
     const found: { side: ReconSide | null; message: string }[] = contextIssues(context).map((message) => ({ side: null, message }))
     for (const side of RECON_SIDES) {
       const source = sources[side]
@@ -249,11 +311,38 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       sides[side] = normalizeSide(side, (sources[side] as Source).file, mappings[side], context)
     })
     onProgress?.('normalize', RECON_SIDES.length, RECON_SIDES.length)
-    normalized = { revision, context, mappings, sides, problemRows: null }
+
+    // Opening items are checked against this session before they join the pool.
+    const current = { bank: sides.bank.transactions, books: sides.books.transactions }
+    const imported = new Set<string>()
+    const clearedElsewhere = new Set<string>()
+    const openingErrors: { side: ReconSide | null; message: string }[] = []
+    const warnings: string[] = []
+    const overlaps: OpeningOverlap[] = []
+    if (opening.length > 0 && !period) openingErrors.push({ side: null, message: 'Enter the period before importing opening items' })
+    if (period) {
+      for (const o of opening) {
+        const check = checkImport(o.file, { context, period, imported, clearedElsewhere, current })
+        openingErrors.push(...check.errors.map((message) => ({ side: null, message: `${o.name}: ${message}` })))
+        warnings.push(...check.warnings.map((message) => `${o.name}: ${message}`))
+        overlaps.push(...check.overlaps.map((v) => ({ lineage: v.lineage, side: v.side, records: v.current.map((p) => current[v.side][p].index + 1) })))
+        for (const item of o.file.items) imported.add(item.lineage)
+        for (const lineage of o.file.cleared) clearedElsewhere.add(lineage)
+      }
+    }
+    if (openingErrors.length > 0) return { ok: false, issues: openingErrors }
+    const pool = { bank: [...current.bank], books: [...current.books] }
+    opening.forEach((o, f) => {
+      for (const side of RECON_SIDES) {
+        pool[side].push(...openingTransactions(o.file, side, context.minorUnits).map((t) => ({ ...t, opening: { file: f, item: t.index } })))
+      }
+    })
+    normalized = { revision, context, mappings, sides, pool, problemRows: null }
     return {
       ok: true,
       revision,
       sides: { bank: summarize('bank', sides.bank, mappings.bank), books: summarize('books', sides.books, mappings.books) },
+      opening: { items: { bank: pool.bank.length - current.bank.length, books: pool.books.length - current.books.length }, warnings, overlaps },
     }
   }
 
@@ -263,10 +352,10 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
   }
 
   function match({ revision: forRevision, rules }: ReconRequests['match'], onProgress?: Reporter): ReconResults['match'] {
-    const { sides } = current(forRevision)
+    const { pool, sides } = current(forRevision)
     latest = null
     onProgress?.('match', 0, 1)
-    const outcome = findCandidates(sides.bank.transactions, sides.books.transactions, rules)
+    const outcome = findCandidates(pool.bank, pool.books, rules)
     onProgress?.('match', 1, 1)
     const matchId = nextMatchId++
     latest = { matchId, revision: forRevision, outcome, rules }
@@ -280,7 +369,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       pairs: outcome.candidates.length,
       groups: outcome.groups.length,
       uniqueGroups: outcome.groups.filter((g) => g.unique).length,
-      withCandidates: per((side) => sides[side].transactions.length - outcome.noCandidate[side].length),
+      withCandidates: per((side) => pool[side].length - outcome.noCandidate[side].length),
       noCandidate: per((side) => outcome.noCandidate[side].length),
       invalid: per((side) => new Set(sides[side].problems.map((p) => p.index)).size),
       zero: per((side) => sides[side].zero.length),
@@ -330,7 +419,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
   function searchText(state: Normalized, side: ReconSide, position: number): string {
     state.searchTexts ??= { bank: [], books: [] }
     const cache = state.searchTexts[side]
-    cache[position] ??= texts(view(state.sides[side].transactions[position], state.mappings[side])).join('\u0000').toLowerCase()
+    cache[position] ??= texts(view(state.pool[side][position], state.mappings[side])).join('\u0000').toLowerCase()
     return cache[position] as string
   }
 
@@ -338,23 +427,30 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return t.amount.units > 0n ? 'in' : 'out'
   }
 
-  function positions(state: Normalized): Record<ReconSide, Map<number, number>> {
+  function positions(state: Normalized): Record<ReconSide, Map<TxnKey, number>> {
     state.positions ??= {
-      bank: new Map(state.sides.bank.transactions.map((t, position) => [t.index, position])),
-      books: new Map(state.sides.books.transactions.map((t, position) => [t.index, position])),
+      bank: new Map(state.pool.bank.map((t, position) => [keyOf(t), position])),
+      books: new Map(state.pool.books.map((t, position) => [keyOf(t), position])),
     }
     return state.positions
   }
 
   function resolve(key: TxnKey): Transaction | undefined {
     const parsed = parseTxnKey(key)
-    if (!parsed || !normalized || sources[parsed.side]?.fingerprint !== parsed.fingerprint) return undefined
-    const position = positions(normalized)[parsed.side].get(parsed.recordNumber - 1)
-    return position === undefined ? undefined : normalized.sides[parsed.side].transactions[position]
+    if (!parsed || !normalized) return undefined
+    const position = positions(normalized)[parsed.side].get(key)
+    return position === undefined ? undefined : normalized.pool[parsed.side][position]
   }
 
   function position(t: Transaction): number {
-    return positions(normalized as Normalized)[t.side].get(t.index) as number
+    return positions(normalized as Normalized)[t.side].get(keyOf(t)) as number
+  }
+
+  // A key's file is loaded: the side's source file, or an imported opening-items file.
+  function sourcePresent(key: TxnKey): boolean {
+    const parsed = parseTxnKey(key)
+    if (!parsed) return false
+    return sources[parsed.side]?.fingerprint === parsed.fingerprint || opening.some((o) => o.fingerprint === parsed.fingerprint)
   }
 
   function replayData(rules: MatchingRules): ReplayData {
@@ -365,10 +461,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         const pair = checkPair(resolve(bank), resolve(books), rules)
         return pair.blocked === null && pair.exceptions.length === 0
       },
-      sourcePresent: (key) => {
-        const parsed = parseTxnKey(key)
-        return parsed !== null && sources[parsed.side]?.fingerprint === parsed.fingerprint
-      },
+      sourcePresent,
       rules,
     }
   }
@@ -382,7 +475,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
 
   // Positions used by active matches and rejected position pairs, for fast filtering.
   function derive(state: NonNullable<typeof review>, data: Normalized) {
-    const used = { bank: new Uint8Array(data.sides.bank.transactions.length), books: new Uint8Array(data.sides.books.transactions.length) }
+    const used = { bank: new Uint8Array(data.pool.bank.length), books: new Uint8Array(data.pool.books.length) }
     for (const event of state.replay.state.active.values()) {
       used.bank[position(resolve(event.bank) as Transaction)] = 1
       used.books[position(resolve(event.books) as Transaction)] = 1
@@ -405,7 +498,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
 
   function counts(state: NonNullable<typeof review>, outcome: MatchOutcome, data: Normalized): Record<ReconSide, Int32Array> {
     if (!state.counts) {
-      const result = { bank: new Int32Array(data.sides.bank.transactions.length), books: new Int32Array(data.sides.books.transactions.length) }
+      const result = { bank: new Int32Array(data.pool.bank.length), books: new Int32Array(data.pool.books.length) }
       const ok = available(state)
       for (const c of outcome.candidates) {
         if (!ok(c)) continue
@@ -441,7 +534,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       amount: formatDecimal(t.amount),
       direction: t.amount.units > 0n ? 'in' : 'out',
       reference: t.reference,
-      description: description === null ? null : (sources[t.side] as Source).file.rows[t.index][description],
+      description: t.opening ? (openingItem(t) as OutstandingItem).description : description === null ? null : (sources[t.side] as Source).file.rows[t.index][description],
     }
   }
 
@@ -463,13 +556,15 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       unique: group.unique,
       tier: c.tier,
       gap: c.gap,
-      bank: view(data.sides.bank.transactions[c.bank], data.mappings.bank),
-      books: view(data.sides.books.transactions[c.books], data.mappings.books),
+      bank: view(data.pool.bank[c.bank], data.mappings.bank),
+      books: view(data.pool.books[c.books], data.mappings.books),
       set: setKind(outcome, data, c.group),
     }
   }
 
   function descriptionOf(data: Normalized, t: Transaction): string {
+    const carried = openingItem(t)
+    if (carried) return (carried.description ?? '').trim()
     const column = data.mappings[t.side].description
     return column === null ? '' : (sources[t.side] as Source).file.rows[t.index][column].trim()
   }
@@ -481,7 +576,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     let kind: SetKind | null = null
     if (!group.unique) {
       const same = (side: ReconSide, positions: number[]) => {
-        const all = positions.map((p) => data.sides[side].transactions[p])
+        const all = positions.map((p) => data.pool[side][p])
         const first = all[0]
         const fields = all.every((t) => t.day === first.day && t.amount.units === first.amount.units && t.reference === first.reference)
         const descriptions = all.every((t) => descriptionOf(data, t) === descriptionOf(data, first))
@@ -503,7 +598,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     const open = (side: ReconSide, positions: number[]) =>
       positions
         .filter((p) => !state.used[side][p])
-        .map((p) => data.sides[side].transactions[p])
+        .map((p) => data.pool[side][p])
         .sort((a, b) => a.index - b.index)
     const bank = open('bank', members.bank)
     const books = open('books', members.books)
@@ -584,10 +679,37 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return { balances, errors }
   }
 
+  // Walks the side's rows in file order; a row without a valid amount stops the check.
+  function runningBalance(data: Normalized, side: ReconSide, opening: Decimal | null, basis: BalanceBasis): RunningBalanceCheck | null {
+    const column = data.mappings[side].balance
+    if (column === null || opening === null) return null
+    const { minorUnits } = data.context
+    const amounts = new Map(data.sides[side].transactions.map((t) => [t.index, t.amount]))
+    const zero = new Set(data.sides[side].zero)
+    const rows = (sources[side] as Source).file.rows.map((row, index) => {
+      const amount = amounts.get(index) ?? (zero.has(index) ? { units: 0n, scale: minorUnits } : null)
+      const parsed = parseDecimal(row[column].trim(), data.mappings[side].amountFormat)
+      const scaled = parsed && toScale(parsed, minorUnits)
+      return { amount, balance: scaled ? cashBalance(scaled, basis) : null }
+    })
+    return checkRunningBalance(opening, rows)
+  }
+
+  function runningIssue(side: ReconSide, check: RunningBalanceCheck | null): string | null {
+    const name = side === 'bank' ? 'Bank' : 'Books'
+    if (check?.status === 'break') {
+      return `${name}: the running balance breaks at record ${check.first.row} (expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)})`
+    }
+    if (check?.status === 'unreadable') return `${name}: the running balance can't be checked past record ${check.row}`
+    return null
+  }
+
   function report(run: NonNullable<typeof latest>, data: Normalized, state: NonNullable<typeof review>, setup: AccountingSetup, basis: string): AccountingReport {
     const { balances, errors } = statedBalances(setup, data.context.minorUnits)
     const amounts = (ts: Transaction[]) => ts.map((t) => t.amount)
-    const unmatched = (side: ReconSide) => data.sides[side].transactions.filter((_, p) => !state.used[side][p])
+    const unmatched = (side: ReconSide) => data.pool[side].filter((t, p) => !t.opening && !state.used[side][p])
+    const openingAll = (side: ReconSide) => data.pool[side].filter((t) => t.opening)
+    const openingRemaining = (side: ReconSide) => data.pool[side].filter((t, p) => t.opening && !state.used[side][p])
     const invalid = (side: ReconSide) => new Set(data.sides[side].problems.map((p) => p.index)).size
     const movement = { bank: sum(amounts(data.sides.bank.transactions)), books: sum(amounts(data.sides.books.transactions)) }
     const confirmed = [...state.replay.state.active.values()]
@@ -597,22 +719,52 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         bank: { balances: balances.bank, movement: movement.bank, invalidRows: invalid('bank') },
         books: { balances: balances.books, movement: movement.books, invalidRows: invalid('books') },
       },
-      openingAll: { bank: [], books: [] },
-      openingRemaining: { bank: [], books: [] },
+      openingAll: { bank: amounts(openingAll('bank')), books: amounts(openingAll('books')) },
+      openingRemaining: { bank: amounts(openingRemaining('bank')), books: amounts(openingRemaining('books')) },
       unmatched: { bank: amounts(unmatched('bank')), books: amounts(unmatched('books')) },
       confirmedDifferences: differences,
       incompleteSearch: run.outcome.incomplete !== null,
     })
     const classifications = state.replay.state.classifications
-    const unclassified = RECON_SIDES.reduce((n, side) => n + unmatched(side).filter((t) => !classifications.has(keyOf(t))).length, 0)
+    // Remaining opening items need a classification as much as unmatched movements do.
+    const unclassified = RECON_SIDES.reduce((n, side) => n + [...unmatched(side), ...openingRemaining(side)].filter((t) => !classifications.has(keyOf(t))).length, 0)
     const completion = state.replay.state.completion
+    const running = {
+      bank: runningBalance(data, 'bank', balances.bank.opening, setup.balances.bank.basis),
+      books: runningBalance(data, 'books', balances.books.opening, setup.balances.books.basis),
+    }
     const facts: ReviewFacts = {
       unclassified,
       problems: invalid('bank') + invalid('books'),
+      sourceIssues: RECON_SIDES.map((side) => runningIssue(side, running[side])).filter((issue): issue is string => issue !== null),
       unexplainedVariances: confirmed.filter((event, i) => differences[i].units !== 0n && !event.reason?.trim()).length,
       completion: { marked: completion !== null, current: completion !== null && completion.seq === state.replay.state.lastSeq && completion.basis === basis },
     }
-    return { bridge, statuses: computeStatuses(bridge, facts), balances, balanceErrors: errors, movement, facts }
+    return { bridge, statuses: computeStatuses(bridge, facts), balances, balanceErrors: errors, movement, facts, running }
+  }
+
+  function exportOutstanding({ matchId, sessionId, period, exportedAt }: ReconRequests['exportOutstanding']): ReconResults['exportOutstanding'] {
+    const { normalized: data, review: state } = currentReview(matchId)
+    const outstanding: OutstandingSource[] = []
+    const cleared: string[] = []
+    for (const side of RECON_SIDES) {
+      data.pool[side].forEach((t, p) => {
+        const carried = openingItem(t)
+        if (state.used[side][p]) {
+          if (carried) cleared.push(carried.lineage)
+          return
+        }
+        const source = sources[side] as Source
+        outstanding.push({
+          transaction: t,
+          description: carried ? carried.description : descriptionOf(data, t) || null,
+          carried,
+          provenance: carried ? carried.origin : { sessionId, period, fileName: source.name, fingerprint: source.fingerprint, recordNumber: t.index + 1 },
+        })
+      })
+    }
+    const file = buildOutstandingFile({ sessionId, context: data.context, period, outstanding, cleared, exportedAt })
+    return { text: JSON.stringify(file, null, 2), items: file.items.length, cleared: cleared.length }
   }
 
   function accounting({ matchId, setup, basis }: ReconRequests['accounting']): ReconResults['accounting'] {
@@ -642,7 +794,25 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
     return keys.map((key) => {
       const t = resolve(key)
       if (!t) return null
-      const file = (sources[t.side] as Source).file
+      const carried = openingItem(t)
+      const row = carried
+        ? {
+            headers: ['Lineage', 'Original date', 'Amount', 'Reference', 'Description', 'First left outstanding in', 'Record', 'Period'],
+            values: [
+              carried.lineage,
+              carried.date,
+              carried.amount,
+              carried.reference ?? '',
+              carried.description ?? '',
+              carried.origin.fileName,
+              String(carried.origin.recordNumber),
+              `${carried.origin.period.start} to ${carried.origin.period.end}`,
+            ],
+          }
+        : (() => {
+            const file = (sources[t.side] as Source).file
+            return { headers: file.headers, values: file.headers.map((h) => file.rows[t.index][h]) }
+          })()
       const own = position(t)
       const otherSide: ReconSide = t.side === 'bank' ? 'books' : 'bank'
       const partnerKey = t.side === 'bank' ? state.replay.state.bankMatch.get(key) : state.replay.state.booksMatch.get(key)
@@ -653,8 +823,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       for (const e of state.replay.state.rejected.values()) if (e.bank === key || e.books === key) rejectedPairs++
       return {
         view: view(t, data.mappings[t.side]),
-        headers: file.headers,
-        values: file.headers.map((h) => file.rows[t.index][h]),
+        ...row,
         match: partner && event ? { other: view(partner, data.mappings[otherSide]), event } : null,
         alternatives: involving.slice(0, ALTERNATIVES).map((c) => suggestionItem(run.outcome, data, c)),
         alternativesTotal: involving.length,
@@ -702,7 +871,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
   function getReview({ matchId, tab, offset, limit, search, direction }: ReconRequests['getReview']): ReconResults['getReview'] {
     const { latest: run, normalized: data, review: state } = currentReview(matchId)
     const { outcome } = run
-    const { sides, mappings } = data
+    const { pool, mappings } = data
     const [start, end] = pageBounds(offset, limit)
     const needle = normaliseSearch(search)
     const filtered = <T,>(build: () => T[], keep: (item: T) => boolean): T[] =>
@@ -719,7 +888,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
           () => outcome.candidates.filter(ok),
           (c) =>
             ok(c) &&
-            isDirection(directionOf(sides.bank.transactions[c.bank])) &&
+            isDirection(directionOf(pool.bank[c.bank])) &&
             (needle === '' || searchText(data, 'bank', c.bank).includes(needle) || searchText(data, 'books', c.books).includes(needle)),
         )
         const items = all.slice(start, end).map((c) => suggestionItem(run.outcome, data, c))
@@ -740,7 +909,7 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
       case 'unmatched': {
         const per = counts(state, outcome, data)
         const all = filtered(
-          () => RECON_SIDES.flatMap((side) => sides[side].transactions.filter((_, p) => !state.used[side][p])),
+          () => RECON_SIDES.flatMap((side) => pool[side].filter((_, p) => !state.used[side][p])),
           (t) => isDirection(directionOf(t)) && (needle === '' || searchText(data, t.side, position(t)).includes(needle)),
         )
         const items = all.slice(start, end).map((t): UnmatchedItem => {
@@ -808,6 +977,10 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         return accounting(request)
       case 'markComplete':
         return markComplete(request)
+      case 'setOpening':
+        return setOpening(request)
+      case 'exportOutstanding':
+        return exportOutstanding(request)
     }
   }
 }

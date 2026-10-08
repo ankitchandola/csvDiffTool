@@ -148,6 +148,14 @@ export function MappingForm({
         optional
         onChange={(v) => set('description', v)}
       />
+      <ColumnSelect
+        label={`${title} running balance column`}
+        visibleLabel="Running balance column (optional)"
+        headers={headers}
+        value={draft.balance}
+        optional
+        onChange={(v) => set('balance', v)}
+      />
       {issues.length > 0 && (
         <ul className="mapping-issues">
           {issues.map((issue) => (

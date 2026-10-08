@@ -1,7 +1,7 @@
 import { parseDecimal } from '../engine/decimal'
 import { layoutIssues } from '../engine/parse'
 import type { BalanceBasis } from './accounting'
-import type { Period } from './carryforward'
+import { type Period, readOutstandingFile } from './carryforward'
 import { DATE_FORMATS, type DateFormat, isoDate, parseDate } from './dates'
 import {
   applyToState,
@@ -58,6 +58,14 @@ export interface SessionFile {
   events: DecisionEvent[]
   snapshots: TransactionSnapshot[]
   accounting: AccountingSetup
+  // Outstanding-items files imported as opening items, kept whole so a restored session
+  // rebuilds the same opening items with the same keys.
+  opening: OpeningFile[]
+}
+
+export interface OpeningFile {
+  name: string
+  text: string
 }
 
 // Balances as the reviewer typed them (exact decimal text), with each side's basis.
@@ -82,6 +90,21 @@ function readBalance(value: unknown, where: string): string | null {
   const text = string(value, where)
   if (parseDecimal(text) === null) fail(`${where} must be exact decimal text`)
   return text
+}
+
+function readOpening(value: unknown): OpeningFile[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) fail('opening must be a list')
+  return value.map((v, i) => {
+    const o = object(v, `opening[${i}]`)
+    const file = { name: string(o.name, `opening[${i}].name`), text: string(o.text, `opening[${i}].text`) }
+    try {
+      readOutstandingFile(JSON.parse(file.text))
+    } catch (error) {
+      fail(`opening[${i}] (${file.name}) is not a valid outstanding-items file: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    return file
+  })
 }
 
 // Absent in sessions saved before balances existed; those start with none.
@@ -178,6 +201,8 @@ function readMapping(value: unknown, where: string): SideMapping {
     },
     reference: optionalString(m.reference, `${where}.reference`),
     description: optionalString(m.description, `${where}.description`),
+    // Absent in sessions saved before running balances were mapped.
+    balance: m.balance === undefined ? null : optionalString(m.balance, `${where}.balance`),
   }
 }
 
@@ -287,6 +312,7 @@ export function readSession(value: unknown): SessionFile {
     events,
     snapshots: root.snapshots.map(readSnapshot),
     accounting: readAccounting(root.accounting),
+    opening: readOpening(root.opening),
   }
 }
 

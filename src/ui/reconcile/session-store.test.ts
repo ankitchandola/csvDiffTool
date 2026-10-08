@@ -11,6 +11,7 @@ const mapping: SideMapping = {
   amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
   reference: null,
   description: null,
+  balance: null,
 }
 const FP = 'd'.repeat(64)
 
@@ -28,6 +29,7 @@ function session(id: string, revision: number): SessionFile {
     events: [],
     snapshots: [],
     accounting: emptyAccounting(),
+    opening: [],
   }
 }
 
