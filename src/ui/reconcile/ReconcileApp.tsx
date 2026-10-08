@@ -10,6 +10,7 @@ import { setupFingerprint } from '../../reconciliation/statuses'
 import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, OpeningFileInfo, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
 import type { Activity } from '../activity'
 import { ActivityBar } from '../ActivityBar'
+import { download, errorMessage, jsonBlob } from '../browser'
 import { WORKSPACE_IDS } from '../mode'
 import { fileLabel, type FileState } from '../file-state'
 import { FilePanel } from '../FilePanel'
@@ -52,19 +53,6 @@ const SOURCE_TITLES: Record<ReconSide, { title: string; badge: string; caption: 
 type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
 
 type SourceState = FileState<SourceInfo>
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function download(content: string | Blob, fileName: string): void {
-  const url = URL.createObjectURL(typeof content === 'string' ? new Blob([content], { type: 'application/json' }) : content)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(url)
-}
 
 interface Reviewed {
   summary: MatchSummary
@@ -277,7 +265,7 @@ export function ReconcileApp() {
         setDataVersion((v) => v + 1)
       })
       .catch((error: unknown) => {
-        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: message(error), sheet } }))
+        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: errorMessage(error), sheet } }))
       })
       .finally(task.end)
   }
@@ -361,7 +349,7 @@ export function ReconcileApp() {
       setCheck({ inputs, status: 'done', value })
       return value
     } catch (error) {
-      setCheck({ inputs, status: 'error', message: error instanceof CancelledError ? 'Cancelled.' : message(error) })
+      setCheck({ inputs, status: 'error', message: error instanceof CancelledError ? 'Cancelled.' : errorMessage(error) })
       return null
     } finally {
       task.end()
@@ -381,7 +369,7 @@ export function ReconcileApp() {
       setOpeningInfo(result.files)
       setDataVersion((v) => v + 1)
     } catch (error) {
-      setOpeningErrors([message(error)])
+      setOpeningErrors([errorMessage(error)])
     }
   }
 
@@ -413,7 +401,7 @@ export function ReconcileApp() {
       setDecideError(null)
       setStep('review')
     } catch (error) {
-      setReview({ inputs, status: 'error', message: error instanceof CancelledError ? 'Cancelled.' : message(error) })
+      setReview({ inputs, status: 'error', message: error instanceof CancelledError ? 'Cancelled.' : errorMessage(error) })
     } finally {
       task.end()
     }
@@ -435,7 +423,7 @@ export function ReconcileApp() {
       setDecisionVersion((v) => v + 1)
       return null
     } catch (error) {
-      const text = message(error)
+      const text = errorMessage(error)
       setDecideError(text)
       return text
     } finally {
@@ -456,7 +444,7 @@ export function ReconcileApp() {
       setDecisionVersion((v) => v + 1)
       return null
     } catch (error) {
-      return message(error)
+      return errorMessage(error)
     } finally {
       setDeciding(false)
     }
@@ -489,7 +477,7 @@ export function ReconcileApp() {
     try {
       adopt(importSession(await file.text()), false)
     } catch (error) {
-      setSessionMessage({ kind: 'error', text: `This session file can't be used: ${message(error)}` })
+      setSessionMessage({ kind: 'error', text: `This session file can't be used: ${errorMessage(error)}` })
     }
   }
 
@@ -498,7 +486,7 @@ export function ReconcileApp() {
       const saved = await session.readSaved()
       if (saved) adopt(saved, true)
     } catch (error) {
-      setSessionMessage({ kind: 'error', text: `The session saved in this browser can't be read: ${message(error)}. Delete it to save again.` })
+      setSessionMessage({ kind: 'error', text: `The session saved in this browser can't be read: ${errorMessage(error)}. Delete it to save again.` })
     }
   }
 
@@ -552,7 +540,7 @@ export function ReconcileApp() {
           onExport={() => {
             if (!config) return
             const { text, revision } = session.exportBackup(config)
-            download(text, `reconciliation-session-r${revision}.json`)
+            download(jsonBlob(text), `reconciliation-session-r${revision}.json`)
           }}
           onImport={(file) => void importFile(file)}
           onAutosave={session.setAutosave}
@@ -788,7 +776,6 @@ export function ReconcileApp() {
               }}
               sessionId={session.id}
               revision={session.revision}
-              onDownload={download}
             />
             <ReviewView
               key={summary.matchId}

@@ -19,6 +19,7 @@ import { CancelledError, createCompareClient } from '../worker/client'
 import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
 import { type Activity, PHASE_LABELS, TASK_LABELS, type Task } from './activity'
 import { ActivityBar } from './ActivityBar'
+import { download, errorMessage, jsonBlob } from './browser'
 import { fileLabel, type FileState, sheetOf } from './file-state'
 import { valueRulesLine } from './rules-summary'
 import { FilePanel } from './FilePanel'
@@ -35,19 +36,6 @@ type Step = 'files' | 'rules' | 'results'
 type Outcome<T> = { inputs: string } & (
   { status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string }
 )
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function download(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(url)
-}
 
 function failIfLoaded(state: FileState, reason: string): FileState {
   return state.status === 'empty'
@@ -133,7 +121,7 @@ export function App() {
         setDataVersion((v) => v + 1)
       })
       .catch((error: unknown) => {
-        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: message(error), sheet } }))
+        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: errorMessage(error), sheet } }))
       })
       .finally(task.end)
   }
@@ -183,7 +171,7 @@ export function App() {
   function exportCurrentProfile() {
     const profile = validProfile()
     if (!profile) return
-    download(new Blob([exportProfile(profile)], { type: 'application/json' }), profileFileName(profile.name))
+    download(jsonBlob(exportProfile(profile)), profileFileName(profile.name))
     setProfileMessage(null)
   }
 
@@ -203,7 +191,7 @@ export function App() {
         })
       })
       .catch((error: unknown) =>
-        setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${message(error)}` }),
+        setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${errorMessage(error)}` }),
       )
   }
 
@@ -234,7 +222,7 @@ export function App() {
       })
       .catch((error: unknown) => {
         if (error instanceof CancelledError) return
-        if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: message(error) })
+        if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: errorMessage(error) })
       })
       .finally(task.end)
   }, [client, keyInputs, canCheckKeys, keyRules])
@@ -257,7 +245,7 @@ export function App() {
       })
       .catch((error: unknown) => {
         if (error instanceof CancelledError) return
-        if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'error', message: message(error) })
+        if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'error', message: errorMessage(error) })
       })
       .finally(task.end)
   }
@@ -273,7 +261,7 @@ export function App() {
       .call('export', { resultId: result.resultId, format, escapeFormulae }, task.progress)
       .then((blob) => download(blob, `${base}-${EXPORT_NAMES[format]}`))
       .catch((error: unknown) => {
-        if (!(error instanceof CancelledError)) setExportError(message(error))
+        if (!(error instanceof CancelledError)) setExportError(errorMessage(error))
       })
       .finally(task.end)
   }

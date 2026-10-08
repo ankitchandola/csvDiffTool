@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { type DecisionEvent, eventKeys, type TxnKey } from '../../reconciliation/decisions'
 import { type AccountingSetup, exportSession, type OpeningFile, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
 import type { MatchingRules, ReconSide, SessionContext, SideMapping } from '../../reconciliation/types'
+import { errorMessage } from '../browser'
 import type { StorageState } from './save-status'
 import { createLatestWriter } from './latest-writer'
 import { type SavedRef, StorageConflictError, type SessionStore } from './session-store'
@@ -15,10 +16,6 @@ export interface SessionConfig {
   sources: Record<ReconSide, SourceDescriptor>
   accounting: AccountingSetup
   opening: OpeningFile[]
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function newId(): string {
@@ -93,7 +90,7 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
         setConflict(false)
       } catch (error) {
         setConflict(error instanceof StorageConflictError)
-        setStorage({ kind: 'error', message: message(error), lastSaved: lastSaved.current?.revision ?? null })
+        setStorage({ kind: 'error', message: errorMessage(error), lastSaved: lastSaved.current?.revision ?? null })
       }
     }),
   )

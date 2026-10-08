@@ -4,6 +4,7 @@ import { type Pair, pairSet, type TxnKey } from '../../reconciliation/decisions'
 import type { ReconSide } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
 import type { SetView } from '../../worker/reconcile-protocol'
+import { errorMessage } from '../browser'
 import { count, counted } from '../format'
 import { type Formats, locationText, SIDE_LABELS } from './location'
 import { TransactionCard } from './TransactionCard'
@@ -45,7 +46,7 @@ export function SetConfirm({
         setChosen({ bank: result.bank.slice(0, size).map((v) => v.key), books: result.books.slice(0, size).map((v) => v.key) })
       })
       .catch((e: unknown) => {
-        if (live) setError(e instanceof Error ? e.message : String(e))
+        if (live) setError(errorMessage(e))
       })
     return () => {
       live = false
