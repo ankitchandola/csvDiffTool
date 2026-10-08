@@ -11,15 +11,17 @@ import { NumberField } from './NumberField'
 import { SOURCE_TITLES } from './location'
 
 function SkippedRecords({ info }: { info: SourceInfo }) {
-  const { before, after } = info.skipped
-  if (before.total + after.total === 0) return null
+  const { before, afterHeader, after } = info.skipped
+  if (before.total + afterHeader.total + after.total === 0) return null
   return (
     <details className="preview-disclosure">
       <summary>
-        Skipped {counted(before.total, 'record')} above the header and {counted(after.total, 'record')} at the end
+        Skipped {counted(before.total, 'record')} above the header{afterHeader.total > 0 && `, ${counted(afterHeader.total, 'record')} right below it`} and{' '}
+        {counted(after.total, 'record')} at the end
       </summary>
       <p className="note">Skipped records are not read as transactions or balances.</p>
       {before.items.length > 0 && <pre className="skipped">{before.items.join('\n')}</pre>}
+      {afterHeader.items.length > 0 && <pre className="skipped">{afterHeader.items.join('\n')}</pre>}
       {after.items.length > 0 && <pre className="skipped">{after.items.join('\n')}</pre>}
     </details>
   )
@@ -63,6 +65,12 @@ export function SourceFiles({
                   onCommit={(headerRecord) => onChangeReading(side, { layout: { ...draft.layout, headerRecord } })}
                 />
                 <NumberField
+                  label="Skip records after the header"
+                  value={draft.layout.skipLeading}
+                  min={0}
+                  onCommit={(skipLeading) => onChangeReading(side, { layout: { ...draft.layout, skipLeading } })}
+                />
+                <NumberField
                   label="Skip records at the end"
                   value={draft.layout.skipTrailing}
                   min={0}
@@ -83,7 +91,7 @@ export function SourceFiles({
                   />
                 </div>
               </div>
-              <p className="note">Records are counted without blank lines. Use these when account details sit above the table or totals below it.</p>
+              <p className="note">Records are counted without blank lines. Use these when account details sit above the table, an opening-balance line sits right below the header, or totals sit below it.</p>
               {state.status === 'ready' && <SkippedRecords info={state.info} />}
             </FilePanel>
           )

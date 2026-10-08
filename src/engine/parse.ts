@@ -59,15 +59,18 @@ export function headerIssues(headers: string[]): ParseIssue[] {
 export interface Layout {
   // 1-based: the header is this non-blank record.
   headerRecord: number
+  // This many non-blank records right after the header are excluded.
+  skipLeading: number
   // This many final non-blank records are excluded.
   skipTrailing: number
 }
 
-export const DEFAULT_LAYOUT: Layout = { headerRecord: 1, skipTrailing: 0 }
+export const DEFAULT_LAYOUT: Layout = { headerRecord: 1, skipLeading: 0, skipTrailing: 0 }
 
-export function layoutIssues({ headerRecord, skipTrailing }: Layout): string[] {
+export function layoutIssues({ headerRecord, skipLeading, skipTrailing }: Layout): string[] {
   const issues: string[] = []
   if (!Number.isInteger(headerRecord) || headerRecord < 1) issues.push('The header record must be a whole number of at least 1')
+  if (!Number.isInteger(skipLeading) || skipLeading < 0) issues.push('Records to skip after the header must be a whole number of at least 0')
   if (!Number.isInteger(skipTrailing) || skipTrailing < 0) issues.push('Trailing records to skip must be a whole number of at least 0')
   return issues
 }
@@ -143,14 +146,14 @@ export function parseCsv(
   layout?: Layout,
 ): ParseOutcome {
   const input = text.startsWith('\uFEFF') ? text.slice(1) : text
-  const { headerRecord, skipTrailing } = layout ?? DEFAULT_LAYOUT
+  const { headerRecord, skipLeading, skipTrailing } = layout ?? DEFAULT_LAYOUT
   let headers: string[] | null = null
   let delimiter: Delimiter = ','
   let fatal: ParseIssue[] = []
   let tooLarge = false
   const rows: Row[] = []
   const spans: Span[] = []
-  const skipped: SkippedRecords = { before: [], after: [] }
+  const skipped: SkippedRecords = { before: [], afterHeader: [], after: [] }
   const issues: ParseIssue[] = []
   const pending: Pending[] = []
   let seen = 0
@@ -218,6 +221,16 @@ export function parseCsv(
           ...headerIssues(headers),
         ]
         if (fatal.length > 0) parser.abort()
+        return
+      }
+
+      if (skipped.afterHeader.length < skipLeading) {
+        if (errors.length > 0) {
+          fatal = errors.map((e): ParseIssue => ({ kind: 'header', message: `Record ${seen}, set to be skipped after the header: ${e.message}` }))
+          parser.abort()
+          return
+        }
+        skipped.afterHeader.push(raw)
         return
       }
 

@@ -43,6 +43,7 @@ export async function parse(ws: Workspace, { side, file, delimiter, sheet, layou
       fingerprint,
       skipped: {
         before: preview(skipped?.before ?? [], PREVIEW_SKIPPED),
+        afterHeader: preview(skipped?.afterHeader ?? [], PREVIEW_SKIPPED),
         after: preview(skipped?.after ?? [], PREVIEW_SKIPPED),
       },
     },

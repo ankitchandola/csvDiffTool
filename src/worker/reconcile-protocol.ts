@@ -25,7 +25,7 @@ export interface SourceInfo extends FileInfo {
   // SHA-256 of the file's bytes, hex.
   fingerprint: string
   // Records outside the table that the layout skipped, as raw text.
-  skipped: { before: Preview<string>; after: Preview<string> }
+  skipped: { before: Preview<string>; afterHeader: Preview<string>; after: Preview<string> }
 }
 
 export type SourceResult =

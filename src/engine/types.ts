@@ -47,6 +47,8 @@ export interface Span {
 // Records outside the table that a layout excluded, as raw text.
 export interface SkippedRecords {
   before: string[]
+  // Right below the header, such as a ledger's opening-balance line.
+  afterHeader: string[]
   after: string[]
 }
 

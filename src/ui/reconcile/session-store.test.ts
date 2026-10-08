@@ -5,7 +5,7 @@ import { memorySessionStore, StorageConflictError } from './session-store'
 
 const mapping: SideMapping = {
   delimiter: ',',
-  layout: { headerRecord: 1, skipTrailing: 0 },
+  layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
   date: { column: 'date', format: 'YYYY-MM-DD', kind: 'posting' },
   amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
   amountFormat: { grouped: false, trailingMinus: false, parentheses: false },

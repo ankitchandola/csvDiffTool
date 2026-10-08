@@ -34,7 +34,7 @@ for (let i = 0; i < N; i++) {
 function mapping(format: 'DD/MM/YYYY' | 'YYYY-MM-DD', balanceColumn: string | null): SideMapping {
   return {
     delimiter: ',',
-    layout: { headerRecord: 1, skipTrailing: 0 },
+    layout: { headerRecord: 1, skipLeading: 0, skipTrailing: 0 },
     date: { column: 'date', format, kind: 'posting' },
     amount: { kind: 'signed', column: 'amount', positiveIs: 'in' },
     amountFormat: { grouped: false, trailingMinus: false, parentheses: false },
@@ -58,7 +58,7 @@ async function timed<T>(label: string, work: () => Promise<T>): Promise<T> {
 
 async function main() {
   console.log(`${cpus()[0].model}, ${Math.round(totalmem() / 2 ** 30)} GiB RAM, Node ${process.version}, ${N.toLocaleString('en-US')} rows per side`)
-  const layout = { headerRecord: 1, skipTrailing: 0 }
+  const layout = { headerRecord: 1, skipLeading: 0, skipTrailing: 0 }
   await timed('read bank', () => call('parse', { side: 'bank', file: new File([bank.join('\n')], 'bank.csv'), delimiter: ',', layout }))
   await timed('read books', () => call('parse', { side: 'books', file: new File([books.join('\n')], 'books.csv'), delimiter: ',', layout }))
   const context = { account: '', currency: 'INR', minorUnits: 2 }
