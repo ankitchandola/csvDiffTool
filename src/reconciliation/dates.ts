@@ -1,4 +1,4 @@
-export const DATE_FORMATS = ['YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD.MM.YYYY', 'MM/DD/YYYY', 'MM-DD-YYYY', 'DD-Mon-YYYY'] as const
+export const DATE_FORMATS = ['YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD.MM.YYYY', 'MM/DD/YYYY', 'MM-DD-YYYY', 'DD-Mon-YYYY', 'DD Mon YYYY', 'DD/MM/YY', 'DD-MM-YY', 'DD-Mon-YY', 'MM/DD/YY'] as const
 
 export type DateFormat = (typeof DATE_FORMATS)[number]
 
@@ -10,6 +10,8 @@ interface Pattern {
   order: Order
   separator: string
   namedMonth?: boolean
+  // Two-digit years, read as 2000 to 2099.
+  shortYear?: boolean
 }
 
 const PATTERNS: Record<DateFormat, Pattern> = {
@@ -20,7 +22,15 @@ const PATTERNS: Record<DateFormat, Pattern> = {
   'MM/DD/YYYY': { order: 'mdy', separator: '/' },
   'MM-DD-YYYY': { order: 'mdy', separator: '-' },
   'DD-Mon-YYYY': { order: 'dmy', separator: '-', namedMonth: true },
+  'DD Mon YYYY': { order: 'dmy', separator: ' ', namedMonth: true },
+  'DD/MM/YY': { order: 'dmy', separator: '/', shortYear: true },
+  'DD-MM-YY': { order: 'dmy', separator: '-', shortYear: true },
+  'DD-Mon-YY': { order: 'dmy', separator: '-', namedMonth: true, shortYear: true },
+  'MM/DD/YY': { order: 'mdy', separator: '/', shortYear: true },
 }
+
+// The two-digit-year format to suggest when a four-digit one meets "01/09/26".
+const SHORT_YEAR_OF: Partial<Record<DateFormat, DateFormat>> = { 'DD/MM/YYYY': 'DD/MM/YY', 'DD-MM-YYYY': 'DD-MM-YY', 'DD-Mon-YYYY': 'DD-Mon-YY', 'MM/DD/YYYY': 'MM/DD/YY' }
 
 export type DateOutcome = { ok: true; day: number } | { ok: false; message: string }
 
@@ -63,20 +73,22 @@ function isDigits(text: string, min: number, max: number): boolean {
 }
 
 // Strict: the text must fit the declared format exactly. Day and month may omit a leading
-// zero; years must have four digits, since there is no century rule to expand two.
+// zero. A four-digit-year format never guesses a century for two digits; the two-digit
+// formats read them as 20YY, since a statement being reconciled is from this century.
 export function parseDate(raw: string, format: DateFormat): DateOutcome {
   const text = raw.trim()
-  const { order, separator, namedMonth } = PATTERNS[format]
+  const { order, separator, namedMonth, shortYear } = PATTERNS[format]
   const misfit: DateOutcome = { ok: false, message: `"${raw}" is not a ${format} date` }
   if (text === '') return { ok: false, message: 'The date is empty' }
   const parts = text.split(separator)
   if (parts.length !== 3) return misfit
   const [a, b, c] = parts
   const [yearText, monthText, dayText] = order === 'ymd' ? [a, b, c] : order === 'dmy' ? [c, b, a] : [c, a, b]
-  if (isDigits(yearText, 2, 2)) {
-    return { ok: false, message: `"${raw}" has a two-digit year; only four-digit years are read` }
+  if (!shortYear && isDigits(yearText, 2, 2)) {
+    const short = SHORT_YEAR_OF[format]
+    return { ok: false, message: `"${raw}" has a two-digit year${short ? `; choose the ${short} format to read it as 20${yearText}` : ''}` }
   }
-  if (!isDigits(yearText, 4, 4) || !isDigits(dayText, 1, 2)) return misfit
+  if (!isDigits(yearText, shortYear ? 2 : 4, shortYear ? 2 : 4) || !isDigits(dayText, 1, 2)) return misfit
   let month: number
   if (namedMonth) {
     month = MONTHS.indexOf(monthText.toLowerCase()) + 1
@@ -85,7 +97,7 @@ export function parseDate(raw: string, format: DateFormat): DateOutcome {
     if (!isDigits(monthText, 1, 2)) return misfit
     month = Number(monthText)
   }
-  const year = Number(yearText)
+  const year = shortYear ? 2000 + Number(yearText) : Number(yearText)
   const day = Number(dayText)
   if (year < 1 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
     return { ok: false, message: `"${raw}" is not a real date` }

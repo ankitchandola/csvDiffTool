@@ -59,7 +59,7 @@ export function MappingForm({
           label={`${title} date format`}
           value={draft.dateFormat}
           onChange={(v) => set('dateFormat', v)}
-          options={[{ value: '', label: 'Choose a format' }, ...DATE_FORMATS.map((f) => ({ value: f, label: f }))]}
+          options={[{ value: '', label: 'Choose a format' }, ...DATE_FORMATS.map((f) => ({ value: f, label: f.endsWith('YYYY') || f.startsWith('YYYY') ? f : `${f} (26 is 2026)` }))]}
         />
       </div>
       <div className="field">
