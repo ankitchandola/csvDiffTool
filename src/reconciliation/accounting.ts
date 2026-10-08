@@ -1,5 +1,6 @@
 import { addDecimal, compareDecimal, type Decimal, negateDecimal, subtractDecimal } from '../engine/decimal'
-import type { ReconSide } from './types'
+import { SIDE_LABELS } from './location'
+import { RECON_SIDES, type ReconSide } from './types'
 
 const ZERO: Decimal = { units: 0n, scale: 0 }
 
@@ -105,18 +106,18 @@ export interface Bridge {
   gaps: string[]
 }
 
-const SIDE_NAMES: Record<ReconSide, string> = { bank: 'Bank', books: 'Books' }
+// Why a side's balances don't validate, in plain words; null once they do.
+export function sourceGap(side: ReconSide, check: SourceCheck): string | null {
+  if (check.status === 'missing-balances') return `${SIDE_LABELS[side]}: opening and closing balances are needed`
+  if (check.status === 'invalid-rows') return `${SIDE_LABELS[side]}: ${check.invalidRows} invalid row${check.invalidRows === 1 ? '' : 's'} have no trustworthy amount`
+  if (check.status === 'mismatch') return `${SIDE_LABELS[side]}: opening plus movements does not equal the closing balance`
+  return null
+}
 
 export function computeBridge(input: BridgeInput): Bridge {
   const { sides } = input
   const source = { bank: checkSource(sides.bank), books: checkSource(sides.books) }
-  const gaps: string[] = []
-  for (const side of ['bank', 'books'] as const) {
-    const check = source[side]
-    if (check.status === 'missing-balances') gaps.push(`${SIDE_NAMES[side]}: opening and closing balances are needed`)
-    if (check.status === 'invalid-rows') gaps.push(`${SIDE_NAMES[side]}: ${check.invalidRows} invalid row${check.invalidRows === 1 ? '' : 's'} have no trustworthy amount`)
-    if (check.status === 'mismatch') gaps.push(`${SIDE_NAMES[side]}: opening plus movements does not equal the closing balance`)
-  }
+  const gaps = RECON_SIDES.map((side) => sourceGap(side, source[side])).filter((gap) => gap !== null)
 
   const openingBank = sides.bank.balances.opening
   const openingBooks = sides.books.balances.opening

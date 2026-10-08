@@ -1,4 +1,5 @@
-import type { Bridge } from './accounting'
+import { type Bridge, sourceGap } from './accounting'
+import { RECON_SIDES } from './types'
 
 export interface ReviewFacts {
   // Remaining unmatched movements and opening items the reviewer has not classified.
@@ -41,7 +42,7 @@ function plural(n: number, one: string, many: string): string {
 // balances whether or not anyone reviewed anything. Completion therefore also needs every
 // outstanding item classified, no problems, explained variances and the reviewer's mark.
 export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
-  const sourceReasons = [...bridge.gaps.filter((gap) => gap.startsWith('Bank:') || gap.startsWith('Books:')), ...facts.sourceIssues]
+  const sourceReasons = [...RECON_SIDES.map((side) => sourceGap(side, bridge.source[side])).filter((gap) => gap !== null), ...facts.sourceIssues]
   const sourcesValidated = status(sourceReasons)
   const bridgeComplete = status(bridge.complete ? [] : bridge.gaps.length > 0 ? bridge.gaps : ['The bridge is not computed yet'])
   const outstandingReviewed = status(facts.unclassified > 0 ? [`${plural(facts.unclassified, 'unmatched item is', 'unmatched items are')} not classified`] : [])
