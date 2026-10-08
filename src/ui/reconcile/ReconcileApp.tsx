@@ -7,24 +7,26 @@ import { CancelledError, createReconcileClient } from '../../worker/client'
 import type { Pair } from '../../reconciliation/decisions'
 import { type AccountingSetup, emptyAccounting, importSession, type OpeningFile, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
 import { setupFingerprint } from '../../reconciliation/statuses'
-import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, OpeningFileInfo, ReconPhase, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
+import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, OpeningFileInfo, ReconPhase, SourceInfo } from '../../worker/reconcile-protocol'
 import { ActivityBar } from '../ActivityBar'
 import { download, errorMessage, jsonBlob } from '../browser'
 import { WORKSPACE_IDS } from '../mode'
 import { fileLabel, type FileState, sheetOf } from '../file-state'
-import { FilePanel } from '../FilePanel'
-import { count, counted, formatValue } from '../format'
-import { Select } from '../Select'
 import { useActivity } from '../use-activity'
 import { AccountingFields } from './AccountingFields'
+import { ContextFields } from './ContextFields'
 import { OpeningPanel } from './OpeningPanel'
 import { StatusPanel } from './StatusPanel'
 import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
+import { MappingCheck } from './MappingCheck'
 import { MappingForm } from './MappingForm'
-import { NumberField } from './NumberField'
-import { type Formats, locationText, SIDE_LABELS } from './location'
+import { MatchingFields } from './MatchingFields'
+import { type Formats, SOURCE_TITLES } from './location'
 import { ReviewView } from './ReviewView'
 import { SessionBar } from './SessionBar'
+import { SourceCheck } from './SourceCheck'
+import { SourceFiles } from './SourceFiles'
+import { SuggestionSummary } from './SuggestionSummary'
 import { indexedDbSessionStore } from './session-store'
 import { type SessionConfig, useSession } from './use-session'
 
@@ -45,11 +47,6 @@ const PHASE_LABELS: Record<ReconPhase, string> = {
   match: 'searching for pairs',
 }
 
-const SOURCE_TITLES: Record<ReconSide, { title: string; badge: string; caption: string }> = {
-  bank: { title: 'Bank statement', badge: 'B', caption: 'From the bank' },
-  books: { title: 'Books', badge: 'L', caption: 'Your ledger' },
-}
-
 type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
 
 type SourceState = FileState<SourceInfo>
@@ -59,132 +56,11 @@ interface Reviewed {
   decisions: DecisionSummary
 }
 
-function SourceCheck({ expected, files }: { expected: Record<ReconSide, SourceDescriptor>; files: Record<ReconSide, FileState<SourceInfo>> }) {
-  const status = RECON_SIDES.map((side) => {
-    const state = files[side]
-    const loaded = state.status === 'ready' ? state.info.fingerprint : null
-    return { side, loaded, matches: loaded === expected[side].fingerprint }
-  })
-  if (status.every((s) => s.matches)) return null
-  return (
-    <div className="warning" role="status">
-      <p>The session was made from these files. Load the same files to apply its decisions; decisions about a different file will not apply.</p>
-      <ul>
-        {status.map(({ side, loaded, matches }) => (
-          <li key={side}>
-            {SIDE_LABELS[side]}: {expected[side].fileName}
-            {expected[side].sheet ? ` (sheet “${expected[side].sheet}”)` : ''} —{' '}
-            {matches ? 'loaded' : loaded ? 'a different file is loaded' : 'not loaded yet'}
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 // The worker's state is gone, so a file with problems must be read again too: its full
 // problem list lived in the worker.
 function failIfLoaded(state: SourceState, reason: string): SourceState {
   if (state.status === 'empty' || state.status === 'failed') return state
   return { status: 'failed', file: state.file, message: reason, sheet: sheetOf(state) }
-}
-
-function SkippedRecords({ info }: { info: SourceInfo }) {
-  const { before, after } = info.skipped
-  if (before.total + after.total === 0) return null
-  return (
-    <details className="preview-disclosure">
-      <summary>
-        Skipped {counted(before.total, 'record')} above the header and {counted(after.total, 'record')} at the end
-      </summary>
-      <p className="note">Skipped records are not read as transactions or balances.</p>
-      {before.items.length > 0 && <pre className="skipped">{before.items.join('\n')}</pre>}
-      {after.items.length > 0 && <pre className="skipped">{after.items.join('\n')}</pre>}
-    </details>
-  )
-}
-
-function OpeningCheck({ result }: { result: Extract<NormalizeResult, { ok: true }> }) {
-  const { items, warnings, overlaps } = result.opening
-  if (items.bank + items.books === 0) return null
-  return (
-    <div className={warnings.length > 0 ? 'warning' : 'note'}>
-      <p>
-        Opening items: {counted(items.bank, 'bank item')} and {counted(items.books, 'books item')} carried from earlier periods. They are
-        matched against this period's transactions and not counted in its movement.
-      </p>
-      {warnings.length > 0 && (
-        <ul>
-          {warnings.map((w) => (
-            <li key={w}>{w}</li>
-          ))}
-        </ul>
-      )}
-      {overlaps.length > 0 && (
-        <ul>
-          {overlaps.map((o) => (
-            <li key={o.lineage}>
-              A carried {SIDE_LABELS[o.side].toLowerCase()} item may repeat {o.records.length === 1 ? 'record' : 'records'} {o.records.join(', ')} of this
-              period's {SIDE_LABELS[o.side].toLowerCase()} file. If the export overlaps the previous period, its balances will not validate.
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
-
-function SideCheck({ side, summary, formats }: { side: ReconSide; summary: SideSummary; formats: Formats }) {
-  return (
-    <div className="side-check">
-      <h3>{SIDE_LABELS[side]}</h3>
-      <p className="key-status">
-        {counted(summary.rows, 'row')}: {count(summary.valid)} valid ({count(summary.moneyIn)} money in, {count(summary.moneyOut)} money out) ·{' '}
-        {count(summary.zero)} zero · {counted(summary.problemRows, 'row')} with problems
-      </p>
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th>Date as written</th>
-              <th>Amount as written</th>
-              <th>Date</th>
-              <th>Amount</th>
-              <th>Direction</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.sample.map((row) => (
-              <tr key={row.recordNumber} className={row.problems.length > 0 ? 'problem' : ''}>
-                <td>{locationText(row, formats)}</td>
-                <td className="mono">{formatValue(row.original.date)}</td>
-                <td className="mono">{row.original.amount.map(formatValue).join(' / ')}</td>
-                {row.normalized ? (
-                  <>
-                    <td className="mono">{row.normalized.date}</td>
-                    <td className="mono">{row.normalized.amount}</td>
-                    <td>{row.normalized.direction === 'in' ? 'Money in' : 'Money out'}</td>
-                  </>
-                ) : (
-                  <td colSpan={3}>{row.zero ? 'Zero amount: kept out of matching' : row.problems.join('; ')}</td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <strong>{value}</strong>
-      <span className="metric-label">{label}</span>
-    </div>
-  )
 }
 
 export function ReconcileApp() {
@@ -537,83 +413,18 @@ export function ReconcileApp() {
         </div>
 
         {step === 'files' && (
-          <section aria-label="Source files">
-            <div className="files">
-              {RECON_SIDES.map((side) => {
-                const state = files[side]
-                const draft = drafts[side]
-                return (
-                  <FilePanel
-                    key={side}
-                    {...SOURCE_TITLES[side]}
-                    state={state}
-                    onPick={(file, sheet) => load(side, file, draft, sheet)}
-                    onPickSheet={(sheet) => {
-                      if (state.status !== 'empty') load(side, state.file, draft, sheet)
-                    }}
-                    fetchIssues={(offset, limit) => client.call('getIssues', { side, offset, limit })}
-                  >
-                    <div className="layout-fields">
-                      <NumberField
-                        label="Header is record"
-                        value={draft.layout.headerRecord}
-                        min={1}
-                        onCommit={(headerRecord) => changeReading(side, { layout: { ...draft.layout, headerRecord } })}
-                      />
-                      <NumberField
-                        label="Skip records at the end"
-                        value={draft.layout.skipTrailing}
-                        min={0}
-                        onCommit={(skipTrailing) => changeReading(side, { layout: { ...draft.layout, skipTrailing } })}
-                      />
-                      <div className="field">
-                        <span>CSV delimiter</span>
-                        <Select<MappingDraft['delimiter']>
-                          label={`${SOURCE_TITLES[side].title} CSV delimiter`}
-                          value={draft.delimiter}
-                          onChange={(delimiter) => changeReading(side, { delimiter })}
-                          options={[
-                            { value: 'auto', label: 'Detect automatically' },
-                            { value: ',', label: 'Comma' },
-                            { value: ';', label: 'Semicolon' },
-                            { value: '\t', label: 'Tab' },
-                          ]}
-                        />
-                      </div>
-                    </div>
-                    <p className="note">Records are counted without blank lines. Use these when account details sit above the table or totals below it.</p>
-                    {state.status === 'ready' && <SkippedRecords info={state.info} />}
-                  </FilePanel>
-                )
-              })}
-            </div>
-          </section>
+          <SourceFiles
+            files={files}
+            drafts={drafts}
+            onPick={load}
+            onChangeReading={changeReading}
+            fetchIssues={(side, offset, limit) => client.call('getIssues', { side, offset, limit })}
+          />
         )}
 
         {step === 'map' && headers.bank && headers.books && (
           <section aria-label="Mapping" className="rules-panel">
-            <fieldset className="panel session-fields">
-              <legend>Account</legend>
-              <label className="field">
-                <span>Account name</span>
-                <input type="text" value={context.account} onChange={(e) => setContext({ ...context, account: e.target.value })} />
-              </label>
-              <label className="field">
-                <span>Currency</span>
-                <input type="text" value={context.currency} placeholder="INR" onChange={(e) => setContext({ ...context, currency: e.target.value.toUpperCase() })} />
-              </label>
-              <NumberField label="Decimal places" value={context.minorUnits} min={0} max={4} onCommit={(minorUnits) => setContext({ ...context, minorUnits })} />
-              <p className="note">
-                You state these; the files are not checked against them. Both files must be for this one account and currency.
-              </p>
-              {sessionIssues.length > 0 && (
-                <ul className="mapping-issues">
-                  {sessionIssues.map((issue) => (
-                    <li key={issue}>{issue}</li>
-                  ))}
-                </ul>
-              )}
-            </fieldset>
+            <ContextFields context={context} issues={sessionIssues} onChange={setContext} />
             <div className="files">
               {RECON_SIDES.map((side) => {
                 const outcome = outcomes[side]
@@ -637,34 +448,7 @@ export function ReconcileApp() {
               onAdd={(picked) => void addOpening(picked)}
               onRemove={(name) => void replaceOpening(openingFiles.filter((f) => f.name !== name))}
             />
-            <fieldset className="panel matching-fields">
-              <legend>Matching</legend>
-              <p className="note">Amounts must match exactly, with the same cash direction. Amount tolerance is not available yet.</p>
-              <NumberField label="Bank date up to this many days before books" value={rules.bankDaysBefore} min={0} max={366} onCommit={(bankDaysBefore) => setRules({ ...rules, bankDaysBefore })} />
-              <NumberField label="Bank date up to this many days after books" value={rules.bankDaysAfter} min={0} max={366} onCommit={(bankDaysAfter) => setRules({ ...rules, bankDaysAfter })} />
-              <label className="choice">
-                <input
-                  type="checkbox"
-                  checked={effectiveRules.referencesShared}
-                  disabled={!drafts.bank.reference || !drafts.books.reference}
-                  onChange={(e) => setRules({ ...rules, referencesShared: e.target.checked })}
-                />{' '}
-                Both reference columns hold the same identifier (for example a cheque number)
-              </label>
-              <label className="choice">
-                <input
-                  type="checkbox"
-                  checked={effectiveRules.referenceCaseInsensitive}
-                  disabled={!effectiveRules.referencesShared}
-                  onChange={(e) => setRules({ ...rules, referenceCaseInsensitive: e.target.checked })}
-                />{' '}
-                Ignore case when comparing references
-              </label>
-              <p className="note">
-                When references are compared, matching ones are listed first and differing ones are not suggested. Otherwise references are shown
-                for context only.
-              </p>
-            </fieldset>
+            <MatchingFields rules={rules} effective={effectiveRules} referencesMapped={bothReferences} onChange={setRules} />
 
             <div className="row">
               <button type="button" disabled={!ready || busy} onClick={() => void normalize(checkInputs)}>
@@ -673,63 +457,14 @@ export function ReconcileApp() {
               {check && !currentCheck && <span className="note">The mapping changed; check it again.</span>}
             </div>
             {currentCheck?.status === 'error' && <p className="error" role="alert">{currentCheck.message}</p>}
-            {currentCheck?.status === 'done' && !currentCheck.value.ok && (
-              <ul className="error" role="alert">
-                {currentCheck.value.issues.map((issue) => (
-                  <li key={`${issue.side}-${issue.message}`}>
-                    {issue.side ? `${SIDE_LABELS[issue.side]}: ` : ''}
-                    {issue.message}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {currentCheck?.status === 'done' && currentCheck.value.ok && (
-              <section aria-label="Mapping check" className="mapping-check">
-                <OpeningCheck result={currentCheck.value as Extract<NormalizeResult, { ok: true }>} />
-                {RECON_SIDES.map((side) => (
-                  <SideCheck key={side} side={side} summary={(currentCheck.value as Extract<NormalizeResult, { ok: true }>).sides[side]} formats={formats} />
-                ))}
-              </section>
-            )}
+            {currentCheck?.status === 'done' && <MappingCheck result={currentCheck.value} formats={formats} />}
             {currentReview?.status === 'error' && <p className="error" role="alert">{currentReview.message}</p>}
           </section>
         )}
 
         {step === 'review' && summary && (
           <section aria-label="Suggested pairs">
-            <div className="results-toolbar">
-              <div className="metric-grid">
-                <Metric label="Candidate pairs found" value={count(summary.pairs)} />
-                <Metric label="Groups" value={count(summary.groups)} />
-                <Metric label="Unique groups" value={count(summary.uniqueGroups)} />
-                <Metric label="Without a candidate" value={count(summary.noCandidate.bank + summary.noCandidate.books)} />
-              </div>
-            </div>
-            <p className="key-status">
-              {RECON_SIDES.map((side) => (
-                <span key={side} className="side-line">
-                  {SIDE_LABELS[side]}: {counted(summary.withCandidates[side], 'transaction')} with candidates, {count(summary.noCandidate[side])} without,{' '}
-                  {count(summary.invalid[side])} invalid, {count(summary.zero[side])} zero.{' '}
-                </span>
-              ))}
-            </p>
-            {summary.incomplete && (
-              <p className="warning" role="alert">
-                Incomplete search: {summary.incomplete} Transactions without a candidate may have one that was not searched.
-              </p>
-            )}
-            {summary.referenceConflicts > 0 && (
-              <p className="note">
-                {counted(summary.referenceConflicts, 'pair')} met the amount and date rules but had different references, so{' '}
-                {summary.referenceConflicts === 1 ? 'it is' : 'they are'} not suggested.
-              </p>
-            )}
-            <p className="note">
-              Rules: exact amount and direction; bank date {summary.rules.bankDaysBefore} day{summary.rules.bankDaysBefore === 1 ? '' : 's'} before to{' '}
-              {summary.rules.bankDaysAfter} day{summary.rules.bankDaysAfter === 1 ? '' : 's'} after books;{' '}
-              {summary.rules.referencesShared ? `references compared${summary.rules.referenceCaseInsensitive ? ', ignoring case' : ''}` : 'references for context only'}.
-              {' '}Account: {context.account || 'unnamed'}, {context.currency} (stated, not checked).
-            </p>
+            <SuggestionSummary summary={summary} context={context} />
             <StatusPanel
               client={client}
               matchId={summary.matchId}
