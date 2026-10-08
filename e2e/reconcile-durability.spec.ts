@@ -189,3 +189,38 @@ test('after a cancel, carried items are sent to the worker again and their decis
   await page.getByRole('tab', { name: /^Confirmed/ }).click()
   await expect(page.locator('.review-row').first()).toContainText('Carried · Books record 3 of books-sep.csv')
 })
+
+test.describe('period dates', () => {
+  test.use({ locale: 'en-IN' })
+
+  test('can be typed into the date fields, day first, and stay after leaving the step', async ({ page }) => {
+    await loadAndMap(page)
+    await page.getByLabel('Period start').focus()
+    await page.keyboard.type('01092026')
+    await page.getByLabel('Period end').focus()
+    await page.keyboard.type('30092026')
+    await expect(page.getByLabel('Period start')).toHaveValue('2026-09-01')
+    await expect(page.getByLabel('Period end')).toHaveValue('2026-09-30')
+    await page.getByRole('button', { name: 'Back to files' }).click()
+    await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+    await expect(page.getByLabel('Period start')).toHaveValue('2026-09-01')
+    await expect(page.getByLabel('Period end')).toHaveValue('2026-09-30')
+  })
+
+  test('a half-entered period is shown, flagged, and kept out of the saved session', async ({ page }) => {
+    await loadAndMap(page)
+    await page.getByLabel('Period start').fill('2026-09-01')
+    await expect(page.getByText('Enter both the start and the end of the period.')).toBeVisible()
+    await findSuggestions(page)
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export session backup' }).click()
+    const chunks: Buffer[] = []
+    for await (const chunk of await (await download).createReadStream()) chunks.push(Buffer.from(chunk))
+    const text = Buffer.concat(chunks).toString()
+    expect(JSON.parse(text).accounting.period).toBeNull()
+    await page.reload()
+    await page.getByRole('button', { name: /Reconcile/ }).click()
+    await page.getByLabel('Import session file').setInputFiles({ name: 's.json', mimeType: 'application/json', buffer: Buffer.from(text) })
+    await expect(page.getByText(/Loaded a session/)).toBeVisible()
+  })
+})
