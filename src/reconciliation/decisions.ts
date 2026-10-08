@@ -9,10 +9,17 @@ export function txnKey(side: ReconSide, fingerprint: string, recordNumber: numbe
   return `${side}|${fingerprint}|${recordNumber}`
 }
 
+// A SHA-256 digest as lower-case hex: exactly 64 characters from 0-9 and a-f.
+export function isSha256Hex(text: string): boolean {
+  if (text.length !== 64) return false
+  for (const ch of text) if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) return false
+  return true
+}
+
 export function parseTxnKey(key: TxnKey): { side: ReconSide; fingerprint: string; recordNumber: number } | null {
   const [side, fingerprint, record] = key.split('|')
   const recordNumber = Number(record)
-  if ((side !== 'bank' && side !== 'books') || !/^[0-9a-f]{64}$/.test(fingerprint ?? '') || !Number.isInteger(recordNumber) || recordNumber < 1) {
+  if ((side !== 'bank' && side !== 'books') || !isSha256Hex(fingerprint ?? '') || !Number.isInteger(recordNumber) || recordNumber < 1) {
     return null
   }
   return { side, fingerprint, recordNumber }

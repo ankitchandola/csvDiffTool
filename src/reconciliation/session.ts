@@ -9,6 +9,7 @@ import {
   type ClassifyEvent,
   type DecisionEvent,
   emptyState,
+  isSha256Hex,
   type PairEvent,
   parseTxnKey,
   type RuleException,
@@ -209,7 +210,7 @@ function readMapping(value: unknown, where: string): SideMapping {
 function readSource(value: unknown, where: string): SourceDescriptor {
   const s = object(value, where)
   const fingerprint = string(s.fingerprint, `${where}.fingerprint`)
-  if (!/^[0-9a-f]{64}$/.test(fingerprint)) fail(`${where}.fingerprint must be a SHA-256 hex digest`)
+  if (!isSha256Hex(fingerprint)) fail(`${where}.fingerprint must be a SHA-256 hex digest`)
   return { fileName: string(s.fileName, `${where}.fileName`), fingerprint, sheet: optionalString(s.sheet, `${where}.sheet`), recordCount: integer(s.recordCount, `${where}.recordCount`, 0) }
 }
 

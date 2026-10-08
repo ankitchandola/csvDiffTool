@@ -57,7 +57,9 @@ export function isoDate(dayNumberValue: number): string {
 }
 
 function isDigits(text: string, min: number, max: number): boolean {
-  return text.length >= min && text.length <= max && /^[0-9]+$/.test(text)
+  if (text.length < min || text.length > max) return false
+  for (const ch of text) if (ch < '0' || ch > '9') return false
+  return true
 }
 
 // Strict: the text must fit the declared format exactly. Day and month may omit a leading

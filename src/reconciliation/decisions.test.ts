@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkDecision, checkPair, edgeKey, type PairEvent, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
+import { checkDecision, checkPair, edgeKey, isSha256Hex, type PairEvent, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
 import { DEFAULT_MATCHING, type Transaction } from './types'
 
 const FP_BANK = 'a'.repeat(64)
@@ -34,6 +34,15 @@ let seq = 0
 function ev(action: PairEvent['action'], bank: string, books: string, extra: Partial<PairEvent> = {}): PairEvent {
   return { seq: ++seq, at: '2026-10-07T00:00:00Z', action, bank, books, ...(action === 'confirm' ? { origin: 'suggested' as const } : {}), ...extra }
 }
+
+describe('isSha256Hex', () => {
+  it('accepts exactly 64 lower-case hex characters', () => {
+    expect(isSha256Hex('0123456789abcdef'.repeat(4))).toBe(true)
+    expect(isSha256Hex('0123456789ABCDEF'.repeat(4))).toBe(false)
+    expect(isSha256Hex('a'.repeat(63))).toBe(false)
+    expect(isSha256Hex('g'.repeat(64))).toBe(false)
+  })
+})
 
 describe('transaction keys', () => {
   it('round-trip and reject malformed keys', () => {
