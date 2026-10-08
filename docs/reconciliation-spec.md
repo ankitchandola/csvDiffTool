@@ -1027,7 +1027,7 @@ passed; `npm run test:ui` 33 passed in each of two repeated runs (Chrome).
 
 Not yet: reports (milestone 4d, below) and the milestone 3 durability checks.
 
-### Milestone 4d: reports (not yet on `main`)
+### Milestone 4d: reports (on `main` through PR #12)
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -1041,6 +1041,26 @@ passed; `npm run test:ui` 33 passed in each of two repeated runs (Chrome).
 Milestone 4 is then complete in code. Before it ships: the milestone 3 durability
 checks (cancellation recovery, simultaneous tabs, storage failures, realistic session
 sizes) and the owner's milestone 4 browser run.
+
+### Milestone 3 durability checks (not yet on `main`)
+
+The checks named as a condition for shipping milestone 4.
+
+| Check | Result | Where |
+| --- | --- | --- |
+| Storage failure: a write refused for quota | "Not saved: The quota has been exceeded." stays visible with the reload warning; a backup export still protects the decisions | `e2e/reconcile-durability.spec.ts` |
+| No IndexedDB | No saving option; never claims to save; backups available | same |
+| Corrupted saved session | Resume reports it can't be read and offers deletion, which works | same |
+| Two tabs saving at the same moment | One saves; the other is refused with "a newer revision is saved", resumes, and gets the saved tab's decisions | same |
+| A file picked while a resume is still reading browser storage | Found a bug: the file was read with the old layout and not re-read. Fixed by re-reading the files loaded when the resume finishes; the test slows storage reads so the race always happens, and fails without the fix | same, `ReconcileApp.tsx` |
+| Cancel with carried-forward items | Opening items are sent to the worker again and their confirmed match still applies after the files are read again | same |
+| Realistic session sizes | Measured to 50,000 decisions (see [Reconcile sessions in the browser](benchmarks.md#reconcile-sessions-in-the-browser)). Found and fixed two slowdowns: the decision history redrawn on every decision, and one full save per decision | `ReviewView.tsx`, `latest-writer.ts` |
+
+Checks run locally: `npm test` 434 passed; `npm run lint` clean; `npm run build`
+passed; `npm run test:ui` 39 passed in each of two repeated runs (Chrome).
+
+Not verified: real storage quotas (the test simulates the error), browsers other than
+Chrome, private browsing modes, and devices with less memory.
 
 ### Not implemented in this snapshot
 
