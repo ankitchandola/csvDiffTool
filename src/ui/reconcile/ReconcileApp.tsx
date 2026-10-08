@@ -7,8 +7,7 @@ import { CancelledError, createReconcileClient } from '../../worker/client'
 import type { Pair } from '../../reconciliation/decisions'
 import { type AccountingSetup, emptyAccounting, importSession, type OpeningFile, type SessionFile, type SourceDescriptor } from '../../reconciliation/session'
 import { setupFingerprint } from '../../reconciliation/statuses'
-import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, OpeningFileInfo, ReconPhase, ReconProgress, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
-import type { Activity } from '../activity'
+import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, OpeningFileInfo, ReconPhase, SideSummary, SourceInfo } from '../../worker/reconcile-protocol'
 import { ActivityBar } from '../ActivityBar'
 import { download, errorMessage, jsonBlob } from '../browser'
 import { WORKSPACE_IDS } from '../mode'
@@ -16,6 +15,7 @@ import { fileLabel, type FileState } from '../file-state'
 import { FilePanel } from '../FilePanel'
 import { count, counted, formatValue } from '../format'
 import { Select } from '../Select'
+import { useActivity } from '../use-activity'
 import { AccountingFields } from './AccountingFields'
 import { OpeningPanel } from './OpeningPanel'
 import { StatusPanel } from './StatusPanel'
@@ -213,8 +213,7 @@ export function ReconcileApp() {
   const [decideError, setDecideError] = useState<string | null>(null)
   const [sessionMessage, setSessionMessage] = useState<{ kind: 'error' | 'info'; text: string } | null>(null)
   const [store] = useState(indexedDbSessionStore)
-  const [activity, setActivity] = useState<Activity<Task, ReconPhase>>({})
-  const activityTokens = useRef<Partial<Record<Task, number>>>({})
+  const { activity, track, clear: clearActivity } = useActivity<Task, ReconPhase>()
   const loadTokens = useRef<Record<ReconSide, number>>({ bank: 0, books: 0 })
   const [client] = useState(() =>
     createReconcileClient((reason) => {
@@ -223,28 +222,6 @@ export function ReconcileApp() {
     }),
   )
   useEffect(() => () => client.terminate(), [client])
-
-  function track(task: Task) {
-    const token = (activityTokens.current[task] ?? 0) + 1
-    activityTokens.current[task] = token
-    const live = () => activityTokens.current[task] === token
-    return {
-      show: () => {
-        if (live()) setActivity((a) => ({ ...a, [task]: a[task] ?? null }))
-      },
-      progress: (p: ReconProgress) => {
-        if (live()) setActivity((a) => ({ ...a, [task]: p }))
-      },
-      end: () => {
-        if (!live()) return
-        setActivity((a) => {
-          const next = { ...a }
-          delete next[task]
-          return next
-        })
-      },
-    }
-  }
 
   function load(side: ReconSide, file: File, draft: MappingDraft, sheet?: string) {
     setStep('files')
@@ -492,8 +469,7 @@ export function ReconcileApp() {
 
   function cancel() {
     client.cancel()
-    activityTokens.current = {}
-    setActivity({})
+    clearActivity()
     setFiles((prev) => ({ bank: failIfLoaded(prev.bank, 'Cancelled.'), books: failIfLoaded(prev.books, 'Cancelled.') }))
     setDataVersion((v) => v + 1)
   }

@@ -4,7 +4,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
-import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
+import type { CompareProfile, KeyRules, ParseRules, Phase, Side, ValueRules } from '../engine/types'
 import {
   exportProfile,
   importProfile,
@@ -16,12 +16,13 @@ import {
 } from '../profiles/profile'
 import { browserStorage, createProfileStore } from '../profiles/store'
 import { CancelledError, createCompareClient } from '../worker/client'
-import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
-import { type Activity, PHASE_LABELS, TASK_LABELS, type Task } from './activity'
+import type { CompareResult, ExportFormat, KeyReport } from '../worker/protocol'
+import { PHASE_LABELS, TASK_LABELS, type Task } from './activity'
 import { ActivityBar } from './ActivityBar'
 import { download, errorMessage, jsonBlob } from './browser'
 import { fileLabel, type FileState, sheetOf } from './file-state'
 import { valueRulesLine } from './rules-summary'
+import { useActivity } from './use-activity'
 import { FilePanel } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
@@ -64,9 +65,8 @@ export function App() {
   const [savedProfiles, setSavedProfiles] = useState(() => profileStore.list())
   const [profileName, setProfileName] = useState('')
   const [profileMessage, setProfileMessage] = useState<ProfileMessage | null>(null)
-  const [activity, setActivity] = useState<Activity>({})
+  const { activity, track, clear: clearActivity } = useActivity<Task, Phase>()
   const [exportError, setExportError] = useState<string | null>(null)
-  const activityTokens = useRef<Partial<Record<Task, number>>>({})
   const [client] = useState(() =>
     createCompareClient((reason) => {
       setFiles((prev) => ({ old: failIfLoaded(prev.old, reason), new: failIfLoaded(prev.new, reason) }))
@@ -77,30 +77,6 @@ export function App() {
   const loadTokens = useRef<Record<Side, number>>({ old: 0, new: 0 })
   const latestKeyInputs = useRef('')
   const latestCompareInputs = useRef('')
-
-  // Only the latest run of a task may update or clear its progress. A task appears with its
-  // first progress message; user-started tasks call show() to appear before that.
-  function track(task: Task) {
-    const token = (activityTokens.current[task] ?? 0) + 1
-    activityTokens.current[task] = token
-    const live = () => activityTokens.current[task] === token
-    return {
-      show: () => {
-        if (live()) setActivity((a) => ({ ...a, [task]: a[task] ?? null }))
-      },
-      progress: (p: Progress) => {
-        if (live()) setActivity((a) => ({ ...a, [task]: p }))
-      },
-      end: () => {
-        if (!live()) return
-        setActivity((a) => {
-          const next = { ...a }
-          delete next[task]
-          return next
-        })
-      },
-    }
-  }
 
   function load(side: Side, file: File, delim: ParseRules['delimiter'], sheet?: string) {
     setStep('files')
@@ -225,7 +201,7 @@ export function App() {
         if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: errorMessage(error) })
       })
       .finally(task.end)
-  }, [client, keyInputs, canCheckKeys, keyRules])
+  }, [client, keyInputs, canCheckKeys, keyRules, track])
 
   function compare() {
     const inputs = compareInputs
@@ -271,8 +247,7 @@ export function App() {
   function cancel() {
     setStep('files')
     client.cancel()
-    activityTokens.current = {}
-    setActivity({})
+    clearActivity()
     for (const side of ['old', 'new'] as const) {
       const state = files[side]
       if (state.status !== 'loading' && state.status !== 'ready') continue
