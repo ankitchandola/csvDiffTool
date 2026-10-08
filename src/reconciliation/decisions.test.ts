@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkDecision, checkPair, edgeKey, isSha256Hex, type PairEvent, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
+import { applyToState, checkDecision, checkPair, copyState, edgeKey, isSha256Hex, type PairEvent, emptyState, pairSet, parseTxnKey, replay, type ReplayData, txnKey } from './decisions'
 import { DEFAULT_MATCHING, type Transaction } from './types'
 
 const FP_BANK = 'a'.repeat(64)
@@ -115,6 +115,17 @@ describe('reject, restore and unmatch', () => {
     const unmatched = replay([ev('confirm', B1, L1), ev('unmatch', B1, L1)], data())
     expect(unmatched.state.bankMatch.size).toBe(0)
     expect(unmatched.state.booksMatch.size).toBe(0)
+  })
+})
+
+describe('copyState', () => {
+  it('leaves the original untouched when decisions are tried on the copy', () => {
+    const original = emptyState()
+    const trial = copyState(original)
+    applyToState(trial, { seq: 1, at: 'now', action: 'confirm', bank: B1, books: L1 })
+    applyToState(trial, { seq: 2, at: 'now', action: 'classify', key: B2, classification: 'investigate' })
+    expect(original).toEqual(emptyState())
+    expect(Object.keys(copyState(original)).sort()).toEqual(Object.keys(original).sort())
   })
 })
 

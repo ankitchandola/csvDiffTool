@@ -658,6 +658,6 @@ describe('reconcile handler running balance', () => {
     expect((await report('date,amount,balance\n2026-09-01,10,1010\n2026-09-02,-5,1005\n')).running.bank).toEqual({ status: 'consistent' })
     const broken = await report('date,amount,balance\n2026-09-01,10,1010\n2026-09-03,-5,"1,004.00"\n')
     expect(broken.running.bank.status).toBe('break')
-    expect(broken.statuses.sourcesValidated.reasons).toContain('Bank: the running balance breaks at record 2 (expected 1005.00, found 1004.00)')
+    expect(broken.statuses.sourcesValidated.reasons).toContain('Bank: the running balance breaks at record 2: expected 1005.00, found 1004.00')
   })
 })

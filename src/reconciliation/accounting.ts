@@ -1,5 +1,6 @@
-import { addDecimal, compareDecimal, type Decimal, negateDecimal, subtractDecimal } from '../engine/decimal'
-import type { ReconSide } from './types'
+import { addDecimal, compareDecimal, type Decimal, formatDecimal, negateDecimal, subtractDecimal } from '../engine/decimal'
+import { SIDE_LABELS } from './location'
+import { RECON_SIDES, type ReconSide } from './types'
 
 const ZERO: Decimal = { units: 0n, scale: 0 }
 
@@ -64,6 +65,13 @@ export type RunningBalanceCheck =
   // A row without a valid amount or balance stops the check: nothing after it can be trusted.
   | { status: 'unreadable'; row: number }
 
+// What the check found, to follow "running balance".
+export function runningText(check: RunningBalanceCheck): string {
+  if (check.status === 'consistent') return 'consistent with every row'
+  if (check.status === 'break') return `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}`
+  return `can't be checked past record ${check.row}`
+}
+
 // Walks rows in source order: each balance must equal the previous one plus the row's
 // signed amount. The first break also exposes missing or reordered rows.
 export function checkRunningBalance(opening: Decimal, rows: { amount: Decimal | null; balance: Decimal | null }[]): RunningBalanceCheck {
@@ -105,18 +113,18 @@ export interface Bridge {
   gaps: string[]
 }
 
-const SIDE_NAMES: Record<ReconSide, string> = { bank: 'Bank', books: 'Books' }
+// Why a side's balances don't validate, in plain words; null once they do.
+export function sourceGap(side: ReconSide, check: SourceCheck): string | null {
+  if (check.status === 'missing-balances') return `${SIDE_LABELS[side]}: opening and closing balances are needed`
+  if (check.status === 'invalid-rows') return `${SIDE_LABELS[side]}: ${check.invalidRows} invalid row${check.invalidRows === 1 ? '' : 's'} have no trustworthy amount`
+  if (check.status === 'mismatch') return `${SIDE_LABELS[side]}: opening plus movements does not equal the closing balance`
+  return null
+}
 
 export function computeBridge(input: BridgeInput): Bridge {
   const { sides } = input
   const source = { bank: checkSource(sides.bank), books: checkSource(sides.books) }
-  const gaps: string[] = []
-  for (const side of ['bank', 'books'] as const) {
-    const check = source[side]
-    if (check.status === 'missing-balances') gaps.push(`${SIDE_NAMES[side]}: opening and closing balances are needed`)
-    if (check.status === 'invalid-rows') gaps.push(`${SIDE_NAMES[side]}: ${check.invalidRows} invalid row${check.invalidRows === 1 ? '' : 's'} have no trustworthy amount`)
-    if (check.status === 'mismatch') gaps.push(`${SIDE_NAMES[side]}: opening plus movements does not equal the closing balance`)
-  }
+  const gaps = RECON_SIDES.map((side) => sourceGap(side, source[side])).filter((gap) => gap !== null)
 
   const openingBank = sides.bank.balances.opening
   const openingBooks = sides.books.balances.opening

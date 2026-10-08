@@ -1,10 +1,10 @@
-import { applyToState, checkDecision, checkPair, type DecisionEvent, type DecisionState, edgeKey, eventKeys, type PairEvent, replay, structuralCheck } from '../../reconciliation/decisions'
+import { applyToState, checkDecision, checkPair, copyState, type DecisionEvent, edgeKey, eventKeys, type PairEvent, replay, structuralCheck } from '../../reconciliation/decisions'
 import { type TransactionSnapshot } from '../../reconciliation/session'
 import { type Direction, RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type ConfirmedItem, type ReconRequests, type ReconResults, type RejectedItem, type TransactionView, type UnmatchedItem } from '../reconcile-protocol'
 import { pageBounds } from '../paging'
 import { matches, normaliseSearch } from '../search'
-import { available, counts, currentReview, derive, directionOf, evidence, openingItem, position, problemRows, replayData, resolve, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
+import { available, counts, currentReview, derive, expectNextSeq, directionOf, evidence, openingItem, position, problemRows, replayData, resolve, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
 
 // Review: replaying and recording decisions, sets, inspection and paged review tabs.
 
@@ -48,7 +48,7 @@ export function getSet(ws: Workspace, { matchId, group }: ReconRequests['getSet'
 
 export function decideSet(ws: Workspace, { matchId, group, seq, at, pairs }: ReconRequests['decideSet']): ReconResults['decideSet'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
-  if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+  expectNextSeq(state, seq)
   const set = getSet(ws, { matchId, group })
   if (set.blocked) return { ok: false, reason: set.blocked }
   if (pairs.length === 0) return { ok: false, reason: 'Choose at least one pair' }
@@ -56,20 +56,12 @@ export function decideSet(ws: Workspace, { matchId, group, seq, at, pairs }: Rec
   const booksKeys = new Set(set.books.map((v) => v.key))
   if (!pairs.every((p) => bankKeys.has(p.bank) && booksKeys.has(p.books))) return { ok: false, reason: 'Every pair must come from this set' }
   // Check every pair against a copy first, so a failure leaves the history untouched.
-  const trial: DecisionState = {
-    bankMatch: new Map(state.replay.state.bankMatch),
-    booksMatch: new Map(state.replay.state.booksMatch),
-    active: new Map(state.replay.state.active),
-    rejected: new Map(state.replay.state.rejected),
-    classifications: new Map(state.replay.state.classifications),
-    completion: state.replay.state.completion,
-    lastSeq: state.replay.state.lastSeq,
-  }
-  const data_ = replayData(ws, run.rules)
+  const trial = copyState(state.replay.state)
+  const facts = replayData(ws, run.rules)
   const events: PairEvent[] = []
   for (const [i, pair] of pairs.entries()) {
     const decision = { action: 'confirm' as const, ...pair, origin: 'set' as const }
-    const verdict = checkDecision(trial, decision, data_)
+    const verdict = checkDecision(trial, decision, facts)
     if (!verdict.ok) return verdict
     const event: PairEvent = { seq: seq + i, at, ...decision }
     applyToState(trial, event)
@@ -132,7 +124,7 @@ export function inspect(ws: Workspace, { matchId, keys }: ReconRequests['inspect
 
 export function decide(ws: Workspace, { matchId, seq, at, decision }: ReconRequests['decide']): ReconResults['decide'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
-  if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+  expectNextSeq(state, seq)
   // Mark-complete needs the balances and statuses; it goes through markComplete.
   if (decision.action === 'complete') throw new Error('Mark complete through the completion check')
   const verdict = checkDecision(state.replay.state, decision, replayData(ws, run.rules))

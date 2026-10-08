@@ -2,7 +2,7 @@ import { formatDecimal } from '../../engine/decimal'
 import { checkImport, openingTransactions, readOutstandingFile } from '../../reconciliation/carryforward'
 import { isoDate } from '../../reconciliation/dates'
 import { findCandidates } from '../../reconciliation/match'
-import { contextIssues, mappingIssues, normalizeSide } from '../../reconciliation/normalize'
+import { contextIssues, invalidRowCount, mappingIssues, normalizeSide } from '../../reconciliation/normalize'
 import { type NormalizationProblem, type NormalizedSide, RECON_SIDES, type ReconSide, type SideMapping } from '../../reconciliation/types'
 import { PREVIEW_ISSUES, PREVIEW_RECORDS } from '../protocol'
 import { pageBounds, preview } from '../paging'
@@ -177,7 +177,7 @@ export function match(ws: Workspace, { revision: forRevision, rules }: ReconRequ
     uniqueGroups: outcome.groups.filter((g) => g.unique).length,
     withCandidates: per((side) => pool[side].length - outcome.noCandidate[side].length),
     noCandidate: per((side) => outcome.noCandidate[side].length),
-    invalid: per((side) => new Set(sides[side].problems.map((p) => p.index)).size),
+    invalid: per((side) => invalidRowCount(sides[side])),
     zero: per((side) => sides[side].zero.length),
     referenceConflicts: outcome.referenceConflicts,
     incomplete: outcome.incomplete,

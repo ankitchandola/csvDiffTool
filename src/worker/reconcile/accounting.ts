@@ -1,12 +1,14 @@
-import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
-import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, sum } from '../../reconciliation/accounting'
+import { type Decimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
+import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, runningText, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
 import { applyToState, type DecisionEvent } from '../../reconciliation/decisions'
+import { SIDE_LABELS } from '../../reconciliation/location'
+import { invalidRowCount } from '../../reconciliation/normalize'
 import { type AccountingSetup } from '../../reconciliation/session'
 import { computeStatuses, type ReviewFacts } from '../../reconciliation/statuses'
 import { RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type AccountingReport, type ReconRequests, type ReconResults } from '../reconcile-protocol'
-import { currentReview, descriptionOf, keyOf, type Normalized, openingItem, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
+import { currentReview, expectNextSeq, descriptionOf, keyOf, type Normalized, openingItem, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
 
 // Balances, the bridge, statuses, completion and the outstanding-items export.
 
@@ -19,7 +21,7 @@ export function statedBalances(setup: AccountingSetup, minorUnits: number) {
     const value = parseDecimal(text.trim(), { grouped: true })
     const scaled = value && toScale(value, minorUnits)
     if (!scaled) {
-      errors.push(`${side === 'bank' ? 'Bank' : 'Books'} ${field} balance "${text}" is not an amount with at most ${minorUnits} decimal places`)
+      errors.push(`${SIDE_LABELS[side]} ${field} balance "${text}" is not an amount with at most ${minorUnits} decimal places`)
       return null
     }
     return cashBalance(scaled, setup.balances[side].basis)
@@ -48,12 +50,8 @@ export function runningBalance(ws: Workspace, data: Normalized, side: ReconSide,
 }
 
 export function runningIssue(side: ReconSide, check: RunningBalanceCheck | null): string | null {
-  const name = side === 'bank' ? 'Bank' : 'Books'
-  if (check?.status === 'break') {
-    return `${name}: the running balance breaks at record ${check.first.row} (expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)})`
-  }
-  if (check?.status === 'unreadable') return `${name}: the running balance can't be checked past record ${check.row}`
-  return null
+  if (!check || check.status === 'consistent') return null
+  return `${SIDE_LABELS[side]}: the running balance ${runningText(check)}`
 }
 
 export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewState, setup: AccountingSetup, basis: string): AccountingReport {
@@ -62,7 +60,7 @@ export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewS
   const unmatched = (side: ReconSide) => data.pool[side].filter((t, p) => !t.opening && !state.used[side][p])
   const openingAll = (side: ReconSide) => data.pool[side].filter((t) => t.opening)
   const openingRemaining = (side: ReconSide) => data.pool[side].filter((t, p) => t.opening && !state.used[side][p])
-  const invalid = (side: ReconSide) => new Set(data.sides[side].problems.map((p) => p.index)).size
+  const invalid = (side: ReconSide) => invalidRowCount(data.sides[side])
   const movement = { bank: sum(amounts(data.sides.bank.transactions)), books: sum(amounts(data.sides.books.transactions)) }
   const confirmed = [...state.replay.state.active.values()]
   const differences = confirmed.map((event) => subtractDecimal((resolve(ws, event.bank) as Transaction).amount, (resolve(ws, event.books) as Transaction).amount))
@@ -129,12 +127,9 @@ export function accounting(ws: Workspace, { matchId, setup, basis }: ReconReques
 
 export function markComplete(ws: Workspace, { matchId, seq, at, setup, basis }: ReconRequests['markComplete']): ReconResults['markComplete'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
-  if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+  expectNextSeq(state, seq)
   const before = report(ws, run, data, state, setup, basis)
-  if (!before.statuses.canMarkComplete) {
-    const reasons = [before.statuses.sourcesValidated, before.statuses.bridgeComplete, before.statuses.outstandingReviewed].flatMap((s) => s.reasons)
-    return { ok: false, reason: `Not ready to mark complete: ${[...reasons, ...before.statuses.completed.reasons.filter((r) => r !== 'Not marked complete' && !r.startsWith('Marked complete'))].filter((r, i, all) => all.indexOf(r) === i).join('; ')}` }
-  }
+  if (!before.statuses.canMarkComplete) return { ok: false, reason: `Not ready to mark complete: ${before.statuses.notReady.join('; ')}` }
   const event: DecisionEvent = { seq, at, action: 'complete', basis }
   state.events.push(event)
   applyToState(state.replay.state, event)

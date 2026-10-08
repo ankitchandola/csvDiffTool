@@ -1,3 +1,4 @@
+import { booksWindow, referencesAgree } from './match'
 import type { Direction, MatchingRules, ReconSide, Transaction } from './types'
 
 // A transaction's identity across reruns: its side, the SHA-256 of its source file and
@@ -122,6 +123,19 @@ export function emptyState(): DecisionState {
   return { bankMatch: new Map(), booksMatch: new Map(), active: new Map(), rejected: new Map(), classifications: new Map(), completion: null, lastSeq: 0 }
 }
 
+// A copy to try decisions on; the events themselves are shared, as they are never changed.
+export function copyState(state: DecisionState): DecisionState {
+  return {
+    bankMatch: new Map(state.bankMatch),
+    booksMatch: new Map(state.booksMatch),
+    active: new Map(state.active),
+    rejected: new Map(state.rejected),
+    classifications: new Map(state.classifications),
+    completion: state.completion,
+    lastSeq: state.lastSeq,
+  }
+}
+
 export type Verdict = { ok: true } | { ok: false; reason: string }
 
 // Rules that hold whatever the data: one active match per transaction, and a pair is
@@ -200,12 +214,9 @@ export function checkPair(bank: Transaction | undefined, books: Transaction | un
   }
   const exceptions: RuleException[] = []
   if (bank.amount.units !== books.amount.units) exceptions.push('amount')
-  const gap = bank.day - books.day
-  if (gap < -rules.bankDaysBefore || gap > rules.bankDaysAfter) exceptions.push('date')
-  if (rules.referencesShared && bank.reference !== null && books.reference !== null) {
-    const fold = (r: string) => (rules.referenceCaseInsensitive ? r.toLowerCase() : r)
-    if (fold(bank.reference) !== fold(books.reference)) exceptions.push('reference')
-  }
+  const { earliest, latest } = booksWindow(bank.day, rules)
+  if (books.day < earliest || books.day > latest) exceptions.push('date')
+  if (referencesAgree(bank.reference, books.reference, rules) === false) exceptions.push('reference')
   return { blocked: null, exceptions }
 }
 

@@ -1,6 +1,7 @@
 import { type Decimal, formatDecimal, subtractDecimal } from '../../engine/decimal'
-import { type RunningBalanceCheck } from '../../reconciliation/accounting'
+import { type RunningBalanceCheck, runningText } from '../../reconciliation/accounting'
 import { placeLabel } from '../../reconciliation/location'
+import { invalidRowCount } from '../../reconciliation/normalize'
 import { type ReconciliationReport, REPORT_FORMAT, REPORT_VERSION, reportJson, type ReportMatch, type ReportOutstanding, type ReportProblem, reportTables, type ReportTransaction } from '../../reconciliation/report'
 import { RECON_SIDES, type ReconSide, type SideMapping, type Transaction } from '../../reconciliation/types'
 import { type ReconRequests, type ReconResults } from '../reconcile-protocol'
@@ -22,13 +23,6 @@ export function reportTransaction(ws: Workspace, t: Transaction, mapping: SideMa
     description: v.original.description,
     carried: v.carried ?? null,
   }
-}
-
-export function runningText(check: RunningBalanceCheck | null): string | null {
-  if (!check) return null
-  if (check.status === 'consistent') return 'consistent with every row'
-  if (check.status === 'break') return `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}`
-  return `can't be checked past record ${check.row}`
 }
 
 export function buildReport(ws: Workspace, { matchId, setup, basis, session, generatedAt }: ReconRequests['exportReport']): ReconciliationReport {
@@ -79,7 +73,7 @@ export function buildReport(ws: Workspace, { matchId, setup, basis, session, gen
   const counts = (side: ReconSide) => ({
     rows: (ws.sources[side] as Source).file.rows.length,
     valid: data.sides[side].transactions.length,
-    invalid: new Set(data.sides[side].problems.map((p) => p.index)).size,
+    invalid: invalidRowCount(data.sides[side]),
     zero: data.sides[side].zero.length,
     opening: data.pool[side].length - data.sides[side].transactions.length,
   })
@@ -105,7 +99,7 @@ export function buildReport(ws: Workspace, { matchId, setup, basis, session, gen
         books: { opening: text(balances.books.opening), closing: text(balances.books.closing) },
       },
     },
-    running: { bank: runningText(accountingReport.running.bank), books: runningText(accountingReport.running.books) },
+    running: { bank: runningOrNull(accountingReport.running.bank), books: runningOrNull(accountingReport.running.books) },
     statuses: {
       sourcesValidated: statuses.sourcesValidated,
       bridgeComplete: statuses.bridgeComplete,
@@ -121,6 +115,8 @@ export function buildReport(ws: Workspace, { matchId, setup, basis, session, gen
     lapsed: state.replay.lapsed.map(({ event, reason }) => ({ decision: event.seq, reason })),
   }
 }
+
+const runningOrNull = (check: RunningBalanceCheck | null) => (check ? runningText(check) : null)
 
 export async function exportReport(ws: Workspace, request: ReconRequests['exportReport']): Promise<ReconResults['exportReport']> {
   const built = buildReport(ws, request)

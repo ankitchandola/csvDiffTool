@@ -1,4 +1,5 @@
-import type { Bridge } from './accounting'
+import { type Bridge, sourceGap } from './accounting'
+import { RECON_SIDES } from './types'
 
 export interface ReviewFacts {
   // Remaining unmatched movements and opening items the reviewer has not classified.
@@ -27,6 +28,8 @@ export interface Statuses {
   completed: Status
   // Everything except the reviewer's own mark is in place.
   canMarkComplete: boolean
+  // Why it can't be marked complete yet, in plain words; empty when it can.
+  notReady: string[]
 }
 
 function status(reasons: string[]): Status {
@@ -41,7 +44,7 @@ function plural(n: number, one: string, many: string): string {
 // balances whether or not anyone reviewed anything. Completion therefore also needs every
 // outstanding item classified, no problems, explained variances and the reviewer's mark.
 export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
-  const sourceReasons = [...bridge.gaps.filter((gap) => gap.startsWith('Bank:') || gap.startsWith('Books:')), ...facts.sourceIssues]
+  const sourceReasons = [...RECON_SIDES.map((side) => sourceGap(side, bridge.source[side])).filter((gap) => gap !== null), ...facts.sourceIssues]
   const sourcesValidated = status(sourceReasons)
   const bridgeComplete = status(bridge.complete ? [] : bridge.gaps.length > 0 ? bridge.gaps : ['The bridge is not computed yet'])
   const outstandingReviewed = status(facts.unclassified > 0 ? [`${plural(facts.unclassified, 'unmatched item is', 'unmatched items are')} not classified`] : [])
@@ -49,7 +52,8 @@ export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
     ...(facts.problems > 0 ? [`${plural(facts.problems, 'row has a problem', 'rows have problems')}`] : []),
     ...(facts.unexplainedVariances > 0 ? [`${plural(facts.unexplainedVariances, 'confirmed match has', 'confirmed matches have')} an unexplained difference`] : []),
   ]
-  const canMarkComplete = sourcesValidated.earned && bridgeComplete.earned && outstandingReviewed.earned && blockers.length === 0
+  const notReady = [...new Set([...sourcesValidated.reasons, ...bridgeComplete.reasons, ...outstandingReviewed.reasons, ...blockers])]
+  const canMarkComplete = notReady.length === 0
   const completed = status([
     ...(sourcesValidated.earned ? [] : ['Source balances are not validated']),
     ...(bridgeComplete.earned ? [] : ['The balance bridge is not complete']),
@@ -61,7 +65,7 @@ export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
         ? ['Marked complete earlier, but decisions or the setup changed since']
         : []),
   ])
-  return { sourcesValidated, bridgeComplete, outstandingReviewed, completed, canMarkComplete }
+  return { sourcesValidated, bridgeComplete, outstandingReviewed, completed, canMarkComplete, notReady }
 }
 
 // A short, stable fingerprint of the setup a completion was made for (files, mappings,
