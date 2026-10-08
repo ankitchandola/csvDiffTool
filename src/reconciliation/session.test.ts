@@ -115,3 +115,12 @@ describe('session files with opening items', () => {
     expect(() => readSession({ ...session(), opening: [{ name: 'bad.json', text: '{}' }] })).toThrow(/bad.json\) is not a valid outstanding-items file/)
   })
 })
+
+describe('session files with a half-entered period', () => {
+  it('read it as no period instead of refusing the whole session', () => {
+    const balances = emptyAccounting().balances
+    const file = { ...session(), accounting: { period: { start: '2026-09-01', end: '' }, balances } }
+    expect(readSession(JSON.parse(JSON.stringify(file))).accounting.period).toBeNull()
+    expect(() => readSession({ ...session(), accounting: { period: { start: '2026-09-30', end: '2026-09-01' }, balances } })).toThrow(/two YYYY-MM-DD dates in order/)
+  })
+})
