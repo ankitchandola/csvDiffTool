@@ -967,7 +967,7 @@ runs (Chrome).
 | "Another tab saved…" also appeared after importing an older backup in the same tab | Source-neutral wording: "A newer revision is saved in this browser" | Unit and Playwright |
 | That message advised resuming, but the Resume button only appeared for a different session | A "Resume the saved session" button appears whenever a newer revision of the same session blocks saving, with a warning that it replaces this page's session | Playwright, stale second tab |
 
-### Milestone 4a: accounting engine (not yet on `main`)
+### Milestone 4a: accounting engine (on `main` through PRs #8 and #9)
 
 The engine and its fixtures come first, as the section 9 design gate requires; the
 continuation UI and reports follow once they pass.
@@ -988,7 +988,7 @@ decision (milestone 4b); balances, period and carry-forward in the UI, opening i
 the worker, and reports (milestone 4c); and the milestone 3 durability checks named as a
 condition for shipping milestone 4.
 
-### Milestone 4b: outstanding-item review and completion (not yet on `main`)
+### Milestone 4b: outstanding-item review and completion (on `main` through PR #10)
 
 | Area | Where | Tests |
 | --- | --- | --- |
@@ -1005,6 +1005,27 @@ passed; `npm run test:ui` 31 passed in each of two repeated runs (Chrome).
 Not yet: the period is stored and dated but does not yet order carry-forward in the
 UI; opening items, the running-balance column, carry-forward screens and reports are
 milestone 4c. Before milestone 4 ships: the milestone 3 durability checks.
+
+### Milestone 4c: carry-forward and running balances (not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Outstanding-items files imported on the Map step, validated whole; checked at normalization against period, account, currency, lineage and cleared items; refused with a message, never half-imported | worker `setOpening`, `normalize`; `OpeningPanel.tsx` | Worker tests; Playwright refusal of a same-period file |
+| Opening items join each side's pool for matching under keys from the file's own fingerprint; counted in the bridge as opening items, not movement; classified like unmatched movements; labelled with where they first appeared | worker | Worker two-month test, including October's books movement excluding the carried cheques |
+| Possible repeats of carried items in the current files reported at the mapping check | worker `normalize`, `ReconcileApp.tsx` | Worker test |
+| Export outstanding items: unmatched current items with new lineage, carried items with their own, and the opening items cleared this period | worker `exportOutstanding`, `StatusPanel.tsx` | Worker and Playwright |
+| Optional running-balance column checked row by row from the opening balance; a break blocks source validation | worker `accounting`, `MappingForm.tsx` | Worker test; Playwright consistent check |
+| Sessions keep imported outstanding-items files whole (older sessions read as having none); imports change the completion fingerprint | `session.ts`, `use-session.ts` | Unit tests |
+
+Browser two-month run: September completed and its outstanding cheques exported;
+after a reload, October imports them, both cheques clear against the carried items,
+October completes with a consistent running balance, and its export carries only the
+bank charge and the receipt, listing both cheques as cleared.
+
+Checks run locally: `npm test` 428 passed; `npm run lint` clean; `npm run build`
+passed; `npm run test:ui` 33 passed in each of two repeated runs (Chrome).
+
+Not yet: reports (milestone 4d) and the milestone 3 durability checks.
 
 ### Not implemented in this snapshot
 
