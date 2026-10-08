@@ -825,6 +825,10 @@ Preserve the project's existing test/build/lint checks throughout development.
 | Grouped matching order | Payout/batch-ID grouping before subset search; mixed-direction groups blocked. Separately gated | Large ID groups, mixed-direction block, invalid members |
 | Interchangeable sets | Identical descriptions required in the first release; no acknowledgement path | Description difference prevents bulk confirm |
 | Opening differences | Must be fully covered by opening items; an explicit opening-difference item is deferred | Uncovered opening difference leaves the bridge incomplete |
+| Balance basis | Each side declares cash or liability basis; liability balances are negated once into cash terms | Liability balance converts sign |
+| Statement period | Each session states an inclusive start and end date; it dates outstanding items and orders carry-forward, and does not filter transactions | Overlapping periods refused; a gap warns |
+| Lineage | An outstanding item's lineage is the side, source fingerprint and record number where it first appeared, and never changes while carried | New items take their own source row; carried items keep theirs |
+| Carry-forward identity | Refused: duplicate lineage, a lineage already imported, an item a file lists as cleared, an item a previously imported file lists as cleared (either order), an item dated inside or after the period, another account or currency. Potential overlaps with current rows (same side, date, amount, reference) are flagged for review, never removed | Two-month fixture and unit tests |
 | Description similarity | Ranking within a tier only, never eligibility or confirmation | Same candidate set with and without similarity (with its release) |
 | Source layout | Explicit header row and trailing rows to skip in Reconcile; strict UTF-8 retained | Preamble/footer CSV and `.xlsx`, original record locations, Compare unchanged |
 
@@ -954,7 +958,7 @@ Checks run locally with these additions: `npm test` 386 passed; `npm run lint`
 clean; `npm run build` passed; `npm run test:ui` 30 passed in each of two repeated
 runs (Chrome).
 
-### Fixes from the deployed milestone 3 review (not yet on `main`)
+### Fixes from the deployed milestone 3 review (on `main` as `60ca8a0`, PR #7)
 
 | Finding | Fix | Tests |
 | --- | --- | --- |
@@ -963,14 +967,36 @@ runs (Chrome).
 | "Another tab saved…" also appeared after importing an older backup in the same tab | Source-neutral wording: "A newer revision is saved in this browser" | Unit and Playwright |
 | That message advised resuming, but the Resume button only appeared for a different session | A "Resume the saved session" button appears whenever a newer revision of the same session blocks saving, with a warning that it replaces this page's session | Playwright, stale second tab |
 
+### Milestone 4a: accounting engine (not yet on `main`)
 
+The engine and its fixtures come first, as the section 9 design gate requires; the
+continuation UI and reports follow once they pass.
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Source check: opening plus current movement equals closing exactly; invalid rows block validation; missing balances reported | `src/reconciliation/accounting.ts` | Unit tests; a mutation letting invalid rows validate fails them |
+| Running-balance check reporting the first break or unreadable row | `accounting.ts` | Unit tests |
+| Bridge with opening items: opening check, remaining opening items, unmatched movements, confirmed differences; incomplete with reasons; liability-basis balances | `accounting.ts` | Unit tests, including that a fully unmatched pair still bridges (so a bridge alone proves nothing) |
+| Outstanding-items file: versioned, exact decimal text, lineage and provenance, cleared lineages; import checks listed in section 14 | `src/reconciliation/carryforward.ts` | Unit tests |
+| Two-month fixture: section 9's example through the real parser, normalization, matching, bridge and carry-forward; cheque 101 clears from the opening pool without entering October's movement; cheque 102 clears outside the window only with a wider bound; repeated identical subscriptions; an overlapping October export flagged and failing the books check; a stale September file refused in November | `src/reconciliation/two-month.test.ts` | 4 tests; a mutation counting consumed opening items in the bridge fails 2 |
+
+Checks run locally: `npm test` 406 passed; `npm run lint` clean; `npm run build`
+passed. No UI changed, so the browser suite was not rerun.
+
+Not yet: outstanding-item classification, completion statuses and the mark-complete
+decision (milestone 4b); balances, period and carry-forward in the UI, opening items in
+the worker, and reports (milestone 4c); and the milestone 3 durability checks named as a
+condition for shipping milestone 4.
+
+### Not implemented in this snapshot
 
 - In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
 - Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
 - Two-digit-year pivots: such dates are always problems.
 - Saving reconciliation profiles separately from sessions (milestone 3 saves the
   mapping inside a session only).
-- Exports, balances, completion statuses, carry-forward, grouped matching.
+- In the UI: balances, completion statuses, carry-forward and reports (the 4a engine
+  exists); grouped matching (milestone 5).
 - Per-file worksheet preferences beyond the existing sheet picker.
 
 ### Not yet verified
