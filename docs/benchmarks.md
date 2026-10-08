@@ -164,3 +164,31 @@ Measured 2026-10-07, three runs per case, on an Apple M4 with 16 GB RAM, macOS, 
   stays; it is now measured on one device rather than only chosen.
 - **Not measured:** lower-memory laptops and phones, other browsers, worker heap
   separately from the rest of Chrome, and inputs near the file-size limits.
+
+## Reconcile sessions in the browser
+
+`npm run build && npm run bench:session` (`scripts/bench/reconcile-session.ts`) builds,
+for N decisions, N bank and N books rows with distinct amounts and a session backup
+confirming all N pairs, then in Chrome on a production preview: imports the backup,
+loads the files and replays the history ("Find suggestions" until Confirmed shows N),
+turns on saving in this browser (until "Saved in this browser"), makes five quick
+decisions with saving on (until the last is saved), and exports a backup. Memory is
+Chrome's process-tree resident size above a baseline, sampled every 50 ms: rough.
+
+Measured 2026-10-08 on an Apple M4 with 16 GB RAM, Chrome 154.0.8037.98:
+
+| Decisions | Session file | Backup | Import | Replay | Browser save | Five decisions, saved | Export | Peak above baseline |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 0.6 MiB | 0.8 MiB | 0.1 s | 0.2 s | 0.1 s | 0.5 s | 0.2 s | 50 MiB |
+| 10,000 | 6.0 MiB | 7.6 MiB | 0.9 s | 0.3 s | 0.1 s | 0.9 s | 0.3 s | 185 MiB |
+| 50,000 | 30.2 MiB | 38.5 MiB | 4.3 s | 1.4 s | 0.2 s | 3.3 s | 1.4 s | 655 MiB |
+
+- **Before two fixes, 50,000 decisions were slow:** five quick decisions took 45 s,
+  a save 6.5 s and replay 3.2 s. The decision history list was redrawn whole, all
+  50,000 entries, on every decision even while collapsed; it is now built only when
+  opened and shows the latest 500. Saves while one is running now collapse into a
+  single save of the newest revision.
+- **A month's work is far below these sizes.** Hundreds to a few thousand decisions
+  cost well under a second for every step.
+- **Not measured:** lower-memory devices, other browsers, storage quotas near their
+  limit, and sessions with large imported opening-item files.

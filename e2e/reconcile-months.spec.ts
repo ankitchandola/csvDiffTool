@@ -1,38 +1,11 @@
 import { expect, type Page, test } from '@playwright/test'
 import * as XLSX from 'xlsx'
-import { choose } from './reconcile-helpers'
+import { choose, setUpMonth as setUp } from './reconcile-helpers'
 
 const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'
 const BOOKS_SEP = 'date,amount,ref,memo\n2026-09-10,300.00,,Receipt\n2026-09-15,-50.00,CHQ102,Cheque 102 issued\n2026-09-29,-200.00,CHQ101,Cheque 101 issued\n'
 const BANK_OCT = 'date,amount,ref,memo,balance\n02/10/2026,-200.00,CHQ101,Cheque 101 cleared,1100.00\n20/10/2026,-50.00,CHQ102,Cheque 102 cleared,1050.00\n31/10/2026,-10.00,,Bank charge,1040.00\n'
 const BOOKS_OCT = 'date,amount,ref,memo\n2026-10-30,500.00,,Receipt\n'
-
-async function setUp(page: Page, files: { bank: string; books: string }, period: [string, string], balances: [string, string, string, string]) {
-  await page.goto('/')
-  await page.getByRole('button', { name: /Reconcile/ }).click()
-  await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(files.bank) })
-  await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(files.books) })
-  await page.getByRole('button', { name: 'Map dates and amounts' }).click()
-  await page.getByLabel('Currency').fill('INR')
-  await choose(page, 'Bank statement date column', 'date')
-  await choose(page, 'Bank statement date format', 'DD/MM/YYYY')
-  await choose(page, 'Bank statement amount column', 'amount')
-  await choose(page, 'Bank statement reference column', 'ref')
-  await choose(page, 'Bank statement description column', 'memo')
-  await choose(page, 'Books date column', 'date')
-  await choose(page, 'Books date format', 'YYYY-MM-DD')
-  await choose(page, 'Books amount column', 'amount')
-  await choose(page, 'Books reference column', 'ref')
-  await choose(page, 'Books description column', 'memo')
-  await page.getByLabel(/same identifier/).check()
-  await page.getByLabel('Bank date up to this many days after books').fill('40')
-  await page.getByLabel('Period start').fill(period[0])
-  await page.getByLabel('Period end').fill(period[1])
-  await page.getByLabel('Bank opening balance').fill(balances[0])
-  await page.getByLabel('Bank closing balance').fill(balances[1])
-  await page.getByLabel('Books opening balance').fill(balances[2])
-  await page.getByLabel('Books closing balance').fill(balances[3])
-}
 
 async function downloaded(page: Page, click: () => Promise<void>): Promise<Buffer> {
   const event = page.waitForEvent('download')

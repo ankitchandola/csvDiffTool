@@ -3,6 +3,7 @@ import { type DecisionEvent, eventKeys, type TxnKey } from '../../reconciliation
 import { type AccountingSetup, exportSession, type OpeningFile, SESSION_FORMAT, SESSION_VERSION, type SessionFile, type SourceDescriptor, type TransactionSnapshot } from '../../reconciliation/session'
 import type { MatchingRules, ReconSide, SessionContext, SideMapping } from '../../reconciliation/types'
 import type { StorageState } from './save-status'
+import { createLatestWriter } from './latest-writer'
 import { type SavedRef, StorageConflictError, type SessionStore } from './session-store'
 
 // Everything a session file holds besides its history: complete only once both files
@@ -41,7 +42,6 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
   // The files a loaded session was made from, until they are loaded again.
   const [expected, setExpected] = useState<Record<ReconSide, SourceDescriptor> | null>(null)
   const lastSaved = useRef<SavedRef | null>(null)
-  const queue = useRef<Promise<void>>(Promise.resolve())
 
   const configKey = config ? JSON.stringify(config) : null
   const previousConfig = useRef(configKey)
@@ -80,14 +80,13 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
     }
   }
 
-  // Writes run one at a time, in order, so a slow write can't land after a newer one.
-  useEffect(() => {
-    if (!autosave || !store || !config) return
-    const session = build(config)
-    queue.current = queue.current.then(async () => {
+  // Saves run one at a time; while one runs, later revisions collapse into a single save of
+  // the newest, so a large session isn't rewritten once per decision.
+  const writer = useRef(
+    createLatestWriter(async ({ target, session }: { target: SessionStore; session: SessionFile }) => {
       setStorage({ kind: 'saving' })
       try {
-        await store.save(session, lastSaved.current)
+        await target.save(session, lastSaved.current)
         lastSaved.current = { id: session.id, revision: session.revision }
         setStored(lastSaved.current)
         setStorage({ kind: 'saved', revision: session.revision })
@@ -96,7 +95,11 @@ export function useSession(store: SessionStore | null, config: SessionConfig | n
         setConflict(error instanceof StorageConflictError)
         setStorage({ kind: 'error', message: message(error), lastSaved: lastSaved.current?.revision ?? null })
       }
-    })
+    }),
+  )
+  useEffect(() => {
+    if (!autosave || !store || !config) return
+    void writer.current.request({ target: store, session: build(config) })
     // build reads the latest history through refs and state captured at this revision.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [autosave, store, revision, configKey])
