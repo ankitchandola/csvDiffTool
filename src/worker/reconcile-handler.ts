@@ -765,8 +765,11 @@ export function createReconcileHandler(limits: Limits = DEFAULT_LIMITS) {
         })
       })
     }
-    const file = buildOutstandingFile({ sessionId, context: data.context, period, outstanding, cleared, exportedAt })
-    return { text: JSON.stringify(file, null, 2), items: file.items.length, cleared: cleared.length }
+    // Clearances inherited from imported files travel on, so a later period can still refuse
+    // a stale file that lists one of them as outstanding.
+    const allCleared = [...new Set([...opening.flatMap((o) => o.file.cleared), ...cleared])]
+    const file = buildOutstandingFile({ sessionId, context: data.context, period, outstanding, cleared: allCleared, exportedAt })
+    return { text: JSON.stringify(file, null, 2), items: file.items.length, cleared: allCleared.length }
   }
 
   function reportTransaction(t: Transaction, mapping: SideMapping): ReportTransaction {
