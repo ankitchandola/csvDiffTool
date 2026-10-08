@@ -2,6 +2,7 @@ import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } f
 import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
 import { applyToState, type DecisionEvent } from '../../reconciliation/decisions'
+import { SIDE_LABELS } from '../../reconciliation/location'
 import { invalidRowCount } from '../../reconciliation/normalize'
 import { type AccountingSetup } from '../../reconciliation/session'
 import { computeStatuses, type ReviewFacts } from '../../reconciliation/statuses'
@@ -20,7 +21,7 @@ export function statedBalances(setup: AccountingSetup, minorUnits: number) {
     const value = parseDecimal(text.trim(), { grouped: true })
     const scaled = value && toScale(value, minorUnits)
     if (!scaled) {
-      errors.push(`${side === 'bank' ? 'Bank' : 'Books'} ${field} balance "${text}" is not an amount with at most ${minorUnits} decimal places`)
+      errors.push(`${SIDE_LABELS[side]} ${field} balance "${text}" is not an amount with at most ${minorUnits} decimal places`)
       return null
     }
     return cashBalance(scaled, setup.balances[side].basis)
@@ -49,7 +50,7 @@ export function runningBalance(ws: Workspace, data: Normalized, side: ReconSide,
 }
 
 export function runningIssue(side: ReconSide, check: RunningBalanceCheck | null): string | null {
-  const name = side === 'bank' ? 'Bank' : 'Books'
+  const name = SIDE_LABELS[side]
   if (check?.status === 'break') {
     return `${name}: the running balance breaks at record ${check.first.row} (expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)})`
   }
