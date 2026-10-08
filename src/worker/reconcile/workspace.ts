@@ -1,7 +1,8 @@
-import { formatDecimal } from '../../engine/decimal'
+import { type Decimal, formatDecimal } from '../../engine/decimal'
 import { type Limits } from '../../engine/limits'
 import { type ParseIssue } from '../../engine/parse'
 import { type ParsedFile } from '../../engine/types'
+import { type RunningBalanceCheck } from '../../reconciliation/accounting'
 import { type OutstandingFile, type OutstandingItem } from '../../reconciliation/carryforward'
 import { isoDate } from '../../reconciliation/dates'
 import { checkPair, type DecisionEvent, parseTxnKey, type Replay, replay, type ReplayData, txnKey, type TxnKey } from '../../reconciliation/decisions'
@@ -51,6 +52,10 @@ export interface Normalized {
   searchTexts?: Record<ReconSide, (string | undefined)[]>
   // Each side's pool position by transaction key.
   positions?: Record<ReconSide, Map<TxnKey, number>>
+  // Each side's current movement and imported opening items in total, built on first use.
+  totals?: Record<ReconSide, { current: Decimal; opening: Decimal }>
+  // Running-balance checks by side, opening balance and basis: decisions don't change them.
+  running?: Map<string, RunningBalanceCheck | null>
 }
 
 // The latest candidate search.

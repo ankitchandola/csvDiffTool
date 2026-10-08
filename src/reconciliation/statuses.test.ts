@@ -13,9 +13,9 @@ const IDENTITY: BridgeInput = {
     bank: { balances: { opening: d('0'), closing: d('100') }, movement: d('100'), invalidRows: 0 },
     books: { balances: { opening: d('0'), closing: d('100') }, movement: d('100'), invalidRows: 0 },
   },
-  openingAll: { bank: [], books: [] },
-  openingRemaining: { bank: [], books: [] },
-  unmatched: { bank: [d('100')], books: [d('100')] },
+  openingAll: { bank: d('0'), books: d('0') },
+  openingRemaining: { bank: d('0'), books: d('0') },
+  unmatched: { bank: d('100'), books: d('100') },
   confirmedDifferences: [],
   incompleteSearch: false,
 }

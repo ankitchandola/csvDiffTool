@@ -87,11 +87,11 @@ export function checkRunningBalance(opening: Decimal, rows: { amount: Decimal | 
 
 export interface BridgeInput {
   sides: Record<ReconSide, SideFacts>
-  // Imported opening items, all of them and those not consumed by a confirmed match.
-  openingAll: Record<ReconSide, Decimal[]>
-  openingRemaining: Record<ReconSide, Decimal[]>
-  // Valid current movements not in a confirmed match.
-  unmatched: Record<ReconSide, Decimal[]>
+  // Totals of imported opening items: all of them, and those not consumed by a confirmed match.
+  openingAll: Record<ReconSide, Decimal>
+  openingRemaining: Record<ReconSide, Decimal>
+  // Total of valid current movements not in a confirmed match.
+  unmatched: Record<ReconSide, Decimal>
   // Per confirmed group: its bank total minus its books total, opening items included at
   // their carried amount. Zero for an exact match; otherwise a variance.
   confirmedDifferences: Decimal[]
@@ -128,7 +128,7 @@ export function computeBridge(input: BridgeInput): Bridge {
 
   const openingBank = sides.bank.balances.opening
   const openingBooks = sides.books.balances.opening
-  const covered = subtractDecimal(sum(input.openingAll.bank), sum(input.openingAll.books))
+  const covered = subtractDecimal(input.openingAll.bank, input.openingAll.books)
   let opening: Bridge['opening']
   if (openingBank === null || openingBooks === null) {
     opening = { status: 'missing-balances' }
@@ -140,7 +140,7 @@ export function computeBridge(input: BridgeInput): Bridge {
   if (input.incompleteSearch) gaps.push('The candidate search is incomplete')
 
   const explained = addDecimal(
-    addDecimal(subtractDecimal(sum(input.openingRemaining.bank), sum(input.openingRemaining.books)), subtractDecimal(sum(input.unmatched.bank), sum(input.unmatched.books))),
+    addDecimal(subtractDecimal(input.openingRemaining.bank, input.openingRemaining.books), subtractDecimal(input.unmatched.bank, input.unmatched.books)),
     sum(input.confirmedDifferences),
   )
   const closingBank = sides.bank.balances.closing
