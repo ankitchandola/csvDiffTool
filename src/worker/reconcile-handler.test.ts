@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_MATCHING, type SessionContext, type SideMapping } from '../reconciliation/types'
 import { createReconcileHandler } from './reconcile-handler'
@@ -510,6 +511,67 @@ describe('reconcile handler carry-forward', () => {
         { name: 'b.json', message: 'This is not an outstanding-items file' },
       ],
     })
+  })
+
+  async function completedOctober() {
+    const { exported } = await september()
+    const oct = await session(BANK_OCT, BOOKS_OCT, OCT, exported.text)
+    for (const p of await oct.suggestions()) await oct.decide({ action: 'confirm', bank: p.bank.key, books: p.books.key, origin: 'suggested' })
+    for (const u of await oct.unmatched()) await oct.decide({ action: 'classify', key: u.key, classification: u.side === 'bank' ? 'record-in-books' : 'deposit-in-transit', note: 'checked' })
+    const setup = {
+      period: OCT,
+      balances: { bank: { opening: '1300.00', closing: '1040.00', basis: 'cash' as const }, books: { opening: '1050.00', closing: '1550.00', basis: 'cash' as const } },
+    }
+    await oct.call('markComplete', { matchId: oct.matchId, seq: oct.nextSeq(), at: AT, setup, basis: 'b' })
+    const exportReport = (format: 'json' | 'xlsx') =>
+      oct.call('exportReport', { matchId: oct.matchId, format, setup, basis: 'b', session: { id: 'oct', revision: 9 }, generatedAt: AT }) as Promise<Blob>
+    return { exportReport }
+  }
+
+  it('reports provenance, statuses, matches with evidence, outstanding items and the history', async () => {
+    const { exportReport } = await completedOctober()
+    const report = JSON.parse(await (await exportReport('json')).text())
+    expect(report).toMatchObject({
+      format: 'reconciliation-report',
+      version: 1,
+      experimental: true,
+      session: { id: 'oct', revision: 9 },
+      currency: 'INR',
+      period: OCT,
+      sources: { bank: { fileName: 'bank.csv', recordCount: 3 }, books: { fileName: 'books.csv', recordCount: 1 } },
+      opening: [{ fileName: 'outstanding-sep.json', items: 2, cleared: 0 }],
+      counts: { books: { rows: 1, valid: 1, invalid: 0, zero: 0, opening: 2 } },
+      statuses: { completed: { earned: true, reasons: [] } },
+      bridge: { closingDifference: '-510.00', explained: '-510.00', unexplained: '0.00', complete: true },
+    })
+    expect(report.matches.map((m: { variance: string; dateGap: number; tier: number; books: { carried: { lineage: string } | null } }) => [m.variance, m.dateGap, m.tier, Boolean(m.books.carried)])).toEqual([
+      ['0.00', 3, 1, true],
+      ['0.00', 35, 1, true],
+    ])
+    expect(report.outstanding.map((o: { transaction: { description: string }; classification: string }) => [o.transaction.description, o.classification])).toEqual([
+      ['Bank charge', 'record-in-books'],
+      ['Receipt', 'deposit-in-transit'],
+    ])
+    expect(report.decisions.at(-1)).toMatchObject({ action: 'complete' })
+    expect(typeof report.matches[0].bank.amount).toBe('string')
+  })
+
+  it('writes the report as a workbook of text cells only, with no formulas', async () => {
+    const { exportReport } = await completedOctober()
+    const bytes = await (await exportReport('xlsx')).arrayBuffer()
+    const book = XLSX.read(bytes, { type: 'array' })
+    expect(book.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Problems', 'Decisions'])
+    const summary = XLSX.utils.sheet_to_json<string[]>(book.Sheets.Summary, { header: 1 })
+    expect(summary).toContainEqual(['Reconciliation completed', 'Yes'])
+    expect(summary).toContainEqual(['Closing difference (bank − books)', '-510.00'])
+    const zip = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' })
+    for (const [i, path] of zip.FullPaths.entries()) {
+      if (!/xl\/worksheets\/sheet\d+\.xml$/.test(path)) continue
+      const xml = new TextDecoder().decode(zip.FileIndex[i].content as Uint8Array)
+      expect(xml, path).not.toContain('<f>')
+      const types = [...xml.matchAll(/<c r="[A-Z]+\d+"([^>]*)>/g)].map((m) => /t="([^"]+)"/.exec(m[1])?.[1])
+      expect(new Set(types), path).toEqual(new Set(['s']))
+    }
   })
 
   it('inspects a carried item with where it first appeared', async () => {

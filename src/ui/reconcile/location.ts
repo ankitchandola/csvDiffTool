@@ -2,19 +2,16 @@ import type { FileFormat } from '../../engine/types'
 import type { ReconSide } from '../../reconciliation/types'
 import type { Location } from '../../worker/reconcile-protocol'
 import { parseTxnKey } from '../../reconciliation/decisions'
+import { placeLabel, SIDE_LABELS } from '../../reconciliation/location'
 import type { OriginalValues } from '../../worker/reconcile-protocol'
 import { count, formatValue } from '../format'
 
-export const SIDE_LABELS: Record<ReconSide, string> = { bank: 'Bank', books: 'Books' }
+export { SIDE_LABELS }
 
 export type Formats = Record<ReconSide, FileFormat | undefined>
 
-export function locationText({ side, recordNumber, span, carried }: Location, formats: Formats): string {
-  if (carried) return `Carried · ${SIDE_LABELS[side]} record ${count(recordNumber)} of ${carried.fileName} (${carried.period.start} to ${carried.period.end})`
-  const base = `${SIDE_LABELS[side]} record ${count(recordNumber)}`
-  if (!span) return base
-  if (formats[side]?.kind === 'xlsx') return `${base} · row ${count(span.first)}`
-  return `${base} · ${span.first === span.last ? `line ${count(span.first)}` : `lines ${count(span.first)}–${count(span.last)}`}`
+export function locationText(location: Location, formats: Formats): string {
+  return placeLabel(location, formats[location.side]?.kind)
 }
 
 export function originalAmount(original: OriginalValues): string {

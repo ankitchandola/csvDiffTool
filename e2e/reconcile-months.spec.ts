@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
+import * as XLSX from 'xlsx'
 import { choose } from './reconcile-helpers'
 
 const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'
@@ -31,6 +32,14 @@ async function setUp(page: Page, files: { bank: string; books: string }, period:
   await page.getByLabel('Bank closing balance').fill(balances[1])
   await page.getByLabel('Books opening balance').fill(balances[2])
   await page.getByLabel('Books closing balance').fill(balances[3])
+}
+
+async function downloaded(page: Page, click: () => Promise<void>): Promise<Buffer> {
+  const event = page.waitForEvent('download')
+  await click()
+  const chunks: Buffer[] = []
+  for await (const chunk of await (await event).createReadStream()) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks)
 }
 
 async function classifyAll(page: Page) {
@@ -85,6 +94,14 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   const carried = JSON.parse(Buffer.concat(parts).toString())
   expect(carried.items.map((i: { description: string }) => i.description)).toEqual(['Bank charge', 'Receipt'])
   expect(carried.cleared).toHaveLength(2)
+
+  const report = JSON.parse((await downloaded(page, () => panel.getByRole('button', { name: 'Report (JSON)' }).click())).toString())
+  expect(report.statuses.completed).toEqual({ earned: true, reasons: [] })
+  expect(report.matches).toHaveLength(2)
+  expect(report.running.bank).toBe('consistent with every row')
+  const workbook = XLSX.read(await downloaded(page, () => panel.getByRole('button', { name: 'Report (Excel)' }).click()))
+  expect(workbook.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Problems', 'Decisions'])
+  expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Summary, { header: 1 })).toContainEqual(['Reconciliation completed', 'Yes'])
 })
 
 test('an outstanding-items file from the same period is refused at the mapping check', async ({ page }) => {
