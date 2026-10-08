@@ -197,3 +197,16 @@ describe('parseCsv layout safeguards', () => {
     expect(outcome.ok && outcome.file.headers).toEqual(['Date;Amount'])
   })
 })
+
+describe('parseCsv with long runs of line breaks', () => {
+  it('reads a quoted field holding 200,000 line breaks in linear time, keeping them', () => {
+    const breaks = '\n'.repeat(200_000)
+    const started = performance.now()
+    const outcome = parseCsv(`id,note\n1,"a${breaks}b"\n2,c\n`, { delimiter: ',', trimHeaders: true }, undefined, undefined, { headerRecord: 1, skipTrailing: 0 })
+    // The previous trim was quadratic here: about 40 s on the development machine.
+    expect(performance.now() - started).toBeLessThan(2_000)
+    if (!outcome.ok) throw new Error(JSON.stringify(outcome.issues))
+    expect(outcome.file.rows[0].note).toBe(`a${breaks}b`)
+    expect(outcome.file.spans).toEqual([{ first: 2, last: 200_002 }, { first: 200_003, last: 200_003 }])
+  })
+})

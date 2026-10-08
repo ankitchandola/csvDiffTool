@@ -53,6 +53,8 @@ async function classifyAll(page: Page) {
 }
 
 test('September’s outstanding cheques carry into October, clear there, and only new items carry on', async ({ page }) => {
+  // Two full months through the UI; slower when the suite runs its large-file tests alongside.
+  test.setTimeout(60_000)
   const panel = page.getByRole('region', { name: 'Reconciliation status' })
 
   await setUp(page, { bank: BANK_SEP, books: BOOKS_SEP }, ['2026-09-01', '2026-09-30'], ['1000.00', '1300.00', '1000.00', '1050.00'])

@@ -47,7 +47,7 @@ export function MappingForm({
   onChange: (draft: MappingDraft) => void
 }) {
   const set = <K extends keyof MappingDraft>(key: K, value: MappingDraft[K]) => onChange({ ...draft, [key]: value })
-  const name = title.toLowerCase().replace(/\s+/g, '-')
+  const name = title.toLowerCase().split(' ').filter(Boolean).join('-')
   return (
     <fieldset className="panel mapping-form">
       <legend>{title}</legend>

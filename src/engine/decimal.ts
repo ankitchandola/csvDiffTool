@@ -69,7 +69,7 @@ export function parseDecimal(raw: string, { grouped = false, trailingMinus = fal
   if (parentheses && raw.startsWith('(')) {
     if (!raw.endsWith(')')) return null
     const inner = raw.slice(1, -1)
-    if (/^[+-]|-$/.test(inner)) return null
+    if (inner.startsWith('+') || inner.startsWith('-') || inner.endsWith('-')) return null
     const value = parseDecimal(inner, { grouped })
     return value && { units: -value.units, scale: value.scale }
   }
