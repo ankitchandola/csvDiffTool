@@ -93,7 +93,7 @@ async function runCase(n: number, root: number, page: Page) {
   const memory = sampler(root)
   const importS = await timed(async () => {
     await page.getByLabel('Import session file').setInputFiles({ name: 'session.json', mimeType: 'application/json', buffer: Buffer.from(backup) })
-    await page.getByText(`Loaded a session at revision ${n} with ${n} decisions.`).waitFor({ timeout: 300_000 })
+    await page.getByText(`Loaded a session at revision ${n.toLocaleString('en-US')} with ${n.toLocaleString('en-US')} decisions.`).waitFor({ timeout: 300_000 })
   })
   await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: bank })
   await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: books })
