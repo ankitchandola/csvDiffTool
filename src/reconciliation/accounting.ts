@@ -1,4 +1,4 @@
-import { addDecimal, compareDecimal, type Decimal, negateDecimal, subtractDecimal } from '../engine/decimal'
+import { addDecimal, compareDecimal, type Decimal, formatDecimal, negateDecimal, subtractDecimal } from '../engine/decimal'
 import { SIDE_LABELS } from './location'
 import { RECON_SIDES, type ReconSide } from './types'
 
@@ -64,6 +64,13 @@ export type RunningBalanceCheck =
   | { status: 'break'; first: RunningBalanceBreak }
   // A row without a valid amount or balance stops the check: nothing after it can be trusted.
   | { status: 'unreadable'; row: number }
+
+// What the check found, to follow "running balance".
+export function runningText(check: RunningBalanceCheck): string {
+  if (check.status === 'consistent') return 'consistent with every row'
+  if (check.status === 'break') return `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}`
+  return `can't be checked past record ${check.row}`
+}
 
 // Walks rows in source order: each balance must equal the previous one plus the row's
 // signed amount. The first break also exposes missing or reordered rows.

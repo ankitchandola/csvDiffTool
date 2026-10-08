@@ -1,5 +1,5 @@
-import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
-import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, sum } from '../../reconciliation/accounting'
+import { type Decimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
+import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, runningText, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
 import { applyToState, type DecisionEvent } from '../../reconciliation/decisions'
 import { SIDE_LABELS } from '../../reconciliation/location'
@@ -50,12 +50,8 @@ export function runningBalance(ws: Workspace, data: Normalized, side: ReconSide,
 }
 
 export function runningIssue(side: ReconSide, check: RunningBalanceCheck | null): string | null {
-  const name = SIDE_LABELS[side]
-  if (check?.status === 'break') {
-    return `${name}: the running balance breaks at record ${check.first.row} (expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)})`
-  }
-  if (check?.status === 'unreadable') return `${name}: the running balance can't be checked past record ${check.row}`
-  return null
+  if (!check || check.status === 'consistent') return null
+  return `${SIDE_LABELS[side]}: the running balance ${runningText(check)}`
 }
 
 export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewState, setup: AccountingSetup, basis: string): AccountingReport {

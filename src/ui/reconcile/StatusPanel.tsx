@@ -1,6 +1,7 @@
 import { CheckCircle2, CircleDashed } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { formatDecimal } from '../../engine/decimal'
+import { runningText } from '../../reconciliation/accounting'
 import type { DecisionEvent } from '../../reconciliation/decisions'
 import type { AccountingSetup } from '../../reconciliation/session'
 import type { Status } from '../../reconciliation/statuses'
@@ -110,12 +111,8 @@ export function StatusPanel({
         if (!check) return null
         return (
           <p key={side} className={check.status === 'consistent' ? 'note' : 'warning'}>
-            {SIDE_LABELS[side]} running balance:{' '}
-            {check.status === 'consistent'
-              ? 'consistent with every row'
-              : check.status === 'break'
-                ? `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}. A row may be missing, extra or out of order.`
-                : `can't be checked past record ${check.row}, which has no valid amount or balance.`}
+            {SIDE_LABELS[side]} running balance: {runningText(check)}
+            {check.status === 'break' ? '. A row may be missing, extra or out of order.' : check.status === 'unreadable' ? ', which has no valid amount or balance.' : ''}
           </p>
         )
       })}
