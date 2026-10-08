@@ -1,12 +1,12 @@
 import { type ChangedRecord, checkKeyColumns, diffFiles, type DiffResult, schemaDiff } from '../engine/diff'
-import { classifyKeys, encodeKey, type KeyClassification, keyParts, normaliseKeyPart } from '../engine/keys'
+import { classifyKeys, encodeKey, type KeyClassification, keyParts, normalizeKeyPart } from '../engine/keys'
 import { DEFAULT_LIMITS, type Limits } from '../engine/limits'
 import type { ParseIssue } from '../engine/parse'
 import { buildChangesCsv, buildJsonReport } from '../engine/report'
 import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ProgressFn, Row, Side } from '../engine/types'
 import { readSource } from './read-source'
 import { pageBounds, preview } from './paging'
-import { createSearchCache, matches, normaliseSearch } from './search'
+import { createSearchCache, matches, normalizeSearch } from './search'
 import {
   type AmbiguousKeyPreview,
   type AmbiguousRecord,
@@ -43,7 +43,7 @@ function keyProblems(keys: KeyClassification): KeyProblems {
 
 function keyRef(row: Row, rules: KeyRules): KeyRef {
   const parts = keyParts(row, rules)
-  return { encoded: encodeKey(parts.map((part) => normaliseKeyPart(part, rules))), parts }
+  return { encoded: encodeKey(parts.map((part) => normalizeKeyPart(part, rules))), parts }
 }
 
 // Owns the parsed files, their complete diagnostics and the latest diff, so full data
@@ -179,7 +179,7 @@ export function createHandler(limits: Limits = DEFAULT_LIMITS) {
     const { diff, oldFile, newFile } = current(resultId)
     const [start, end] = pageBounds(offset, limit)
     const rules = diff.summary.rulesUsed.key
-    const needle = normaliseSearch(search)
+    const needle = normalizeSearch(search)
     const filtered = <T,>(list: T[], texts: (item: T) => Iterable<string>): T[] =>
       needle === '' ? list : searchCache.get(`${resultId}\u0000${tab}\u0000${column ?? ''}\u0000${needle}`, () => list.filter((item) => matches(texts(item), needle)))
 

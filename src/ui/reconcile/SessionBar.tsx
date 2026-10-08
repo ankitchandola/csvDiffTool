@@ -1,5 +1,5 @@
 import { Download, HardDrive, Upload } from 'lucide-react'
-import { count } from '../format'
+import { count, counted } from '../format'
 import { atRisk, backupText, storageText } from './save-status'
 import type { SavedRef } from './session-store'
 import type { StorageState } from './save-status'
@@ -46,7 +46,7 @@ export function SessionBar({
   return (
     <section className="session-bar" aria-label="Session">
       <p className="save-status" role="status">
-        <HardDrive size={14} aria-hidden="true" /> Revision {count(revision)} · {count(decisions)} decision{decisions === 1 ? '' : 's'} ·{' '}
+        <HardDrive size={14} aria-hidden="true" /> Revision {count(revision)} · {counted(decisions, 'decision')} ·{' '}
         {storageText(storage, revision)} · {backupText(backup, revision)}
       </p>
       {decisions > 0 && atRisk(storage, backup, revision) && (

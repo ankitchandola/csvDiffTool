@@ -1,6 +1,6 @@
 // Case-insensitive "contains" over every text a result item shows, so a search finds what
 // the user can see in the table: key parts, field values, column names and messages.
-export function normaliseSearch(search: string | undefined): string {
+export function normalizeSearch(search: string | undefined): string {
   return (search ?? '').trim().toLowerCase()
 }
 

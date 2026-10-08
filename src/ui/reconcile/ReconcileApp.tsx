@@ -12,6 +12,7 @@ import { ActivityBar } from '../ActivityBar'
 import { download, errorMessage, jsonBlob } from '../browser'
 import { WORKSPACE_IDS } from '../mode'
 import { fileLabel, type FileState, sheetOf } from '../file-state'
+import { count, counted } from '../format'
 import { useActivity } from '../use-activity'
 import { AccountingFields } from './AccountingFields'
 import { ContextFields } from './ContextFields'
@@ -309,7 +310,7 @@ export function ReconcileApp() {
     setStep('files')
     setSessionMessage({
       kind: 'info',
-      text: `Loaded a session at revision ${file.revision} with ${file.events.length} decision${file.events.length === 1 ? '' : 's'}. Load the same files, then find suggestions to apply them.`,
+      text: `Loaded a session at revision ${count(file.revision)} with ${counted(file.events.length, 'decision')}. Load the same files, then find suggestions to apply them.`,
     })
     for (const side of RECON_SIDES) {
       const state = filesRef.current[side]

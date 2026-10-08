@@ -38,8 +38,8 @@ function SideCheck({ side, summary, formats }: { side: ReconSide; summary: SideS
     <div className="side-check">
       <h3>{SIDE_LABELS[side]}</h3>
       <p className="key-status">
-        {counted(summary.rows, 'row')}: {count(summary.valid)} valid ({count(summary.moneyIn)} money in, {count(summary.moneyOut)} money out) ·{' '}
-        {count(summary.zero)} zero · {counted(summary.problemRows, 'row')} with problems
+        {counted(summary.rows, 'record')}: {count(summary.valid)} valid ({count(summary.moneyIn)} money in, {count(summary.moneyOut)} money out) ·{' '}
+        {count(summary.zero)} zero · {counted(summary.problemRows, 'record')} with problems
       </p>
       <div className="table-scroll">
         <table>

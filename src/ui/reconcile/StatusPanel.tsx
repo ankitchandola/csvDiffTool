@@ -112,7 +112,7 @@ export function StatusPanel({
         return (
           <p key={side} className={check.status === 'consistent' ? 'note' : 'warning'}>
             {SIDE_LABELS[side]} running balance: {runningText(check)}
-            {check.status === 'break' ? '. A row may be missing, extra or out of order.' : check.status === 'unreadable' ? ', which has no valid amount or balance.' : ''}
+            {check.status === 'break' ? '. A record may be missing, extra or out of order.' : check.status === 'unreadable' ? ', which has no valid amount or balance.' : ''}
           </p>
         )
       })}

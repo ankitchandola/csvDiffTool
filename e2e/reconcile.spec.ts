@@ -8,7 +8,7 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
   await loadAndMap(page)
   await page.getByRole('button', { name: 'Check mapping' }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
-  await expect(check.getByText(/4 rows: 3 valid \(1 money in, 2 money out\)/)).toBeVisible()
+  await expect(check.getByText(/4 records: 3 valid \(1 money in, 2 money out\)/)).toBeVisible()
   await expect(check.getByText('Money out: "abc" is not a number in the chosen format')).toBeVisible()
   await expect(check.getByText('Bank record 2 · line 5')).toBeVisible()
 

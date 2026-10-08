@@ -114,7 +114,7 @@ describe('buildChangesCsv key column', () => {
     expect(text).toBe('﻿change_type,key,column,before,after\r\nchanged,"[""w1"",""001""]",price,10,12\r\n')
   })
 
-  it('writes the key as typed in the file, not its normalised matching form', () => {
+  it('writes the key as typed in the file, not its normalized matching form', () => {
     const p = profile({ columns: ['sku'], trim: true, caseInsensitive: true })
     const rows = readCsv(buildChangesCsv(input('sku,qty\n0042,1\n', 'sku,qty\n 0042 ,2\n', p)))
     // Value rules don't trim, so the key column's own spacing change is reported too.

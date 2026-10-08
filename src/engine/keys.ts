@@ -28,19 +28,19 @@ interface KeyIndex {
   emptyKey: number[]
 }
 
-export function normaliseKeyPart(value: string, rules: KeyRules): string {
+export function normalizeKeyPart(value: string, rules: KeyRules): string {
   const trimmed = rules.trim ? value.trim() : value
   return rules.caseInsensitive ? trimmed.toLowerCase() : trimmed
 }
 
 // Strict for v1: every component is required. Isolated so optional
 // components (e.g. an empty `variant`) can become a rule later.
-export function isKeyComplete(normalisedParts: string[]): boolean {
-  return normalisedParts.every((part) => part !== '')
+export function isKeyComplete(normalizedParts: string[]): boolean {
+  return normalizedParts.every((part) => part !== '')
 }
 
-export function encodeKey(normalisedParts: string[]): string {
-  return JSON.stringify(normalisedParts)
+export function encodeKey(normalizedParts: string[]): string {
+  return JSON.stringify(normalizedParts)
 }
 
 export function keyParts(row: Row, rules: KeyRules): string[] {
@@ -52,12 +52,12 @@ function buildIndex(rows: Row[], rules: KeyRules, onRow: (index: number) => void
   const emptyKey: number[] = []
   rows.forEach((row, index) => {
     onRow(index)
-    const normalised = keyParts(row, rules).map((part) => normaliseKeyPart(part, rules))
-    if (!isKeyComplete(normalised)) {
+    const normalized = keyParts(row, rules).map((part) => normalizeKeyPart(part, rules))
+    if (!isKeyComplete(normalized)) {
       emptyKey.push(index)
       return
     }
-    const encoded = encodeKey(normalised)
+    const encoded = encodeKey(normalized)
     const existing = byKey.get(encoded)
     if (existing) existing.push(index)
     else byKey.set(encoded, [index])

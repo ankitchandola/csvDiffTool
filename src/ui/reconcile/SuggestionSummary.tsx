@@ -43,8 +43,7 @@ export function SuggestionSummary({ summary, context }: { summary: MatchSummary;
         </p>
       )}
       <p className="note">
-        Rules: exact amount and direction; bank date {summary.rules.bankDaysBefore} day{summary.rules.bankDaysBefore === 1 ? '' : 's'} before to{' '}
-        {summary.rules.bankDaysAfter} day{summary.rules.bankDaysAfter === 1 ? '' : 's'} after books;{' '}
+        Rules: exact amount and direction; bank date {counted(summary.rules.bankDaysBefore, 'day')} before to {counted(summary.rules.bankDaysAfter, 'day')} after books;{' '}
         {summary.rules.referencesShared ? `references compared${summary.rules.referenceCaseInsensitive ? ', ignoring case' : ''}` : 'references for context only'}.
         {' '}Account: {context.account || 'unnamed'}, {context.currency} (stated, not checked).
       </p>
