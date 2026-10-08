@@ -4,7 +4,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { schemaDiff } from '../engine/diff'
-import type { CompareProfile, KeyRules, ParseRules, Side, ValueRules } from '../engine/types'
+import type { CompareProfile, KeyRules, ParseRules, Phase, Side, ValueRules } from '../engine/types'
 import {
   exportProfile,
   importProfile,
@@ -16,11 +16,13 @@ import {
 } from '../profiles/profile'
 import { browserStorage, createProfileStore } from '../profiles/store'
 import { CancelledError, createCompareClient } from '../worker/client'
-import type { CompareResult, ExportFormat, KeyReport, Progress } from '../worker/protocol'
-import { type Activity, PHASE_LABELS, TASK_LABELS, type Task } from './activity'
+import type { CompareResult, ExportFormat, KeyReport } from '../worker/protocol'
+import { PHASE_LABELS, TASK_LABELS, type Task } from './activity'
 import { ActivityBar } from './ActivityBar'
+import { download, errorMessage, jsonBlob } from './browser'
 import { fileLabel, type FileState, sheetOf } from './file-state'
 import { valueRulesLine } from './rules-summary'
+import { useActivity } from './use-activity'
 import { FilePanel } from './FilePanel'
 import { KeyProblemsList } from './KeyProblemsList'
 import { ProfileBar, type ProfileMessage } from './ProfileBar'
@@ -35,19 +37,6 @@ type Step = 'files' | 'rules' | 'results'
 type Outcome<T> = { inputs: string } & (
   { status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string }
 )
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function download(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(url)
-}
 
 function failIfLoaded(state: FileState, reason: string): FileState {
   return state.status === 'empty'
@@ -76,9 +65,8 @@ export function App() {
   const [savedProfiles, setSavedProfiles] = useState(() => profileStore.list())
   const [profileName, setProfileName] = useState('')
   const [profileMessage, setProfileMessage] = useState<ProfileMessage | null>(null)
-  const [activity, setActivity] = useState<Activity>({})
+  const { activity, track, clear: clearActivity } = useActivity<Task, Phase>()
   const [exportError, setExportError] = useState<string | null>(null)
-  const activityTokens = useRef<Partial<Record<Task, number>>>({})
   const [client] = useState(() =>
     createCompareClient((reason) => {
       setFiles((prev) => ({ old: failIfLoaded(prev.old, reason), new: failIfLoaded(prev.new, reason) }))
@@ -89,30 +77,6 @@ export function App() {
   const loadTokens = useRef<Record<Side, number>>({ old: 0, new: 0 })
   const latestKeyInputs = useRef('')
   const latestCompareInputs = useRef('')
-
-  // Only the latest run of a task may update or clear its progress. A task appears with its
-  // first progress message; user-started tasks call show() to appear before that.
-  function track(task: Task) {
-    const token = (activityTokens.current[task] ?? 0) + 1
-    activityTokens.current[task] = token
-    const live = () => activityTokens.current[task] === token
-    return {
-      show: () => {
-        if (live()) setActivity((a) => ({ ...a, [task]: a[task] ?? null }))
-      },
-      progress: (p: Progress) => {
-        if (live()) setActivity((a) => ({ ...a, [task]: p }))
-      },
-      end: () => {
-        if (!live()) return
-        setActivity((a) => {
-          const next = { ...a }
-          delete next[task]
-          return next
-        })
-      },
-    }
-  }
 
   function load(side: Side, file: File, delim: ParseRules['delimiter'], sheet?: string) {
     setStep('files')
@@ -133,7 +97,7 @@ export function App() {
         setDataVersion((v) => v + 1)
       })
       .catch((error: unknown) => {
-        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: message(error), sheet } }))
+        if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: errorMessage(error), sheet } }))
       })
       .finally(task.end)
   }
@@ -183,7 +147,7 @@ export function App() {
   function exportCurrentProfile() {
     const profile = validProfile()
     if (!profile) return
-    download(new Blob([exportProfile(profile)], { type: 'application/json' }), profileFileName(profile.name))
+    download(jsonBlob(exportProfile(profile)), profileFileName(profile.name))
     setProfileMessage(null)
   }
 
@@ -203,7 +167,7 @@ export function App() {
         })
       })
       .catch((error: unknown) =>
-        setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${message(error)}` }),
+        setProfileMessage({ kind: 'error', text: `Could not import ${file.name}: ${errorMessage(error)}` }),
       )
   }
 
@@ -234,10 +198,10 @@ export function App() {
       })
       .catch((error: unknown) => {
         if (error instanceof CancelledError) return
-        if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: message(error) })
+        if (latestKeyInputs.current === inputs) setKeyCheck({ inputs, status: 'error', message: errorMessage(error) })
       })
       .finally(task.end)
-  }, [client, keyInputs, canCheckKeys, keyRules])
+  }, [client, keyInputs, canCheckKeys, keyRules, track])
 
   function compare() {
     const inputs = compareInputs
@@ -257,7 +221,7 @@ export function App() {
       })
       .catch((error: unknown) => {
         if (error instanceof CancelledError) return
-        if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'error', message: message(error) })
+        if (latestCompareInputs.current === inputs) setComparison({ inputs, status: 'error', message: errorMessage(error) })
       })
       .finally(task.end)
   }
@@ -273,7 +237,7 @@ export function App() {
       .call('export', { resultId: result.resultId, format, escapeFormulae }, task.progress)
       .then((blob) => download(blob, `${base}-${EXPORT_NAMES[format]}`))
       .catch((error: unknown) => {
-        if (!(error instanceof CancelledError)) setExportError(message(error))
+        if (!(error instanceof CancelledError)) setExportError(errorMessage(error))
       })
       .finally(task.end)
   }
@@ -283,8 +247,7 @@ export function App() {
   function cancel() {
     setStep('files')
     client.cancel()
-    activityTokens.current = {}
-    setActivity({})
+    clearActivity()
     for (const side of ['old', 'new'] as const) {
       const state = files[side]
       if (state.status !== 'loading' && state.status !== 'ready') continue

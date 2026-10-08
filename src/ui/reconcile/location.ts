@@ -10,6 +10,11 @@ export { SIDE_LABELS }
 
 export type Formats = Record<ReconSide, FileFormat | undefined>
 
+export const SOURCE_TITLES: Record<ReconSide, { title: string; badge: string; caption: string }> = {
+  bank: { title: 'Bank statement', badge: 'B', caption: 'From the bank' },
+  books: { title: 'Books', badge: 'L', caption: 'Your ledger' },
+}
+
 export function locationText(location: Location, formats: Formats): string {
   return placeLabel(location, formats[location.side]?.kind)
 }

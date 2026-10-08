@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import * as XLSX from 'xlsx'
 import { BOOKS, choose, loadAndMap } from './reconcile-helpers'
 
 test('reconcile flow: layout, mapping check, suggestions and review tabs', async ({ page }) => {
@@ -109,6 +110,31 @@ test.describe('cancel', () => {
     await expect(books.getByRole('button', { name: 'Read books.csv again' })).toBeVisible()
     await books.getByRole('button', { name: 'Read books.csv again' }).click()
     await expect(books.getByText('Expected 2 fields, found 3')).toBeVisible()
+  })
+
+  test('keeps the chosen worksheet when a cancelled file is read again with new settings', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: /Reconcile/ }).click()
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['date', 'amount'], ['2026-09-01', 1]]), 'First')
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['date', 'amount'], ['2026-09-01', 1], ['2026-09-02', 2]]), 'Second')
+    const books = page.locator('section.file-panel', { hasText: 'Your ledger' })
+    await books.getByLabel('Choose books').setInputFiles({
+      name: 'books.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })),
+    })
+    await expect(books.locator('.file-stats')).toContainText('sheet “First”')
+    await choose(page, 'Sheet in books', 'Second')
+    await expect(books.locator('.file-stats')).toContainText('sheet “Second”')
+    const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
+    await bank.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: bigBankStatement() })
+    await expect(page.locator('.activity-row', { hasText: 'Reading bank statement' })).toBeVisible()
+    await page.locator('.activity').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(books.getByRole('button', { name: 'Read books.xlsx (sheet “Second”) again' })).toBeVisible()
+    await choose(page, 'Books CSV delimiter', 'Semicolon')
+    await expect(books.locator('.file-stats')).toContainText('sheet “Second”')
+    await expect(books.locator('.file-stats')).toContainText('2 records')
   })
 
   test('drops earlier suggestions and needs both files read again', async ({ page }) => {

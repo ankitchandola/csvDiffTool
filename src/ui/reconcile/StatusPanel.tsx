@@ -7,6 +7,7 @@ import type { Status } from '../../reconciliation/statuses'
 import type { ReconcileClient } from '../../worker/client'
 import { RECON_SIDES } from '../../reconciliation/types'
 import type { AccountingReport } from '../../worker/reconcile-protocol'
+import { download, errorMessage, jsonBlob } from '../browser'
 import { SIDE_LABELS } from './location'
 
 const LABELS: [keyof Omit<AccountingReport['statuses'], 'canMarkComplete'>, string][] = [
@@ -39,7 +40,6 @@ export function StatusPanel({
   onCompleted,
   sessionId,
   revision,
-  onDownload,
 }: {
   client: ReconcileClient
   matchId: number
@@ -53,7 +53,6 @@ export function StatusPanel({
   onCompleted: (event: DecisionEvent) => void
   sessionId: string
   revision: number
-  onDownload: (content: string | Blob, fileName: string) => void
 }) {
   const [report, setReport] = useState<AccountingReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -69,7 +68,7 @@ export function StatusPanel({
         }
       })
       .catch((e: unknown) => {
-        if (live) setError(e instanceof Error ? e.message : String(e))
+        if (live) setError(errorMessage(e))
       })
     return () => {
       live = false
@@ -81,9 +80,9 @@ export function StatusPanel({
     try {
       const generatedAt = new Date().toISOString()
       const blob = await client.call('exportReport', { matchId, format, setup, basis, session: { id: sessionId, revision }, generatedAt })
-      onDownload(blob, `reconciliation-report-${setup.period?.end ?? generatedAt.slice(0, 10)}.${format}`)
+      download(blob, `reconciliation-report-${setup.period?.end ?? generatedAt.slice(0, 10)}.${format}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
     }
   }
 
@@ -134,9 +133,9 @@ export function StatusPanel({
             if (!setup.period) return
             try {
               const result = await client.call('exportOutstanding', { matchId, sessionId, period: setup.period, exportedAt: new Date().toISOString() })
-              onDownload(result.text, `outstanding-${setup.period.end}.json`)
+              download(jsonBlob(result.text), `outstanding-${setup.period.end}.json`)
             } catch (e) {
-              setError(e instanceof Error ? e.message : String(e))
+              setError(errorMessage(e))
             }
           }}
         >
@@ -170,7 +169,7 @@ export function StatusPanel({
                 onCompleted(result.event)
               }
             } catch (e) {
-              setError(e instanceof Error ? e.message : String(e))
+              setError(errorMessage(e))
             }
           }}
         >

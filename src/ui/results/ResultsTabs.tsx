@@ -15,6 +15,7 @@ import type { Page } from './page-loader'
 import { firstRelevantTab, type Tab } from './tabs'
 import { VirtualList } from './VirtualList'
 import { Select } from '../Select'
+import { tabKeyTarget } from '../tabs'
 import { useDebounced } from '../use-debounced'
 
 const SEARCH_DELAY_MS = 250
@@ -309,23 +310,12 @@ export function ResultsTabs({
               aria-controls="result-panel"
               tabIndex={tab === id ? 0 : -1}
               onKeyDown={(e) => {
-                const index = tabs.findIndex(([key]) => key === id)
-                const next =
-                  e.key === 'ArrowRight'
-                    ? (index + 1) % tabs.length
-                    : e.key === 'ArrowLeft'
-                      ? (index + tabs.length - 1) % tabs.length
-                      : e.key === 'Home'
-                        ? 0
-                        : e.key === 'End'
-                          ? tabs.length - 1
-                          : -1
-                if (next >= 0) {
-                  e.preventDefault()
-                  const target = tabs[next][0]
-                  setTab(target)
-                  document.getElementById(`tab-${target}`)?.focus()
-                }
+                const next = tabKeyTarget(e.key, tabs.findIndex(([key]) => key === id), tabs.length)
+                if (next === null) return
+                e.preventDefault()
+                const target = tabs[next][0]
+                setTab(target)
+                document.getElementById(`tab-${target}`)?.focus()
               }}
               aria-selected={tab === id}
               className={tab === id ? 'tab active' : 'tab'}

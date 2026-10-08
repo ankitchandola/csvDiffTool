@@ -5,6 +5,7 @@ import { parseDate } from '../../reconciliation/dates'
 import type { MatchingRules } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
 import type { InspectDetail } from '../../worker/reconcile-protocol'
+import { errorMessage } from '../browser'
 import { count, formatValue } from '../format'
 import { dateEvidence, evidenceText } from './evidence'
 import { type Formats, locationText, SIDE_LABELS } from './location'
@@ -110,7 +111,7 @@ export function Inspector({
         if (live) setDetails(result)
       })
       .catch((e: unknown) => {
-        if (live) setStatus(e instanceof Error ? e.message : String(e))
+        if (live) setStatus(errorMessage(e))
       })
     return () => {
       live = false
