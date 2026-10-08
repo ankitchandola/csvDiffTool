@@ -121,10 +121,12 @@ function readAccounting(value: unknown): AccountingSetup {
     }
   }
   let period: Period | null = null
-  if (a.period !== null) {
-    const p = object(a.period, 'accounting.period')
-    const start = string(p.start, 'accounting.period.start')
-    const end = string(p.end, 'accounting.period.end')
+  const p = a.period === null ? null : object(a.period, 'accounting.period')
+  const start = p === null ? '' : string(p.start, 'accounting.period.start')
+  const end = p === null ? '' : string(p.end, 'accounting.period.end')
+  // Earlier versions could save a half-entered period. It never worked as a period, so it is
+  // read as none rather than refusing the whole session.
+  if (start !== '' && end !== '') {
     const s = parseDate(start, 'YYYY-MM-DD')
     const e = parseDate(end, 'YYYY-MM-DD')
     if (!s.ok || !e.ok || s.day > e.day) fail('accounting.period must be two YYYY-MM-DD dates in order')
