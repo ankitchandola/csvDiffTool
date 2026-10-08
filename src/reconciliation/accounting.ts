@@ -67,7 +67,7 @@ export type RunningBalanceCheck =
 
 // What the check found, to follow "running balance".
 export function runningText(check: RunningBalanceCheck): string {
-  if (check.status === 'consistent') return 'consistent with every row'
+  if (check.status === 'consistent') return 'consistent with every record'
   if (check.status === 'break') return `breaks at record ${check.first.row}: expected ${formatDecimal(check.first.expected)}, found ${formatDecimal(check.first.found)}`
   return `can't be checked past record ${check.row}`
 }
@@ -116,7 +116,7 @@ export interface Bridge {
 // Why a side's balances don't validate, in plain words; null once they do.
 export function sourceGap(side: ReconSide, check: SourceCheck): string | null {
   if (check.status === 'missing-balances') return `${SIDE_LABELS[side]}: opening and closing balances are needed`
-  if (check.status === 'invalid-rows') return `${SIDE_LABELS[side]}: ${check.invalidRows} invalid row${check.invalidRows === 1 ? '' : 's'} have no trustworthy amount`
+  if (check.status === 'invalid-rows') return `${SIDE_LABELS[side]}: ${check.invalidRows} invalid ${check.invalidRows === 1 ? 'record has' : 'records have'} no trustworthy amount`
   if (check.status === 'mismatch') return `${SIDE_LABELS[side]}: opening plus movements does not equal the closing balance`
   return null
 }

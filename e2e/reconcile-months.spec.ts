@@ -94,7 +94,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
     await row.getByRole('button', { name: 'Confirm' }).click()
   }
   await classifyAll(page)
-  await expect(panel).toContainText('Bank running balance: consistent with every row')
+  await expect(panel).toContainText('Bank running balance: consistent with every record')
   await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
   await expect(panel).toContainText('Reconciliation completed: yes')
   const next = page.waitForEvent('download')
@@ -109,7 +109,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   const report = JSON.parse((await downloaded(page, () => panel.getByRole('button', { name: 'Report (JSON)' }).click())).toString())
   expect(report.statuses.completed).toEqual({ earned: true, reasons: [] })
   expect(report.matches).toHaveLength(2)
-  expect(report.running.bank).toBe('consistent with every row')
+  expect(report.running.bank).toBe('consistent with every record')
   const workbook = XLSX.read(await downloaded(page, () => panel.getByRole('button', { name: 'Report (Excel)' }).click()))
   expect(workbook.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Problems', 'Decisions'])
   expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Summary, { header: 1 })).toContainEqual(['Reconciliation completed', 'Yes'])
@@ -246,7 +246,7 @@ for (const running of ['consistent', 'broken', 'unreadable'] as const) {
     const complete = panel.getByRole('button', { name: 'Mark reconciliation complete' })
     if (running === 'consistent') {
       await expect(panel).toContainText('Source balances validated: yes')
-      await expect(panel).toContainText('Bank running balance: consistent with every row')
+      await expect(panel).toContainText('Bank running balance: consistent with every record')
       await expect(complete).toBeEnabled()
       await complete.click()
       await expect(panel).toContainText('Reconciliation completed: yes')

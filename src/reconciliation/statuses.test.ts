@@ -44,13 +44,13 @@ describe('computeStatuses', () => {
     const bridge = computeBridge(IDENTITY)
     const statuses = computeStatuses(bridge, { ...REVIEWED, problems: 1, unexplainedVariances: 2 })
     expect(statuses.canMarkComplete).toBe(false)
-    expect(statuses.completed.reasons).toEqual(['1 row has a problem', '2 confirmed matches have an unexplained difference'])
+    expect(statuses.completed.reasons).toEqual(['1 record has a problem', '2 confirmed matches have an unexplained difference'])
   })
 
   it('lists every reason it is not ready to mark complete once, and none of the mark itself', () => {
     const missing = computeBridge({ ...IDENTITY, sides: { ...IDENTITY.sides, bank: { ...IDENTITY.sides.bank, balances: { opening: null, closing: null } } } })
     const statuses = computeStatuses(missing, { ...REVIEWED, unclassified: 1, problems: 1, completion: { marked: false, current: false } })
-    expect(statuses.notReady).toEqual(['Bank: opening and closing balances are needed', '1 unmatched item is not classified', '1 row has a problem'])
+    expect(statuses.notReady).toEqual(['Bank: opening and closing balances are needed', '1 unmatched item is not classified', '1 record has a problem'])
     expect(computeStatuses(computeBridge(IDENTITY), { ...REVIEWED, completion: { marked: false, current: false } }).notReady).toEqual([])
   })
 

@@ -37,7 +37,7 @@ function Detail({ detail, rules, formats, onCopy }: { detail: InspectDetail; rul
           : 'Not in a confirmed match.'}{' '}
         {detail.rejectedPairs > 0 && `${count(detail.rejectedPairs)} rejected pair${detail.rejectedPairs === 1 ? '' : 's'}.`}
       </p>
-      <h4>Source row</h4>
+      <h4>Source record</h4>
       <div className="table-scroll">
         <table>
           <tbody>

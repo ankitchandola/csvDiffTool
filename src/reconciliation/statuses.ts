@@ -49,7 +49,7 @@ export function computeStatuses(bridge: Bridge, facts: ReviewFacts): Statuses {
   const bridgeComplete = status(bridge.complete ? [] : bridge.gaps.length > 0 ? bridge.gaps : ['The bridge is not computed yet'])
   const outstandingReviewed = status(facts.unclassified > 0 ? [`${plural(facts.unclassified, 'unmatched item is', 'unmatched items are')} not classified`] : [])
   const blockers = [
-    ...(facts.problems > 0 ? [`${plural(facts.problems, 'row has a problem', 'rows have problems')}`] : []),
+    ...(facts.problems > 0 ? [`${plural(facts.problems, 'record has a problem', 'records have problems')}`] : []),
     ...(facts.unexplainedVariances > 0 ? [`${plural(facts.unexplainedVariances, 'confirmed match has', 'confirmed matches have')} an unexplained difference`] : []),
   ]
   const notReady = [...new Set([...sourcesValidated.reasons, ...bridgeComplete.reasons, ...outstandingReviewed.reasons, ...blockers])]

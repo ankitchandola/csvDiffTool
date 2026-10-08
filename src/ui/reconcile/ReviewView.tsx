@@ -255,14 +255,14 @@ export function ReviewView({
         )}
         {tab === 'problems' && (
           <>
-            <p className="note">Rows that cannot be matched: invalid dates or amounts, and zero amounts kept out of matching. Counts are source rows.</p>
+            <p className="note">Records that cannot be matched: invalid dates or amounts, and zero amounts kept out of matching. Counts are source records.</p>
             <VirtualList<ProblemItem>
               key={listKey}
               fetchPage={fetchPage('problems')}
               estimateSize={90}
               empty="No problems."
-              label="Problem rows, scroll to browse"
-              summary={(total) => (search ? `${counted(total, 'row')} shown for this search.` : null)}
+              label="Problem records, scroll to browse"
+              summary={(total) => (search ? `${counted(total, 'record')} shown for this search.` : null)}
               renderRow={(p) => (p ? <div className="cell"><ProblemRow item={p} formats={formats} /></div> : placeholder)}
             />
           </>

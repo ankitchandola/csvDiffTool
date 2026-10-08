@@ -88,7 +88,9 @@ describe('computeBridge', () => {
   it('is incomplete with invalid rows or an incomplete search, and says why', () => {
     const invalid = computeBridge(input({ sides: { ...input().sides, books: { ...input().sides.books, invalidRows: 2 } } }))
     expect(invalid.complete).toBe(false)
-    expect(invalid.gaps).toEqual(['Books: 2 invalid rows have no trustworthy amount'])
+    expect(invalid.gaps).toEqual(['Books: 2 invalid records have no trustworthy amount'])
+    const one = computeBridge(input({ sides: { ...input().sides, bank: { ...input().sides.bank, invalidRows: 1 } } }))
+    expect(one.gaps).toEqual(['Bank: 1 invalid record has no trustworthy amount'])
     expect(computeBridge(input({ incompleteSearch: true })).gaps).toEqual(['The candidate search is incomplete'])
   })
 })
