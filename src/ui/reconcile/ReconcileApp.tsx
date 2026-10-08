@@ -11,7 +11,7 @@ import type { DecisionInput, DecisionSummary, MatchSummary, NormalizeResult, Ope
 import { ActivityBar } from '../ActivityBar'
 import { download, errorMessage, jsonBlob } from '../browser'
 import { WORKSPACE_IDS } from '../mode'
-import { fileLabel, type FileState } from '../file-state'
+import { fileLabel, type FileState, sheetOf } from '../file-state'
 import { FilePanel } from '../FilePanel'
 import { count, counted, formatValue } from '../format'
 import { Select } from '../Select'
@@ -86,9 +86,7 @@ function SourceCheck({ expected, files }: { expected: Record<ReconSide, SourceDe
 // problem list lived in the worker.
 function failIfLoaded(state: SourceState, reason: string): SourceState {
   if (state.status === 'empty' || state.status === 'failed') return state
-  const format = state.status === 'ready' ? state.info.format : state.status === 'invalid' ? state.format : undefined
-  const sheet = state.status === 'loading' ? state.sheet : format?.kind === 'xlsx' ? format.sheet : undefined
-  return { status: 'failed', file: state.file, message: reason, sheet }
+  return { status: 'failed', file: state.file, message: reason, sheet: sheetOf(state) }
 }
 
 function SkippedRecords({ info }: { info: SourceInfo }) {
@@ -245,12 +243,6 @@ export function ReconcileApp() {
         if (isCurrent()) setFiles((prev) => ({ ...prev, [side]: { status: 'failed', file, message: errorMessage(error), sheet } }))
       })
       .finally(task.end)
-  }
-
-  function sheetOf(state: SourceState): string | undefined {
-    if (state.status === 'ready' && state.info.format.kind === 'xlsx') return state.info.format.sheet
-    if (state.status === 'invalid' && state.format?.kind === 'xlsx') return state.format.sheet
-    return undefined
   }
 
   // Delimiter and layout decide how the file is read, so changing them reads it again.
