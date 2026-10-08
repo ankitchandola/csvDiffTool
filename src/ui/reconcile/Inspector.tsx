@@ -6,7 +6,7 @@ import type { MatchingRules } from '../../reconciliation/types'
 import type { ReconcileClient } from '../../worker/client'
 import type { InspectDetail } from '../../worker/reconcile-protocol'
 import { errorMessage } from '../browser'
-import { count, formatValue } from '../format'
+import { count, counted, formatValue } from '../format'
 import { dateEvidence, evidenceText } from './evidence'
 import { type Formats, locationText, SIDE_LABELS } from './location'
 import { TransactionCard } from './TransactionCard'
@@ -35,7 +35,7 @@ function Detail({ detail, rules, formats, onCopy }: { detail: InspectDetail; rul
         {detail.match
           ? `Confirmed with ${locationText(detail.match.other, formats)} (decision ${count(detail.match.event.seq)}).`
           : 'Not in a confirmed match.'}{' '}
-        {detail.rejectedPairs > 0 && `${count(detail.rejectedPairs)} rejected pair${detail.rejectedPairs === 1 ? '' : 's'}.`}
+        {detail.rejectedPairs > 0 && `${counted(detail.rejectedPairs, 'rejected pair')}.`}
       </p>
       <h4>Source record</h4>
       <div className="table-scroll">
