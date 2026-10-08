@@ -1,6 +1,6 @@
-import { addDecimal, compareDecimal, type Decimal, formatDecimal, negateDecimal, subtractDecimal } from '../engine/decimal'
+import { addDecimal, compareDecimal, type Decimal, type DecimalFormat, formatDecimal, negateDecimal, parseDecimal, subtractDecimal } from '../engine/decimal'
 import { SIDE_LABELS } from './location'
-import { RECON_SIDES, type ReconSide } from './types'
+import { type BalanceMarks, RECON_SIDES, type ReconSide } from './types'
 
 const ZERO: Decimal = { units: 0n, scale: 0 }
 
@@ -64,6 +64,18 @@ export type RunningBalanceCheck =
   | { status: 'break'; first: RunningBalanceBreak }
   // A row without a valid amount or balance stops the check: nothing after it can be trusted.
   | { status: 'unreadable'; row: number }
+
+// A running-balance cell: a number, or with marks, an unsigned number followed by Cr or Dr
+// ("5,00,000.00 Cr"). Unmarked text is read as positive; it is usually a zero balance.
+export function readBalance(text: string, format: DecimalFormat, marks: BalanceMarks): Decimal | null {
+  const trimmed = text.trim()
+  const suffix = marks === 'none' ? '' : trimmed.slice(-2).toLowerCase()
+  const mark = suffix === 'cr' || suffix === 'dr' ? suffix : null
+  const value = parseDecimal(mark ? trimmed.slice(0, -2).trimEnd() : trimmed, format)
+  if (!value || !mark) return value
+  if (value.units < 0n) return null
+  return mark === (marks === 'cr-positive' ? 'cr' : 'dr') ? value : negateDecimal(value)
+}
 
 // What the check found, to follow "running balance".
 export function runningText(check: RunningBalanceCheck): string {

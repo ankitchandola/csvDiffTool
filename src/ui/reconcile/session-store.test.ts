@@ -12,6 +12,7 @@ const mapping: SideMapping = {
   reference: null,
   description: null,
   balance: null,
+  balanceMarks: 'none',
 }
 const FP = 'd'.repeat(64)
 

@@ -1,5 +1,5 @@
 import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
-import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, type RunningBalanceCheck, runningText, sum } from '../../reconciliation/accounting'
+import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, readBalance, type RunningBalanceCheck, runningText, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
 import { applyToState, type DecisionEvent, parseTxnKey } from '../../reconciliation/decisions'
 import { SIDE_LABELS } from '../../reconciliation/location'
@@ -52,7 +52,7 @@ function walkRunningBalance(ws: Workspace, data: Normalized, side: ReconSide, co
   const zero = new Set(data.sides[side].zero)
   const rows = (ws.sources[side] as Source).file.rows.map((row, index) => {
     const amount = amounts.get(index) ?? (zero.has(index) ? { units: 0n, scale: minorUnits } : null)
-    const parsed = parseDecimal(row[column].trim(), data.mappings[side].amountFormat)
+    const parsed = readBalance(row[column], data.mappings[side].amountFormat, data.mappings[side].balanceMarks)
     const scaled = parsed && toScale(parsed, minorUnits)
     return { amount, balance: scaled ? cashBalance(scaled, basis) : null }
   })

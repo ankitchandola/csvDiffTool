@@ -16,6 +16,7 @@ const mapping: SideMapping = {
   reference: null,
   description: 'memo',
   balance: null,
+  balanceMarks: 'none',
 }
 
 function session(overrides: Partial<SessionFile> = {}): SessionFile {
@@ -93,6 +94,14 @@ describe('session files with review decisions and balances', () => {
     delete old.mappings.bank.layout.skipLeading
     expect(readSession(old).mappings.bank.layout).toEqual({ headerRecord: 1, skipLeading: 0, skipTrailing: 0 })
     old.mappings.bank.layout.skipLeading = -1
+    expect(() => readSession(old)).toThrow(SessionError)
+  })
+
+  it('reads a session saved before balance marks as unmarked, and refuses an unknown mark', () => {
+    const old = JSON.parse(JSON.stringify(session()))
+    delete old.mappings.books.balanceMarks
+    expect(readSession(old).mappings.books.balanceMarks).toBe('none')
+    old.mappings.books.balanceMarks = 'cr'
     expect(() => readSession(old)).toThrow(SessionError)
   })
 

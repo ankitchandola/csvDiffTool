@@ -29,6 +29,7 @@ const bankMapping: SideMapping = {
   reference: 'Ref',
   description: 'Details',
   balance: null,
+  balanceMarks: 'none',
 }
 
 const booksMapping: SideMapping = {
@@ -40,6 +41,7 @@ const booksMapping: SideMapping = {
   reference: 'ref',
   description: 'memo',
   balance: null,
+  balanceMarks: 'none',
 }
 
 async function loaded() {
@@ -229,6 +231,7 @@ describe('reconcile handler sets and inspection', () => {
     reference: null,
     description: 'memo',
     balance: null,
+    balanceMarks: 'none',
   }
 
   async function run() {
@@ -309,6 +312,7 @@ describe('reconcile handler classification and completion', () => {
     reference: null,
     description: 'memo',
     balance: null,
+    balanceMarks: 'none',
   }
   const setup = {
     period: { start: '2026-09-01', end: '2026-09-30' },
@@ -408,6 +412,7 @@ describe('reconcile handler carry-forward', () => {
     reference: 'ref',
     description: 'memo',
     balance: null,
+    balanceMarks: 'none',
   })
   const SEP = { start: '2026-09-01', end: '2026-09-30' }
   const OCT = { start: '2026-10-01', end: '2026-10-31' }
@@ -638,6 +643,7 @@ describe('reconcile handler running balance', () => {
     reference: null,
     description: null,
     balance: 'balance',
+    balanceMarks: 'none',
   }
 
   async function report(bank: string, opening = '1000') {

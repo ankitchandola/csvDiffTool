@@ -16,7 +16,7 @@ import {
   structuralCheck,
 } from './decisions'
 import { contextIssues } from './normalize'
-import type { Direction, MatchingRules, ReconSide, SessionContext, SideMapping } from './types'
+import { BALANCE_MARKS, type Direction, type MatchingRules, type ReconSide, type SessionContext, type SideMapping } from './types'
 
 export const SESSION_FORMAT = 'reconciliation-session'
 export const SESSION_VERSION = 1
@@ -210,6 +210,7 @@ function readMapping(value: unknown, where: string): SideMapping {
     description: optionalString(m.description, `${where}.description`),
     // Absent in sessions saved before running balances were mapped.
     balance: m.balance === undefined ? null : optionalString(m.balance, `${where}.balance`),
+    balanceMarks: m.balanceMarks === undefined ? 'none' : oneOf(m.balanceMarks, BALANCE_MARKS, `${where}.balanceMarks`),
   }
 }
 

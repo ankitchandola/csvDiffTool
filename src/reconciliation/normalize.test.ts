@@ -22,6 +22,7 @@ const signedMapping: SideMapping = {
   reference: 'ref',
   description: null,
   balance: null,
+  balanceMarks: 'none',
 }
 
 const splitMapping: SideMapping = {

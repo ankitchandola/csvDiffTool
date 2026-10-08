@@ -41,6 +41,7 @@ function mapping(format: 'DD/MM/YYYY' | 'YYYY-MM-DD', balanceColumn: string | nu
     reference: 'ref',
     description: 'memo',
     balance: balanceColumn,
+    balanceMarks: 'none',
   }
 }
 
