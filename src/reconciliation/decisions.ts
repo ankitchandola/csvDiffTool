@@ -122,6 +122,19 @@ export function emptyState(): DecisionState {
   return { bankMatch: new Map(), booksMatch: new Map(), active: new Map(), rejected: new Map(), classifications: new Map(), completion: null, lastSeq: 0 }
 }
 
+// A copy to try decisions on; the events themselves are shared, as they are never changed.
+export function copyState(state: DecisionState): DecisionState {
+  return {
+    bankMatch: new Map(state.bankMatch),
+    booksMatch: new Map(state.booksMatch),
+    active: new Map(state.active),
+    rejected: new Map(state.rejected),
+    classifications: new Map(state.classifications),
+    completion: state.completion,
+    lastSeq: state.lastSeq,
+  }
+}
+
 export type Verdict = { ok: true } | { ok: false; reason: string }
 
 // Rules that hold whatever the data: one active match per transaction, and a pair is

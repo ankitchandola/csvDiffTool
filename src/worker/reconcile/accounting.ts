@@ -6,7 +6,7 @@ import { type AccountingSetup } from '../../reconciliation/session'
 import { computeStatuses, type ReviewFacts } from '../../reconciliation/statuses'
 import { RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type AccountingReport, type ReconRequests, type ReconResults } from '../reconcile-protocol'
-import { currentReview, descriptionOf, keyOf, type Normalized, openingItem, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
+import { currentReview, expectNextSeq, descriptionOf, keyOf, type Normalized, openingItem, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
 
 // Balances, the bridge, statuses, completion and the outstanding-items export.
 
@@ -129,7 +129,7 @@ export function accounting(ws: Workspace, { matchId, setup, basis }: ReconReques
 
 export function markComplete(ws: Workspace, { matchId, seq, at, setup, basis }: ReconRequests['markComplete']): ReconResults['markComplete'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
-  if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+  expectNextSeq(state, seq)
   const before = report(ws, run, data, state, setup, basis)
   if (!before.statuses.canMarkComplete) return { ok: false, reason: `Not ready to mark complete: ${before.statuses.notReady.join('; ')}` }
   const event: DecisionEvent = { seq, at, action: 'complete', basis }

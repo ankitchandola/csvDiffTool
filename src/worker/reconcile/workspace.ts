@@ -262,6 +262,12 @@ export function currentReview(ws: Workspace, matchId: number) {
   return { latest: ws.latest, normalized: ws.normalized, review: ws.review }
 }
 
+// A new decision must follow the last one recorded; otherwise the page and the worker
+// hold different histories.
+export function expectNextSeq(state: ReviewState, seq: number): void {
+  if (seq !== state.events.length + 1) throw new Error('The decision history is out of step with this session; reload the session')
+}
+
 // Positions used by active matches and rejected position pairs, for fast filtering.
 export function derive(ws: Workspace, state: ReviewState, data: Normalized) {
   const used = { bank: new Uint8Array(data.pool.bank.length), books: new Uint8Array(data.pool.books.length) }
