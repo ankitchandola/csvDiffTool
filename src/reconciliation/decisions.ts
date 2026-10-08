@@ -195,6 +195,9 @@ export function checkPair(bank: Transaction | undefined, books: Transaction | un
   if (!bank) return { blocked: 'The bank transaction is not a valid, nonzero transaction in the current files', exceptions: [] }
   if (!books) return { blocked: 'The books transaction is not a valid, nonzero transaction in the current files', exceptions: [] }
   if (bank.amount.units > 0n !== books.amount.units > 0n) return { blocked: 'Money in cannot pair with money out', exceptions: [] }
+  if (bank.opening && books.opening) {
+    return { blocked: 'Two carried items can’t clear each other; a carried item clears against a transaction from this period', exceptions: [] }
+  }
   const exceptions: RuleException[] = []
   if (bank.amount.units !== books.amount.units) exceptions.push('amount')
   const gap = bank.day - books.day
