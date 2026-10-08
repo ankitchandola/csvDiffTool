@@ -87,3 +87,28 @@ describe('checkImport', () => {
     expect(check.warnings[0]).toMatch(/overlapping export/)
   })
 })
+
+describe('carry-forward review findings', () => {
+  it('reports a precision mismatch instead of crashing in the overlap check', () => {
+    const precise = file({ minorUnits: 3, items: [{ ...file().items[0], amount: '-200.005' }] })
+    const repeat: Transaction = { side: 'books', index: 0, day: dayNumber(2026, 9, 29), amount: { units: -20000n, scale: 2 }, reference: 'CHQ101' }
+    const check = checkImport(precise, target({ books: [repeat] }))
+    expect(check.errors[0]).toMatch(/3 decimal places; this session is INR with 2/)
+    expect(check.overlaps).toEqual([])
+  })
+
+  it('reads unpadded dates as the same calendar dates', () => {
+    const unpadded = readOutstandingFile({
+      ...file(),
+      period: { start: '2026-9-1', end: '2026-9-30' },
+      items: [{ ...file().items[0], date: '2026-9-29', origin: { ...file().items[0].origin, period: { start: '2026-9-1', end: '2026-9-30' } } }],
+    })
+    expect(unpadded.period).toEqual({ start: '2026-09-01', end: '2026-09-30' })
+    expect(unpadded.items[0].date).toBe('2026-09-29')
+    expect(checkImport(unpadded, target())).toEqual({ errors: [], warnings: [], overlaps: [] })
+  })
+
+  it('compares periods as dates even when the session period is unpadded', () => {
+    expect(checkImport(file(), { ...target(), period: { start: '2026-10-1', end: '2026-10-31' } })).toEqual({ errors: [], warnings: [], overlaps: [] })
+  })
+})

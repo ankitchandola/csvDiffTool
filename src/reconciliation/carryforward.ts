@@ -61,15 +61,23 @@ function fail(message: string): never {
   throw new CarryForwardError(message)
 }
 
+// Returned in canonical YYYY-MM-DD form, so 2026-9-30 and 2026-09-30 are the same date.
 function validDate(text: unknown, where: string): string {
-  if (typeof text !== 'string' || !parseDate(text, 'YYYY-MM-DD').ok) fail(`${where} must be a YYYY-MM-DD date`)
-  return text
+  const outcome = typeof text === 'string' ? parseDate(text, 'YYYY-MM-DD') : null
+  if (!outcome?.ok) fail(`${where} must be a YYYY-MM-DD date`)
+  return isoDate(outcome.day)
+}
+
+function dayOf(iso: string): number {
+  const outcome = parseDate(iso, 'YYYY-MM-DD')
+  if (!outcome.ok) throw new CarryForwardError(`"${iso}" is not a YYYY-MM-DD date`)
+  return outcome.day
 }
 
 function readPeriod(value: unknown, where: string): Period {
   const p = (value ?? {}) as Record<string, unknown>
   const period = { start: validDate(p.start, `${where}.start`), end: validDate(p.end, `${where}.end`) }
-  if (period.start > period.end) fail(`${where} ends before it starts`)
+  if (dayOf(period.start) > dayOf(period.end)) fail(`${where} ends before it starts`)
   return period
 }
 
@@ -160,23 +168,22 @@ export interface ImportCheck {
   overlaps: PotentialOverlap[]
 }
 
-function dayBefore(iso: string): string {
-  const outcome = parseDate(iso, 'YYYY-MM-DD')
-  return outcome.ok ? isoDate(outcome.day - 1) : iso
-}
-
 // Checks an outstanding-items file against the session it is imported into. Errors
 // refuse it whole; nothing is half-imported.
 export function checkImport(file: OutstandingFile, target: ImportTarget): ImportCheck {
   const errors: string[] = []
   const warnings: string[] = []
-  const { context, period } = target
-  if (file.currency !== context.currency || file.minorUnits !== context.minorUnits) {
+  const { context } = target
+  const start = dayOf(target.period.start)
+  const fileEnd = dayOf(file.period.end)
+  const samePrecision = file.minorUnits === context.minorUnits
+  if (file.currency !== context.currency || !samePrecision) {
     errors.push(`The file is for ${file.currency} with ${file.minorUnits} decimal places; this session is ${context.currency} with ${context.minorUnits}`)
   }
   if (file.account !== context.account) errors.push(`The file is for account “${file.account}”; this session is “${context.account}”`)
-  if (file.period.end >= period.start) errors.push(`The file's period ends ${file.period.end}, not before this session's period starts (${period.start})`)
-  else if (file.period.end !== dayBefore(period.start)) warnings.push(`The periods are not consecutive: the file ends ${file.period.end} and this session starts ${period.start}`)
+  const startText = isoDate(start)
+  if (fileEnd >= start) errors.push(`The file's period ends ${file.period.end}, not before this session's period starts (${startText})`)
+  else if (fileEnd !== start - 1) warnings.push(`The periods are not consecutive: the file ends ${file.period.end} and this session starts ${startText}`)
 
   const seen = new Set<string>()
   const cleared = new Set(file.cleared)
@@ -186,7 +193,7 @@ export function checkImport(file: OutstandingFile, target: ImportTarget): Import
     if (target.imported.has(item.lineage)) errors.push(`Item ${item.lineage} is already imported into this session`)
     if (target.clearedElsewhere.has(item.lineage)) errors.push(`Item ${item.lineage} was already cleared according to a file imported earlier; it can't be outstanding again`)
     if (cleared.has(item.lineage)) errors.push(`Item ${item.lineage} is listed as cleared and as outstanding`)
-    if (item.date >= period.start) errors.push(`Item ${item.lineage} is dated ${item.date}, inside or after this session's period`)
+    if (dayOf(item.date) >= start) errors.push(`Item ${item.lineage} is dated ${item.date}, inside or after this session's period`)
   }
   for (const lineage of file.cleared) {
     if (target.imported.has(lineage)) errors.push(`The file says ${lineage} was cleared, but it is imported here as outstanding`)
@@ -196,9 +203,10 @@ export function checkImport(file: OutstandingFile, target: ImportTarget): Import
   // outstanding. Equal content doesn't prove it's the same transaction, so this asks for
   // review rather than discarding either.
   const overlaps: PotentialOverlap[] = []
-  for (const item of file.items) {
+  // Amounts at another precision can't be compared with this session's; that is already refused.
+  for (const item of samePrecision ? file.items : []) {
     const amount = parseDecimal(item.amount) as Decimal
-    const day = (parseDate(item.date, 'YYYY-MM-DD') as { ok: true; day: number }).day
+    const day = dayOf(item.date)
     const scale = context.minorUnits
     const units = (toScale(amount, scale) as Decimal).units
     const matches = target.current[item.side]
