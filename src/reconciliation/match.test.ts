@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dayNumber, isoDate } from './dates'
+import { checkPair } from './decisions'
 import { findCandidates } from './match'
 import { DEFAULT_MATCHING, type MatchingRules, type ReconSide, type Transaction } from './types'
 
@@ -115,6 +116,27 @@ describe('findCandidates', () => {
     for (let run = 0; run < 20; run++) {
       const shuffle = (list: Spec[]) => list.map((v) => [random(), v] as const).sort((x, y) => x[0] - y[0]).map(([, v]) => v)
       expect(describe(shuffle(bank), shuffle(books))).toEqual(expected)
+    }
+  })
+})
+
+describe('suggestions and the manual pair check', () => {
+  it('agree on which pairs meet the rules', () => {
+    const bank = txns('bank', [[10, 500, 'A'], [10, 500, 'a'], [10, 500], [10, -500, 'A']])
+    const books = txns('books', [[6, 500, 'A'], [7, 500, 'A'], [13, 500, 'a'], [14, 500], [10, 500, 'B'], [10, -500, 'A'], [10, 400, 'A']])
+    for (const rules of [
+      DEFAULT_MATCHING,
+      { ...DEFAULT_MATCHING, referencesShared: true },
+      { ...DEFAULT_MATCHING, referencesShared: true, referenceCaseInsensitive: true },
+      { ...DEFAULT_MATCHING, bankDaysBefore: 0, bankDaysAfter: 5 },
+    ]) {
+      const suggested = new Set(findCandidates(bank, books, rules).candidates.map((c) => `${c.bank}-${c.books}`))
+      for (const [i, b] of bank.entries()) {
+        for (const [j, l] of books.entries()) {
+          const check = checkPair(b, l, rules)
+          expect(check.blocked === null && check.exceptions.length === 0, `bank ${i}, books ${j}, ${JSON.stringify(rules)}`).toBe(suggested.has(`${i}-${j}`))
+        }
+      }
     }
   })
 })

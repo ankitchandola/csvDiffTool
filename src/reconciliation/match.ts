@@ -4,6 +4,17 @@ import type { MatchingRules, Transaction } from './types'
 // and 4 (amount within tolerance) cannot occur.
 export type Tier = 1 | 3
 
+// The books dates a bank transaction may pair with, inclusive.
+export function booksWindow(bankDay: number, rules: MatchingRules): { earliest: number; latest: number } {
+  return { earliest: bankDay - rules.bankDaysAfter, latest: bankDay + rules.bankDaysBefore }
+}
+
+// Whether two references agree under the rules; null when they are not compared.
+export function referencesAgree(bank: string | null, books: string | null, rules: MatchingRules): boolean | null {
+  if (!rules.referencesShared || bank === null || books === null) return null
+  return rules.referenceCaseInsensitive ? bank.toLowerCase() === books.toLowerCase() : bank === books
+}
+
 // bank and books are positions in each side's transaction list.
 export interface Candidate {
   bank: number
@@ -66,9 +77,6 @@ export function findCandidates(
   rules: MatchingRules,
   maxCandidates: number = MAX_CANDIDATES,
 ): MatchOutcome {
-  // Two carried opening items never clear each other: each clears only against a
-  // transaction from the current period.
-  const reference = (t: Transaction) => (t.reference === null ? null : rules.referenceCaseInsensitive ? t.reference.toLowerCase() : t.reference)
   const buckets = new Map<bigint, number[]>()
   books.forEach((t, position) => {
     const bucket = buckets.get(t.amount.units)
@@ -86,8 +94,7 @@ export function findCandidates(
     const t = bank[b]
     const bucket = buckets.get(t.amount.units)
     if (!bucket) continue
-    const earliest = t.day - rules.bankDaysAfter
-    const latest = t.day + rules.bankDaysBefore
+    const { earliest, latest } = booksWindow(t.day, rules)
     let low = 0
     let high = bucket.length
     while (low < high) {
@@ -98,19 +105,15 @@ export function findCandidates(
     for (let i = low; i < bucket.length && books[bucket[i]].day <= latest; i++) {
       const position = bucket[i]
       const other = books[position]
+      // Two carried opening items never clear each other: each clears only against a
+      // transaction from the current period.
       if (t.opening && other.opening) continue
-      let tier: Tier = 3
-      if (rules.referencesShared) {
-        const ours = reference(t)
-        const theirs = reference(other)
-        if (ours !== null && theirs !== null) {
-          if (ours !== theirs) {
-            referenceConflicts++
-            continue
-          }
-          tier = 1
-        }
+      const agree = referencesAgree(t.reference, other.reference, rules)
+      if (agree === false) {
+        referenceConflicts++
+        continue
       }
+      const tier: Tier = agree ? 1 : 3
       if (pairs.length >= maxCandidates) {
         incomplete = `The search stopped after ${maxCandidates.toLocaleString('en-US')} candidate pairs. Narrow the date window or split the period.`
         break search
