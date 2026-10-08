@@ -5,14 +5,13 @@ import type { ParseIssue } from '../engine/parse'
 import { buildChangesCsv, buildJsonReport } from '../engine/report'
 import type { AmbiguousKey, KeyRef, KeyRules, ParsedFile, ProgressFn, Row, Side } from '../engine/types'
 import { readSource } from './read-source'
+import { pageBounds, preview } from './paging'
 import { createSearchCache, matches, normaliseSearch } from './search'
 import {
   type AmbiguousKeyPreview,
   type AmbiguousRecord,
   type KeyProblems,
   MAX_GROUP_MEMBERS,
-  MAX_PAGE_SIZE,
-  type Preview,
   PREVIEW_ISSUES,
   PREVIEW_PROBLEMS,
   PREVIEW_RECORDS,
@@ -24,10 +23,6 @@ import {
 } from './protocol'
 
 export { LEGACY_EXCEL_MESSAGE } from './read-source'
-
-function preview<T>(items: T[], size: number): Preview<T> {
-  return { items: items.slice(0, size), total: items.length }
-}
 
 function capMembers(group: AmbiguousKey): AmbiguousKeyPreview {
   return {
@@ -49,11 +44,6 @@ function keyProblems(keys: KeyClassification): KeyProblems {
 function keyRef(row: Row, rules: KeyRules): KeyRef {
   const parts = keyParts(row, rules)
   return { encoded: encodeKey(parts.map((part) => normaliseKeyPart(part, rules))), parts }
-}
-
-function pageBounds(offset: number, limit: number): [number, number] {
-  const start = Math.max(0, Math.floor(offset))
-  return [start, start + Math.min(MAX_PAGE_SIZE, Math.max(0, Math.floor(limit)))]
 }
 
 // Owns the parsed files, their complete diagnostics and the latest diff, so full data
