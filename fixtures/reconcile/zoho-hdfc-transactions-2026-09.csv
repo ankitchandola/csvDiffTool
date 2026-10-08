@@ -1,0 +1,8 @@
+Date,Transaction Details,Reference#,Amount
+2026-09-01,Payment received - Zenith Software Solutions,INV-000114,"2,36,000.00"
+2026-09-03,Expense - Amazon (office supplies),EXP-0231,"-3,499.00"
+2026-09-04,Bill payment - Kavya Designs,BL-0091,"-45,000.00"
+2026-09-04,Bill payment - Kavya Designs,BL-0092,"-45,000.00"
+2026-09-10,Transfer to Petty Cash,TR-0017,"-10,000.00"
+2026-09-14,Payment received - Northwind Retail,INV-000118,"59,000.00"
+2026-09-29,Bill payment - Bluebird Logistics,BL-0097,"-18,500.00"

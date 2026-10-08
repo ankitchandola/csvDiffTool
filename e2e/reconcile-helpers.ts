@@ -86,3 +86,14 @@ export async function setUpMonth(page: Page, files: { bank: string; books: strin
   await page.getByLabel('Books opening balance').fill(balances[2])
   await page.getByLabel('Books closing balance').fill(balances[3])
 }
+
+// Gives every unmatched row its usual classification.
+export async function classifyAll(page: Page) {
+  await page.getByRole('tab', { name: /^Unmatched/ }).click()
+  await expect(page.locator('.review-row').first()).toBeVisible()
+  for (const row of await page.locator('.review-row').all()) {
+    await row.focus()
+    await page.keyboard.press('o')
+    await expect(row.locator('.chip')).toBeVisible()
+  }
+}
