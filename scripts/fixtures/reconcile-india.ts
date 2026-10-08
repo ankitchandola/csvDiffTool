@@ -96,17 +96,18 @@ function iciciStatement(): void {
   ])
 }
 
-function tallyLedger(): void {
-  const date = (day: number) => `${day}-Sep-2026`
+// Tally writes 1-Sep-26 unless the company is set to four-digit years.
+function tallyLedger(name: string, bankAccount: string, year: '2026' | '26'): void {
+  const date = (day: number) => `${day}-Sep-${year}`
   const debits = TALLY.filter((t) => t.amount > 0)
   const credits = TALLY.filter((t) => t.amount < 0)
   const closing = TALLY_OPENING + sum(TALLY.map((t) => t.amount))
-  writeCsv('tally-icici-ledger-2026-09.csv', [
+  writeCsv(name, [
     ['ACME TRADERS PVT LTD'],
     ['14 Industrial Area, Peenya, Bengaluru 560058'],
-    ['ICICI Bank Current A/c 000405001234'],
+    [bankAccount],
     ['Ledger Account'],
-    ['1-Sep-2026 to 30-Sep-2026'],
+    [`${date(1)} to ${date(30)}`],
     ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
     ['', 'Opening Balance', '', '', indian(TALLY_OPENING), ''],
     ...TALLY.map((t) => {
@@ -115,6 +116,31 @@ function tallyLedger(): void {
     }),
     ['', '', '', '', indian(TALLY_OPENING + sum(debits.map((t) => t.amount))), indian(-sum(credits.map((t) => t.amount)))],
     ['', 'Closing Balance', '', '', '', indian(closing)],
+  ])
+}
+
+// Scenario C: the same account's transactions as an SBI-style statement, with dates such
+// as "1 Sep 2026", balances marked Cr, and unused amount cells holding a space.
+function sbiStatement(): void {
+  const date = (day: number) => `${day} Sep 2026`
+  let balance = ICICI_OPENING
+  const rows = ICICI.map((t) => {
+    balance += t.amount
+    return [date(t.day), date(t.day), t.text, t.ref, t.amount < 0 ? indian(-t.amount) : ' ', t.amount > 0 ? indian(t.amount) : ' ', `${indian(balance)} Cr`]
+  })
+  writeCsv('sbi-statement-2026-09.csv', [
+    ['Account Name', ':ACME TRADERS PVT LTD'],
+    ['Address', ':14 Industrial Area, Peenya, Bengaluru 560058'],
+    ['Account Number', ':00000031234567890'],
+    ['Account Description', ':CURRENT ACCOUNT'],
+    ['Branch', ':PEENYA INDUSTRIAL AREA'],
+    ['Balance as on 1 Sep 2026', `:${indian(ICICI_OPENING)} Cr`],
+    ['Start Date', ':1 Sep 2026'],
+    ['End Date', ':30 Sep 2026'],
+    [],
+    ['Txn Date', 'Value Date', 'Description', 'Ref No./Cheque No.', 'Debit', 'Credit', 'Balance'],
+    ...rows,
+    ['**This is a computer generated statement and does not require a signature.'],
   ])
 }
 
@@ -190,7 +216,9 @@ function zohoBooks(): void {
 
 mkdirSync(OUT, { recursive: true })
 iciciStatement()
-tallyLedger()
+tallyLedger('tally-icici-ledger-2026-09.csv', 'ICICI Bank Current A/c 000405001234', '2026')
+sbiStatement()
+tallyLedger('tally-sbi-ledger-2026-09.csv', 'State Bank of India Current A/c 31234567890', '26')
 hdfcStatement()
 zohoBooks()
 

@@ -4,14 +4,14 @@ Written by `npx tsx scripts/fixtures/reconcile-india.ts`, which computes every b
 running balance. Change the transactions there, not in the files. The layouts follow
 common Indian bank and accounting exports. Names and numbers are made up.
 
-Both scenarios cover September 2026 and are exercised by `e2e/reconcile-realistic.spec.ts`.
+All three scenarios cover September 2026 and are exercised by `e2e/reconcile-realistic.spec.ts`.
 
 ## A: ICICI-style statement vs Tally-style ledger
 
 | File | Layout |
 | --- | --- |
 | `icici-statement-2026-09.csv` | 3 preamble records, header is record 4, 2 legend records at the end; `DD/MM/YYYY`; separate withdrawal and deposit columns; lakh grouping (`1,25,000.00`); cheque number and running balance columns |
-| `tally-icici-ledger-2026-09.csv` | 5 preamble records, header is record 6; `1-Sep-2026` (`DD-Mon-YYYY`); Debit is money in, Credit is money out; an "Opening Balance" line right below the header; totals and "Closing Balance" lines at the end (skip 2) |
+| `tally-icici-ledger-2026-09.csv` | 5 preamble records, header is record 6; `1-Sep-2026` (`DD-Mon-YYYY`); Debit is money in, Credit is money out; an "Opening Balance" line right below the header (skip 1 after the header); totals and "Closing Balance" lines at the end (skip 2) |
 
 Balances: bank ₹2,50,000.00 → ₹28,855.30, books ₹2,50,000.00 → ₹45,628.00.
 
@@ -39,22 +39,27 @@ There are 8 candidate pairs in 5 groups. Two ₹45,000.00 IMPS payments to the s
 the same day compete with two bills. The ATM fee (₹23.60) and an unpaid bill (₹18,500.00)
 stay unmatched. This scenario reaches "Reconciliation completed".
 
+## C: SBI-style statement vs Tally-style ledger with two-digit years
+
+The same account and transactions as A, so the same figures and outcome.
+
+| File | Layout |
+| --- | --- |
+| `sbi-statement-2026-09.csv` | 8 preamble records and a blank line, header is record 9, 1 footer record; `1 Sep 2026` (`DD Mon YYYY`); unused amount cells hold a space; balances marked `Cr` |
+| `tally-sbi-ledger-2026-09.csv` | Tally's default `1-Sep-26` (`DD-Mon-YY`); otherwise as A's ledger |
+
 ## What these files showed
 
-- **A Tally opening-balance line blocks completion.** The line sits directly below the
-  header and has no date, so it is read as a record with a problem. Only records above
-  the header or at the end can be skipped, so the books source never validates and the
-  reconciliation can't be completed without editing the file.
+- **A Tally opening-balance line sits right below the header.** It has no date, so it
+  used to be read as a problem record that blocked completion. It is now skipped with
+  "Skip records after the header".
 - **Bulk payments need grouped matching** (milestone 5). A single salary or vendor batch
   debit against individual ledger entries stays unmatched on both sides.
 - **Identical-set confirmation rarely applies to real statements.** A set needs equal
   references, and IMPS, UPI and NEFT rows carry unique reference numbers. Same-amount,
   same-day payments are reviewed pair by pair.
-
-Formats deliberately left out of these files because Reconcile doesn't read them yet:
-
-- **Two-digit years:** `01/09/26` in HDFC CSV downloads, and `1-Sep-26`, Tally's default.
-  They are refused with "has a two-digit year".
-- **Space-separated dates with a named month:** `1 Sep 2026`, used by SBI.
-- **Balances with a Cr/Dr suffix:** `5,00,000.00 Cr`. A running-balance column written
-  this way can't be checked.
+- **Two-digit years, `1 Sep 2026` dates and Cr/Dr-marked balances weren't read.** HDFC
+  CSV downloads use `01/09/26`, Tally defaults to `1-Sep-26`, SBI writes `1 Sep 2026`,
+  and many statements mark balances `5,00,000.00 Cr`. The `DD/MM/YY`, `DD-Mon-YY` and
+  `DD Mon YYYY` formats and the "Balances marked Cr or Dr" choice now cover them;
+  scenario C exercises them.

@@ -54,8 +54,14 @@ test('ICICI-style statement against a Tally-style ledger', async ({ page }) => {
   await choose(page, 'Bank statement reference column', 'Cheque Number')
   await choose(page, 'Bank statement description column', 'Transaction Remarks')
   await choose(page, 'Bank statement running balance column', 'Balance (INR )')
+  await mapTallyLedger(page, 'DD-Mon-YYYY')
+  await reconcileAcmeSeptember(page)
+})
+
+// Scenario A's ledger and statement figures, whichever bank layout the statement uses.
+async function mapTallyLedger(page: Page, dateFormat: string) {
   await choose(page, 'Books date column', 'Date')
-  await choose(page, 'Books date format', 'DD-Mon-YYYY')
+  await choose(page, 'Books date format', dateFormat)
   await page.getByRole('radiogroup', { name: 'Books amount layout' }).getByLabel(/Separate/).check()
   await choose(page, 'Books money-in column', 'Debit')
   await choose(page, 'Books money-out column', 'Credit')
@@ -68,7 +74,9 @@ test('ICICI-style statement against a Tally-style ledger', async ({ page }) => {
   await page.getByLabel('Bank closing balance').fill('28,855.30')
   await page.getByLabel('Books opening balance').fill('2,50,000.00')
   await page.getByLabel('Books closing balance').fill('45,628.00')
+}
 
+async function reconcileAcmeSeptember(page: Page) {
   await page.getByRole('button', { name: 'Check mapping' }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check.getByText('13 records: 13 valid (6 money in, 7 money out) · 0 zero · 0 records with problems')).toBeVisible()
@@ -92,6 +100,28 @@ test('ICICI-style statement against a Tally-style ledger', async ({ page }) => {
   await classifyAll(page)
   await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
   await expect(panel).toContainText('Reconciliation completed: yes')
+}
+
+test('SBI-style statement with Cr balances against a Tally ledger with two-digit years', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Reconcile/ }).click()
+  await load(page, 'bank statement', 'sbi-statement-2026-09.csv', { header: 9, atEnd: 1 }, 13)
+  await load(page, 'books', 'tally-sbi-ledger-2026-09.csv', { header: 6, afterHeader: 1, atEnd: 2 }, 15)
+  await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+
+  await page.getByLabel('Currency').fill('INR')
+  await choose(page, 'Bank statement date column', 'Txn Date')
+  await choose(page, 'Bank statement date format', 'DD Mon YYYY')
+  await page.getByRole('radiogroup', { name: 'Bank statement amount layout' }).getByLabel(/Separate/).check()
+  await choose(page, 'Bank statement money-in column', 'Credit')
+  await choose(page, 'Bank statement money-out column', 'Debit')
+  await mappingFieldset(page, 'Bank statement').getByLabel(/thousands separators/).check()
+  await choose(page, 'Bank statement reference column', 'Ref No./Cheque No.')
+  await choose(page, 'Bank statement description column', 'Description')
+  await choose(page, 'Bank statement running balance column', 'Balance')
+  await choose(page, 'Bank statement balance marks', 'Cr is positive (bank statements)')
+  await mapTallyLedger(page, 'DD-Mon-YY (26 is 2026)')
+  await reconcileAcmeSeptember(page)
 })
 
 test('HDFC-style .xlsx statement against a Zoho-style books export', async ({ page }) => {
