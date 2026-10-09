@@ -91,12 +91,23 @@ async function reconcileAcmeSeptember(page: Page) {
 
   const panel = page.getByRole('region', { name: 'Reconciliation status' })
   await expect(panel).toContainText('Bank running balance: consistent with every record')
-  // The bulk salary payment is one bank debit against three ledger entries: grouped
-  // matching is not built yet, so all four stay unmatched and the bridge explains them.
+  // The bulk salary payment is one bank debit against three ledger entries with no shared
+  // ID: the reviewer selects all four and confirms them as a group.
   await page.getByRole('tab', { name: /^Unmatched/ }).click()
-  await expect(page.locator('.review-row', { hasText: 'INF/INFT/SALARY SEP 2026/BULK' })).toBeVisible()
-  await expect(page.locator('.review-row', { hasText: 'Salary - ' })).toHaveCount(3)
   await expect(page.getByRole('tab', { name: /^Unmatched/ })).toContainText('8')
+  const salaryRows = page.locator('.review-row', { hasText: /INF\/INFT\/SALARY SEP 2026\/BULK|Salary - / })
+  await expect(salaryRows).toHaveCount(4)
+  for (let i = 0; i < 4; i++) await salaryRows.nth(i).getByRole('button', { name: 'Select for pair' }).click()
+  const manual = page.getByRole('region', { name: 'Manual pair' })
+  await expect(manual.locator('.amount', { hasText: '-180000.00' })).toHaveCount(2)
+  await manual.getByText('Total of 3 records, dated by the latest').click()
+  await expect(manual.locator('.group-members li')).toHaveText([/Salary - Anil Kumar/, /Salary - Priya Nair/, /Salary - Ravi Shetty/])
+  await expect(manual).toContainText('This group meets the matching rules.')
+  await manual.getByRole('button', { name: 'Confirm group' }).click()
+  await expect(page.getByRole('tab', { name: /^Unmatched/ })).toContainText('4')
+  await page.getByRole('tab', { name: /^Confirmed/ }).click()
+  await expect(page.locator('.review-row', { hasText: 'Group of 3 transactions' })).toBeVisible()
+  await page.getByRole('tab', { name: /^Unmatched/ }).click()
   await classifyAll(page)
   await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
   await expect(panel).toContainText('Reconciliation completed: yes')
