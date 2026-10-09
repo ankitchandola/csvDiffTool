@@ -53,8 +53,9 @@ The same account and transactions as A, so the same figures and outcome.
 - **A Tally opening-balance line sits right below the header.** It has no date, so it
   used to be read as a problem record that blocked completion. It is now skipped with
   "Skip records after the header".
-- **Bulk payments need grouped matching** (milestone 5). A single salary or vendor batch
-  debit against individual ledger entries stays unmatched on both sides.
+- **Bulk payments need grouped matching.** A single salary or vendor batch debit against
+  individual ledger entries has no shared ID, so the reviewer selects the debit and the
+  three salary entries and confirms them as a group; scenarios A and C do this.
 - **Identical-set confirmation rarely applies to real statements.** A set needs equal
   references, and IMPS, UPI and NEFT rows carry unique reference numbers. Same-amount,
   same-day payments are reviewed pair by pair.
