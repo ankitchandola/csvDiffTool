@@ -45,46 +45,51 @@ export function SessionBar({
   const newerSaved = stored !== null && stored.id === ownId && conflict
   return (
     <section className="session-bar" aria-label="Session">
-      <p className="save-status" role="status">
-        <HardDrive size={14} aria-hidden="true" /> Revision {count(revision)} · {counted(decisions, 'decision')} ·{' '}
-        {storageText(storage, revision)} · {backupText(backup, revision)}
-      </p>
+      <div className="session-line">
+        <p className="save-status" role="status">
+          <HardDrive size={14} aria-hidden="true" /> <strong>Session</strong> · Revision {count(revision)} · {counted(decisions, 'decision')} · {storageText(storage, revision)} ·{' '}
+          {backupText(backup, revision)}
+        </p>
+        <div className="session-actions">
+          <button type="button" className="secondary" disabled={!canExport} onClick={onExport}>
+            <Download size={15} aria-hidden="true" /> Export session backup
+          </button>
+          <label className="secondary-file">
+            <Upload size={15} aria-hidden="true" /> Import session
+            <input
+              type="file"
+              accept=".json,application/json"
+              aria-label="Import session file"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) onImport(file)
+              }}
+            />
+          </label>
+          {storageAvailable && (
+            <label className="choice">
+              <input type="checkbox" checked={autosave} onChange={(e) => onAutosave(e.target.checked)} /> Save this session in this browser
+            </label>
+          )}
+          {storageAvailable && stored !== null && (
+            <button type="button" className="secondary" onClick={onDelete}>
+              Delete the session saved in this browser
+            </button>
+          )}
+        </div>
+      </div>
       {decisions > 0 && atRisk(storage, backup, revision) && (
         <p className="warning">These decisions are only in this page. Export a backup or save in this browser; reloading the page loses them.</p>
       )}
-      <div className="session-actions">
-        <button type="button" disabled={!canExport} onClick={onExport}>
-          <Download size={15} aria-hidden="true" /> Export session backup
-        </button>
-        <label className="secondary-file">
-          <Upload size={15} aria-hidden="true" /> Import session
-          <input
-            type="file"
-            accept=".json,application/json"
-            aria-label="Import session file"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if (file) onImport(file)
-            }}
-          />
-        </label>
-        {storageAvailable && (
-          <label className="choice">
-            <input type="checkbox" checked={autosave} onChange={(e) => onAutosave(e.target.checked)} /> Save this session in this browser
-          </label>
-        )}
-        {storageAvailable && stored !== null && (
-          <button type="button" className="secondary" onClick={onDelete}>
-            Delete the session saved in this browser
-          </button>
-        )}
-      </div>
       {storageAvailable && (
-        <p className="note">
-          Saving keeps transaction details from both files in this browser's storage, unencrypted, until you delete them. It is not a backup:
-          clearing site data removes it.
-        </p>
+        <details className="session-about">
+          <summary>About saving</summary>
+          <p className="note">
+            Saving keeps transaction details from both files in this browser's storage, unencrypted, until you delete them. It is not a backup:
+            clearing site data removes it. Saving the session says nothing about whether the reconciliation is complete.
+          </p>
+        </details>
       )}
       {otherSaved && (
         <p className="note">

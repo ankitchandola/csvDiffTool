@@ -74,4 +74,23 @@ describe('createPageLoader', () => {
     expect(calls).toEqual([0])
     expect(loader.get(0)).toBe(0)
   })
+
+  it('keeps old rows readable while an invalidated page loads again', async () => {
+    let total = 3
+    let label = 'old'
+    const fetchPage = vi.fn(async () => ({ total, items: Array.from({ length: total }, (_, i) => `${label}${i}`) }))
+    const loader = createPageLoader(fetchPage, () => {})
+    loader.ensure(0, 2)
+    await settle()
+    total = 2
+    label = 'new'
+    loader.invalidate()
+    expect(loader.total).toBe(3)
+    expect(loader.get(0)).toBe('old0')
+    loader.ensure(0, 2)
+    await settle()
+    expect(loader.total).toBe(2)
+    expect(loader.get(0)).toBe('new0')
+    expect(loader.get(2)).toBeUndefined()
+  })
 })

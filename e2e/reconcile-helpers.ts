@@ -122,3 +122,9 @@ export async function typeDate(page: Page, label: string, iso: string) {
   await page.keyboard.type(dayFirst ? `${day}/${month}/${year}` : `${month}/${day}/${year}`)
   await expect(page.getByLabel(label)).toHaveValue(iso)
 }
+
+// Exports and the balance bridge sit in a collapsed part of the status panel.
+export async function openAccounting(page: Page) {
+  const details = page.locator('.status-details')
+  if (!(await details.evaluate((el: HTMLDetailsElement) => el.open))) await details.locator('summary').click()
+}

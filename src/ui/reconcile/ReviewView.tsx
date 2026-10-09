@@ -16,11 +16,11 @@ import type {
   UnmatchedItem,
 } from '../../worker/reconcile-protocol'
 import { count, counted } from '../format'
-import { VirtualList } from '../results/VirtualList'
 import { Select } from '../Select'
 import { tabKeyTarget } from '../tabs'
 import { useDebounced } from '../use-debounced'
 import { History } from './History'
+import { ReviewList } from './ReviewList'
 import { Inspector } from './Inspector'
 import type { Formats } from './location'
 import { ManualPair } from './ManualPair'
@@ -83,7 +83,7 @@ export function ReviewView({
     client
       .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}) })
       .then((page) => ({ total: page.total, items: page.items as ReviewItems[T][] }))
-  const listKey = `${summary.matchId}-${version}-${tab}-${search}-${direction}`
+  const listKey = `${summary.matchId}-${tab}-${search}-${direction}`
   const filteredNote = (unit: string, plural?: string) => (total: number) => (search || direction ? `${counted(total, unit, plural)} shown for these filters.` : null)
   const placeholder = <div className="cell">…</div>
 
@@ -169,12 +169,13 @@ export function ReviewView({
                 onClose={() => setOpenSet(null)}
               />
             )}
-            <VirtualList<SuggestionItem>
+            <ReviewList<SuggestionItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('suggested')}
               estimateSize={170}
               empty="No open suggestions."
-              label="Suggested pairs, scroll to browse"
+              label="Suggested pairs"
               summary={filteredNote('pair')}
               renderRow={(item) =>
                 item ? (
@@ -189,12 +190,13 @@ export function ReviewView({
         {tab === 'confirmed' && (
           <>
             <p className="note">Confirmed by you in this session. Each transaction belongs to at most one confirmed match.</p>
-            <VirtualList<ConfirmedItem>
+            <ReviewList<ConfirmedItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('confirmed')}
               estimateSize={170}
               empty="Nothing confirmed yet."
-              label="Confirmed matches, scroll to browse"
+              label="Confirmed matches"
               summary={filteredNote('match', 'matches')}
               renderRow={(item) => (item ? <ConfirmedRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
@@ -215,12 +217,13 @@ export function ReviewView({
               Valid transactions not in a confirmed match. Classify each one that stays unmatched: completion needs them all classified. O applies
               the usual classification to the focused row.
             </p>
-            <VirtualList<UnmatchedItem>
+            <ReviewList<UnmatchedItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('unmatched')}
               estimateSize={110}
               empty="Every valid transaction is in a confirmed match."
-              label="Unmatched transactions, scroll to browse"
+              label="Unmatched transactions"
               summary={filteredNote('transaction')}
               renderRow={(t) =>
                 t ? (
@@ -243,12 +246,13 @@ export function ReviewView({
         {tab === 'rejected' && (
           <>
             <p className="note">Rejected pairs stay hidden from suggestions after reruns and rule changes, until restored or a source file is replaced.</p>
-            <VirtualList<RejectedItem>
+            <ReviewList<RejectedItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('rejected')}
               estimateSize={150}
               empty="No rejected pairs."
-              label="Rejected pairs, scroll to browse"
+              label="Rejected pairs"
               summary={filteredNote('pair')}
               renderRow={(item) => (item ? <RejectedRow item={item} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
@@ -257,12 +261,13 @@ export function ReviewView({
         {tab === 'problems' && (
           <>
             <p className="note">Records that cannot be matched: invalid dates or amounts, and zero amounts kept out of matching. Counts are source records.</p>
-            <VirtualList<ProblemItem>
+            <ReviewList<ProblemItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('problems')}
               estimateSize={90}
               empty="No problems."
-              label="Problem records, scroll to browse"
+              label="Problem records"
               summary={(total) => (search ? `${counted(total, 'record')} shown for this search.` : null)}
               renderRow={(p) => (p ? <div className="cell"><ProblemRow item={p} formats={formats} /></div> : placeholder)}
             />

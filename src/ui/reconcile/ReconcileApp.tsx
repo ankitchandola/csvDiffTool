@@ -366,10 +366,10 @@ export function ReconcileApp() {
       </nav>
       <ActivityBar activity={activity} onCancel={cancel} taskLabels={TASK_LABELS} phaseLabels={PHASE_LABELS} />
       <div className="workspace-surface">
-        <p className="experimental-note">
+        {step !== 'review' && <p className="experimental-note">
           <FlaskConical size={16} aria-hidden="true" /> Experimental. You confirm every match; nothing is confirmed automatically. A reconciliation
           counts as completed only when every status is earned and you mark it complete.
-        </p>
+        </p>}
         <SessionBar
           revision={session.revision}
           decisions={session.events.length}
@@ -396,7 +396,7 @@ export function ReconcileApp() {
         <div className="workspace-heading">
           <div>
             <h1 ref={stepHeading} tabIndex={-1}>
-              {step === 'files' ? 'Reconcile a bank statement' : step === 'map' ? 'Map dates and amounts' : 'Review pairs'}
+              {step === 'files' ? 'Reconcile a bank statement' : step === 'map' ? 'Map dates and amounts' : 'Review matches'}
             </h1>
             <p className="muted">
               {step === 'files'

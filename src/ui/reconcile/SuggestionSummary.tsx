@@ -15,22 +15,27 @@ function Metric({ label, value }: { label: string; value: string }) {
 export function SuggestionSummary({ summary, context }: { summary: MatchSummary; context: SessionContext }) {
   return (
     <>
-      <div className="results-toolbar">
+      <details className="match-details">
+        <summary>How the suggestions were found</summary>
         <div className="metric-grid">
-          <Metric label="Candidate pairs found" value={count(summary.pairs)} />
-          <Metric label="Groups" value={count(summary.groups)} />
-          <Metric label="Unique groups" value={count(summary.uniqueGroups)} />
-          <Metric label="Without a candidate" value={count(summary.noCandidate.bank + summary.noCandidate.books)} />
+          <Metric label="candidate pairs (one bank row and one books row each)" value={count(summary.pairs)} />
+          <Metric label="competing sets of pairs" value={count(summary.groups - summary.uniqueGroups)} />
+          <Metric label="transactions with no candidate" value={count(summary.noCandidate.bank + summary.noCandidate.books)} />
         </div>
-      </div>
-      <p className="key-status">
-        {RECON_SIDES.map((side) => (
-          <span key={side} className="side-line">
-            {SIDE_LABELS[side]}: {counted(summary.withCandidates[side], 'transaction')} with candidates, {count(summary.noCandidate[side])} without,{' '}
-            {count(summary.invalid[side])} invalid, {count(summary.zero[side])} zero.{' '}
-          </span>
-        ))}
-      </p>
+        <p className="key-status">
+          {RECON_SIDES.map((side) => (
+            <span key={side} className="side-line">
+              {SIDE_LABELS[side]}: {counted(summary.withCandidates[side], 'transaction')} with candidates, {count(summary.noCandidate[side])} without,{' '}
+              {count(summary.invalid[side])} invalid, {count(summary.zero[side])} zero.{' '}
+            </span>
+          ))}
+        </p>
+        <p className="note">
+          Rules: exact amount and direction; bank date {counted(summary.rules.bankDaysBefore, 'day')} before to {counted(summary.rules.bankDaysAfter, 'day')} after books;{' '}
+          {summary.rules.referencesShared ? `references compared${summary.rules.referenceCaseInsensitive ? ', ignoring case' : ''}` : 'references for context only'}.
+          {' '}Account: {context.account || 'unnamed'}, {context.currency} (stated, not checked).
+        </p>
+      </details>
       {summary.incomplete && (
         <p className="warning" role="alert">
           Incomplete search: {summary.incomplete} Transactions without a candidate may have one that was not searched.
@@ -42,11 +47,6 @@ export function SuggestionSummary({ summary, context }: { summary: MatchSummary;
           {summary.referenceConflicts === 1 ? 'it is' : 'they are'} not suggested.
         </p>
       )}
-      <p className="note">
-        Rules: exact amount and direction; bank date {counted(summary.rules.bankDaysBefore, 'day')} before to {counted(summary.rules.bankDaysAfter, 'day')} after books;{' '}
-        {summary.rules.referencesShared ? `references compared${summary.rules.referenceCaseInsensitive ? ', ignoring case' : ''}` : 'references for context only'}.
-        {' '}Account: {context.account || 'unnamed'}, {context.currency} (stated, not checked).
-      </p>
     </>
   )
 }

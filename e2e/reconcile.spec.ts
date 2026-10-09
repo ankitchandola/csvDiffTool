@@ -14,8 +14,8 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
 
   await page.getByLabel(/same identifier/).check()
   await page.getByRole('button', { name: 'Find suggestions' }).click()
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeFocused()
-  await expect(page.locator('.metric strong')).toHaveText(['4', '3', '2', '1'])
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toBeFocused()
+  await expect(page.locator('.metric strong')).toHaveText(['4', '1', '1'])
   await expect(page.getByText('Amount exact; bank date 1 day before books; reference absent on both sides.').first()).toBeVisible()
   await expect(page.getByText('Amount exact; same date; reference matched.')).toBeVisible()
   await expect(page.getByText(/1 bank transaction and 2 books transactions compete through 2 pairs/).first()).toBeVisible()
@@ -25,12 +25,14 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
   await page.getByLabel('Search this tab').fill('')
 
   await page.getByRole('tab', { name: /Unmatched/ }).click()
+  await page.getByLabel('Search this tab').fill('Unpaid')
   await expect(page.locator('#recon-panel').getByText('Unpaid')).toBeVisible()
+  await page.getByLabel('Search this tab').fill('')
   await page.getByRole('tab', { name: /Problems/ }).click()
   await expect(page.locator('#recon-panel').getByText('Bank record 4 · line 7')).toBeVisible()
-  await expect(page.locator('.experimental-note')).toContainText('counts as completed only when every status is earned and you mark it complete')
 
   await page.getByRole('button', { name: 'Edit mapping' }).click()
+  await expect(page.locator('.experimental-note')).toContainText('counts as completed only when every status is earned and you mark it complete')
   await page.getByLabel('Bank date up to this many days after books').fill('0')
   await expect(page.getByText('Setup changed. Find suggestions again.')).toBeVisible()
   await expect(page.getByRole('button', { name: '3 Review' })).toBeDisabled()
@@ -45,6 +47,7 @@ test('references are compared only while both sides map a reference column', asy
   await expect(shared).not.toBeChecked()
   await expect(shared).toBeDisabled()
   await page.getByRole('button', { name: 'Find suggestions' }).click()
+  await page.getByText('How the suggestions were found').click()
   await expect(page.getByText(/references for context only/)).toBeVisible()
 })
 
@@ -64,7 +67,7 @@ for (const width of [390, 768]) {
     await page.setViewportSize({ width, height: 900 })
     await loadAndMap(page)
     await page.getByRole('button', { name: 'Find suggestions' }).click()
-    await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Review matches' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }
@@ -140,7 +143,7 @@ test.describe('cancel', () => {
   test('drops earlier suggestions and needs both files read again', async ({ page }) => {
     await loadAndMap(page)
     await page.getByRole('button', { name: 'Find suggestions' }).click()
-    await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Review matches' })).toBeVisible()
     await page.getByRole('button', { name: 'Files', exact: true }).click()
     const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
     await bank.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: bigBankStatement() })
@@ -171,7 +174,7 @@ test.describe('cancel', () => {
     for (const file of ['bank.csv', 'books.csv']) await page.getByRole('button', { name: `Read ${file} again` }).click()
     await page.getByRole('button', { name: 'Map dates and amounts' }).click()
     await page.getByRole('button', { name: 'Find suggestions' }).click()
-    await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible({ timeout: 120_000 })
-    await expect(page.locator('.metric', { hasText: 'Candidate pairs found' })).toContainText('600,000')
+    await expect(page.getByRole('heading', { name: 'Review matches' })).toBeVisible({ timeout: 120_000 })
+    await expect(page.locator('.metric', { hasText: 'candidate pairs' })).toContainText('600,000')
   })
 })
