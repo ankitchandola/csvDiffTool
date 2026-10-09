@@ -51,6 +51,7 @@ function session(n: number, bank: Buffer, books: Buffer): string {
     description: 'memo',
     balance: null,
     balanceMarks: 'none',
+    batch: null,
   })
   const events = []
   const snapshots = []

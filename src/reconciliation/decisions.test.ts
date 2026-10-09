@@ -23,6 +23,7 @@ const TXNS: Record<string, Transaction> = {
 function data(overrides: Partial<ReplayData> = {}): ReplayData {
   return {
     transaction: (key) => TXNS[key],
+    unit: (key) => TXNS[key],
     isCandidate: (bank, books) => bank === B1 && books === L1,
     sourcePresent: () => true,
     rules: DEFAULT_MATCHING,
@@ -71,7 +72,7 @@ describe('checkDecision', () => {
   it('confirms a current suggestion and consumes both transactions once', () => {
     const r = replay([ev('confirm', B1, L1)], data())
     expect(r.lapsed).toEqual([])
-    expect(r.state.bankMatch.get(B1)).toBe(L1)
+    expect(r.state.bankMatch.get(B1)?.books).toBe(L1)
     expect(checkDecision(r.state, { action: 'confirm', bank: B1, books: L2, origin: 'manual', exceptions: ['amount', 'date'], reason: 'x' }, data())).toEqual({
       ok: false,
       reason: 'The bank transaction is already in a confirmed match',

@@ -1,7 +1,7 @@
 import type { FileFormat } from '../../engine/types'
 import type { ReconSide } from '../../reconciliation/types'
 import type { Location } from '../../worker/reconcile-protocol'
-import { parseTxnKey } from '../../reconciliation/decisions'
+import { parseTxnKey, parseUnitKey } from '../../reconciliation/decisions'
 import { placeLabel, SIDE_LABELS } from '../../reconciliation/location'
 import type { OriginalValues } from '../../worker/reconcile-protocol'
 import { count, formatValue } from '../format'
@@ -24,6 +24,8 @@ export function originalAmount(original: OriginalValues): string {
 }
 
 export function keyLabel(key: string): string {
-  const parsed = parseTxnKey(key)
-  return parsed ? `${SIDE_LABELS[parsed.side]} record ${count(parsed.recordNumber)}` : key
+  const unit = parseUnitKey(key)
+  if (!unit) return key
+  if (unit.members.length > 1) return `${SIDE_LABELS[unit.side]} group of ${count(unit.members.length)} transactions`
+  return `${SIDE_LABELS[unit.side]} record ${count((parseTxnKey(key) as { recordNumber: number }).recordNumber)}`
 }

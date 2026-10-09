@@ -30,6 +30,7 @@ const bankMapping: SideMapping = {
   description: 'Details',
   balance: null,
   balanceMarks: 'none',
+  batch: null,
 }
 
 const booksMapping: SideMapping = {
@@ -42,6 +43,7 @@ const booksMapping: SideMapping = {
   description: 'memo',
   balance: null,
   balanceMarks: 'none',
+  batch: null,
 }
 
 async function loaded() {
@@ -232,6 +234,7 @@ describe('reconcile handler sets and inspection', () => {
     description: 'memo',
     balance: null,
     balanceMarks: 'none',
+    batch: null,
   }
 
   async function run() {
@@ -313,6 +316,7 @@ describe('reconcile handler classification and completion', () => {
     description: 'memo',
     balance: null,
     balanceMarks: 'none',
+    batch: null,
   }
   const setup = {
     period: { start: '2026-09-01', end: '2026-09-30' },
@@ -413,6 +417,7 @@ describe('reconcile handler carry-forward', () => {
     description: 'memo',
     balance: null,
     balanceMarks: 'none',
+    batch: null,
   })
   const SEP = { start: '2026-09-01', end: '2026-09-30' }
   const OCT = { start: '2026-10-01', end: '2026-10-31' }
@@ -565,7 +570,7 @@ describe('reconcile handler carry-forward', () => {
     const { exportReport } = await completedOctober()
     const bytes = await (await exportReport('xlsx')).arrayBuffer()
     const book = XLSX.read(bytes, { type: 'array' })
-    expect(book.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Problems', 'Decisions'])
+    expect(book.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Group members', 'Problems', 'Decisions'])
     const summary = XLSX.utils.sheet_to_json<string[]>(book.Sheets.Summary, { header: 1 })
     expect(summary).toContainEqual(['Reconciliation completed', 'Yes'])
     expect(summary).toContainEqual(['Closing difference (bank − books)', '-510.00'])
@@ -644,6 +649,7 @@ describe('reconcile handler running balance', () => {
     description: null,
     balance: 'balance',
     balanceMarks: 'none',
+    batch: null,
   }
 
   async function report(bank: string, opening = '1000') {

@@ -101,7 +101,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   expect(report.matches).toHaveLength(2)
   expect(report.running.bank).toBe('consistent with every record')
   const workbook = XLSX.read(await downloaded(page, () => panel.getByRole('button', { name: 'Report (Excel)' }).click()))
-  expect(workbook.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Problems', 'Decisions'])
+  expect(workbook.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Group members', 'Problems', 'Decisions'])
   expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Summary, { header: 1 })).toContainEqual(['Reconciliation completed', 'Yes'])
 })
 

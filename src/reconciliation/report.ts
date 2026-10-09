@@ -20,6 +20,8 @@ export interface ReportTransaction {
   description: string | null
   // Set for an opening item carried from an earlier period.
   carried: { lineage: string; fileName: string; period: Period } | null
+  // Set for a group: a batch, or transactions the reviewer matched together.
+  members?: ReportTransaction[]
 }
 
 export interface ReportStatus {
@@ -103,6 +105,14 @@ function transactionCells(t: ReportTransaction): string[] {
   return [t.location, t.date, t.amount, text(t.reference), text(t.description)]
 }
 
+function carriedLineages(t: ReportTransaction): string[] {
+  return (t.members ?? [t]).map((m) => m.carried?.lineage).filter((l): l is string => l !== undefined)
+}
+
+function memberRows(where: string, t: ReportTransaction): string[][] {
+  return (t.members ?? []).map((m) => [where, SIDE_LABELS[t.side], t.description ?? '', ...transactionCells(m)])
+}
+
 function decisionText(event: DecisionEvent): { what: string; detail: string } {
   if (event.action === 'complete') return { what: 'Marked complete', detail: '' }
   if (event.action === 'classify') {
@@ -180,7 +190,7 @@ export function reportTables(report: ReconciliationReport): Table[] {
       m.tier === null ? 'manual exception' : String(m.tier),
       m.exceptions.map((e) => EXCEPTION_LABELS[e]).join('; '),
       text(m.reason),
-      [m.bank.carried?.lineage, m.books.carried?.lineage].filter(Boolean).join('; '),
+      [...carriedLineages(m.bank), ...carriedLineages(m.books)].join('; '),
     ]),
   }
   const outstanding: Table = {
@@ -192,8 +202,17 @@ export function reportTables(report: ReconciliationReport): Table[] {
       ...transactionCells(o.transaction),
       o.classification ? CLASSIFICATION_LABELS[o.classification] : 'Not classified',
       text(o.note),
-      text(o.transaction.carried?.lineage ?? null),
+      carriedLineages(o.transaction).join('; '),
     ]),
+  }
+  const members: Table = {
+    name: 'Group members',
+    header: ['In', 'Side', 'Group', ...transactionColumns('Member')],
+    describeRow: (row) => `${row[0]} member ${row[3]}`,
+    rows: [
+      ...report.matches.flatMap((m) => [...memberRows(`Decision ${m.decision}`, m.bank), ...memberRows(`Decision ${m.decision}`, m.books)]),
+      ...report.outstanding.flatMap((o) => memberRows('Outstanding', o.transaction)),
+    ],
   }
   const problems: Table = {
     name: 'Problems',
@@ -221,5 +240,5 @@ export function reportTables(report: ReconciliationReport): Table[] {
       return [String(event.seq), event.at, what, keys, detail, lapsed ? lapsed.reason : '']
     }),
   }
-  return [summary, matches, outstanding, problems, decisions]
+  return [summary, matches, outstanding, members, problems, decisions]
 }
