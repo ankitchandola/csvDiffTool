@@ -101,7 +101,7 @@ async function reconcileAcmeSeptember(page: Page) {
   for (let i = 0; i < 4; i++) await salaryRows.nth(i).getByRole('button', { name: 'Select for pair' }).click()
   const manual = page.getByRole('region', { name: 'Manual pair' })
   await expect(manual.locator('.amount', { hasText: '-180000.00' })).toHaveCount(2)
-  await manual.getByText('Total of 3 records, dated by the latest').click()
+  await manual.getByText('Show 3 members').click()
   await expect(manual.locator('.group-members li')).toHaveText([/Salary - Anil Kumar/, /Salary - Priya Nair/, /Salary - Ravi Shetty/])
   await expect(manual).toContainText('This group meets the matching rules.')
   await manual.getByRole('button', { name: 'Confirm group' }).click()

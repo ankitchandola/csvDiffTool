@@ -38,6 +38,18 @@ const TABS: [ReviewTab, string, typeof Search][] = [
   ['problems', 'Problems', AlertTriangle],
 ]
 
+function Shortcuts({ keys }: { keys: [string, string][] }) {
+  return (
+    <p className="shortcuts" aria-label="Keyboard shortcuts">
+      {keys.map(([key, what]) => (
+        <span key={key}>
+          <kbd>{key}</kbd> {what}
+        </span>
+      ))}
+    </p>
+  )
+}
+
 export function ReviewView({
   client,
   summary,
@@ -69,6 +81,7 @@ export function ReviewView({
   const [openSet, setOpenSet] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<Direction | ''>('')
+  const [unclassified, setUnclassified] = useState(false)
   const [selection, setSelection] = useState<Selection>(NO_SELECTION)
   const search = useDebounced(query, 250)
   const both = (r: Record<ReconSide, number>) => r.bank + r.books
@@ -81,10 +94,10 @@ export function ReviewView({
   }
   const fetchPage = <T extends ReviewTab>(which: T) => (offset: number, limit: number) =>
     client
-      .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}) })
+      .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}), ...(unclassified && which === 'unmatched' ? { unclassified } : {}) })
       .then((page) => ({ total: page.total, items: page.items as ReviewItems[T][] }))
-  const listKey = `${summary.matchId}-${tab}-${search}-${direction}`
-  const filteredNote = (unit: string, plural?: string) => (total: number) => (search || direction ? `${counted(total, unit, plural)} shown for these filters.` : null)
+  const listKey = `${summary.matchId}-${tab}-${search}-${direction}-${unclassified}`
+  const filteredNote = (unit: string, plural?: string) => (total: number) => (search || direction || unclassified ? `${counted(total, unit, plural)} shown for these filters.` : null)
   const placeholder = <div className="cell">…</div>
 
   return (
@@ -144,6 +157,11 @@ export function ReviewView({
             ]}
           />
         )}
+        {tab === 'unmatched' && (
+          <label className="choice">
+            <input type="checkbox" checked={unclassified} onChange={(e) => setUnclassified(e.target.checked)} /> Only items not yet classified
+          </label>
+        )}
       </div>
       {error && (
         <p className="error" role="alert">
@@ -153,10 +171,8 @@ export function ReviewView({
       <div id="recon-panel" role="tabpanel" aria-labelledby={`recon-tab-${tab}`} onKeyDown={reviewKeys}>
         {tab === 'suggested' && (
           <>
-            <p className="note">
-              Counts are candidate pairs still open. Pairs in the same group compete; confirming one removes the others that share a transaction.
-              Keys: J/K or ↓/↑ move, C confirms, X rejects, Enter shows details of the focused pair.
-            </p>
+            <p className="note">Each row is one candidate pair; the tab counts pairs, not transactions. Pairs that compete share a transaction.</p>
+            <Shortcuts keys={[['J / K', 'move'], ['C', 'confirm'], ['X', 'reject'], ['Enter', 'details']]} />
             {openSet !== null && (
               <SetConfirm
                 client={client}
@@ -189,7 +205,8 @@ export function ReviewView({
         )}
         {tab === 'confirmed' && (
           <>
-            <p className="note">Confirmed by you in this session. Each transaction belongs to at most one confirmed match.</p>
+            <p className="note">Confirmed by you in this session; each row is one match. A transaction belongs to at most one confirmed match.</p>
+            <Shortcuts keys={[['J / K', 'move'], ['Enter', 'details']]} />
             <ReviewList<ConfirmedItem>
               key={listKey}
               version={version}
@@ -214,9 +231,9 @@ export function ReviewView({
               onClear={() => setSelection(NO_SELECTION)}
             />
             <p className="note">
-              Valid transactions not in a confirmed match. Classify each one that stays unmatched: completion needs them all classified. O applies
-              the usual classification to the focused row.
+              Each row is one transaction not in a confirmed match. Classify every one that stays unmatched: completion needs them all classified.
             </p>
+            <Shortcuts keys={[['J / K', 'move'], ['O', 'classify the usual way'], ['Enter', 'details']]} />
             <ReviewList<UnmatchedItem>
               key={listKey}
               version={version}

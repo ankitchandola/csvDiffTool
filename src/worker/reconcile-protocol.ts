@@ -274,7 +274,8 @@ export interface ReconRequests {
   normalize: { context: SessionContext; mappings: Record<ReconSide, SideMapping>; period: Period | null }
   match: { revision: number; rules: MatchingRules }
   // search keeps items whose shown text contains it, case-insensitively; direction keeps one cash direction.
-  getReview: { matchId: number; tab: ReviewTab; offset: number; limit: number; search?: string; direction?: Direction }
+  // unclassified keeps only unmatched transactions without a classification.
+  getReview: { matchId: number; tab: ReviewTab; offset: number; limit: number; search?: string; direction?: Direction; unclassified?: boolean }
   // Replaces the worker's history with the session's, replayed against the current files and rules.
   setDecisions: { matchId: number; events: DecisionEvent[] }
   // seq must be the next in the history, so a decision can't be applied out of order.

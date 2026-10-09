@@ -4,7 +4,7 @@ import { type Direction, RECON_SIDES, type ReconSide, type Transaction } from '.
 import { type ConfirmedItem, type ReconRequests, type ReconResults, type RejectedItem, type TransactionView, type UnmatchedItem } from '../reconcile-protocol'
 import { pageBounds } from '../paging'
 import { matches, normalizeSearch } from '../search'
-import { available, counts, currentReview, derive, expectNextSeq, directionOf, evidence, openingItem, position, problemRows, replayData, resolve, resolveUnit, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
+import { available, counts, currentReview, derive, expectNextSeq, directionOf, evidence, keyOf, openingItem, position, problemRows, replayData, resolve, resolveUnit, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
 
 // Review: replaying and recording decisions, sets, inspection and paged review tabs.
 
@@ -150,15 +150,15 @@ export function pairCheck(ws: Workspace, { matchId, bank, books }: ReconRequests
   }
 }
 
-export function getReview(ws: Workspace, { matchId, tab, offset, limit, search, direction }: ReconRequests['getReview']): ReconResults['getReview'] {
+export function getReview(ws: Workspace, { matchId, tab, offset, limit, search, direction, unclassified }: ReconRequests['getReview']): ReconResults['getReview'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
   const { outcome } = run
   const { pool, mappings } = data
   const [start, end] = pageBounds(offset, limit)
   const needle = normalizeSearch(search)
   const filtered = <T,>(build: () => T[], keep: (item: T) => boolean): T[] =>
-    ws.searchCache.get(`${matchId}\u0000${state.version}\u0000${tab}\u0000${direction ?? ''}\u0000${needle}`, () =>
-      needle === '' && direction === undefined ? build() : build().filter(keep),
+    ws.searchCache.get(`${matchId}\u0000${state.version}\u0000${tab}\u0000${direction ?? ''}\u0000${unclassified ? 'u' : ''}\u0000${needle}`, () =>
+      needle === '' && direction === undefined && !unclassified ? build() : build().filter(keep),
     )
   const isDirection = (d: Direction) => direction === undefined || d === direction
   const both = (a: TransactionView | null, b: TransactionView | null) => [...(a ? texts(a) : []), ...(b ? texts(b) : [])]
@@ -192,7 +192,10 @@ export function getReview(ws: Workspace, { matchId, tab, offset, limit, search, 
       const per = counts(state, outcome, data)
       const all = filtered(
         () => RECON_SIDES.flatMap((side) => pool[side].filter((_, p) => !state.used[side][p])),
-        (t) => isDirection(directionOf(t)) && (needle === '' || searchText(ws, data, t.side, position(ws, t)).includes(needle)),
+        (t) =>
+          isDirection(directionOf(t)) &&
+          (!unclassified || !state.replay.state.classifications.get(keyOf(ws, t))?.classification) &&
+          (needle === '' || searchText(ws, data, t.side, position(ws, t)).includes(needle)),
       )
       const items = all.slice(start, end).map((t): UnmatchedItem => {
         const v = view(ws, t, mappings[t.side])

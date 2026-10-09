@@ -22,8 +22,8 @@ test('rows sharing a payout ID are suggested as one total, shown member by membe
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   const payout = page.locator('.review-row', { hasText: 'Batch PO-1: 2 records' })
   await expect(payout).toContainText('50000.00')
-  await payout.getByText('Batch total of 2 records, dated by the latest').click()
-  await expect(payout.locator('.group-members li')).toHaveText([/30000\.00 · Salary part 1 · Books record 1/, /20000\.00 · Salary part 2 · Books record 4/])
+  await payout.getByText('Show 2 members').click()
+  await expect(payout.locator('.group-members li')).toHaveText([/30000\.00 money in · Salary part 1 · Books record 1/, /20000\.00 money in · Salary part 2 · Books record 4/])
   await payout.getByRole('button', { name: 'Confirm', exact: true }).click()
   await expect(page.getByRole('tab', { name: /^Confirmed/ })).toContainText('1')
 

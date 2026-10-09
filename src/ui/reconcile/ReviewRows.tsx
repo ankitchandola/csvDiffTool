@@ -5,7 +5,7 @@ import type { MatchingRules } from '../../reconciliation/types'
 import type { ConfirmedItem, DecisionInput, ProblemItem, RejectedItem, SuggestionItem, UnmatchedItem } from '../../worker/reconcile-protocol'
 import { count, counted, formatValue } from '../format'
 import { Select } from '../Select'
-import { competitionText, dateEvidence, evidenceText } from './evidence'
+import { competitionText, consequenceText, dateEvidence, evidenceText, relationText } from './evidence'
 import { type Formats, keyLabel, locationText, originalAmount } from './location'
 import { decisionNote } from './review-text'
 import { TransactionCard } from './TransactionCard'
@@ -61,6 +61,7 @@ export function SuggestionRow({
         <div className="group-label">
           <span className={item.unique ? 'chip' : 'chip competing'}>Group {count(item.group + 1)}</span>
           <span className="muted">{competitionText(item)}</span>
+          {relationText(item) && <span className="chip">{relationText(item)}</span>}
           {item.set === 'interchangeable' && <span className="chip">Identical set</span>}
           {item.set === 'different-descriptions' && <span className="muted">Identical amounts and dates, different descriptions: review pair by pair.</span>}
         </div>
@@ -70,11 +71,14 @@ export function SuggestionRow({
           <TransactionCard t={item.books} formats={formats} />
         </div>
         <div className="row-actions">
-          <p className="evidence">{evidenceText(item, rules)}</p>
+          <p className="evidence">
+            {evidenceText(item, rules)}
+            {consequenceText(item) && <strong className="consequence"> {consequenceText(item)}</strong>}
+          </p>
           <button type="button" data-action="confirm" aria-keyshortcuts="C" disabled={busy} onClick={() => void onDecide({ action: 'confirm', ...pair, origin: 'suggested' })}>
             <CheckCircle2 size={15} aria-hidden="true" /> Confirm
           </button>
-          <button type="button" className="secondary" data-action="reject" aria-keyshortcuts="X" disabled={busy} onClick={() => void onDecide({ action: 'reject', ...pair })}>
+          <button type="button" className="secondary" data-action="reject" aria-keyshortcuts="X" title="Hide this suggestion. You can restore it from the Rejected tab." disabled={busy} onClick={() => void onDecide({ action: 'reject', ...pair })}>
             <XCircle size={15} aria-hidden="true" /> Reject
           </button>
           {item.set === 'interchangeable' && (
@@ -170,6 +174,7 @@ export function ConfirmedRow({ item, rules, formats, busy, onDecide, onInspect }
         <div className="group-label">
           <span className={item.event.origin === 'manual' ? 'chip competing' : 'chip'}>Decision {count(item.event.seq)}</span>
           <span className="muted">{decisionNote(item.event)}</span>
+          {relationText(item) && <span className="chip">{relationText(item)}</span>}
         </div>
         <div className="pair">
           <TransactionCard t={item.bank} formats={formats} />
@@ -178,7 +183,7 @@ export function ConfirmedRow({ item, rules, formats, busy, onDecide, onInspect }
         </div>
         <div className="row-actions">
           <p className="evidence">{evidence}</p>
-          <button type="button" className="secondary" data-action="unmatch" disabled={busy} onClick={() => void onDecide({ action: 'unmatch', bank: item.bank.key, books: item.books.key })}>
+          <button type="button" className="secondary" data-action="unmatch" title="Undo this confirmed match. Both transactions go back to Unmatched." disabled={busy} onClick={() => void onDecide({ action: 'unmatch', bank: item.bank.key, books: item.books.key })}>
             Unmatch
           </button>
           <DetailsButton keys={[item.bank.key, item.books.key]} onInspect={onInspect} />

@@ -8,12 +8,21 @@ export function TransactionCard({ t, formats }: { t: TransactionView; formats: F
       <div className="txn-main">
         <span className="mono">{t.date}</span>
         <span className={`mono amount ${t.direction}`}>{t.amount}</span>
-        <span className="muted">{t.direction === 'in' ? 'money in' : 'money out'}</span>
+        <span className="direction">{t.direction === 'in' ? '↓ Money in' : '↑ Money out'}</span>
       </div>
       {(t.reference !== null || t.original.description) && (
         <div className="txn-context">
           {t.reference !== null && <span className="mono">Ref {t.reference}</span>}
-          {t.original.description && <span>{t.original.description}</span>}
+          {t.original.description && (
+            <span className="txn-description" title={t.original.description}>
+              {t.original.description}
+            </span>
+          )}
+        </div>
+      )}
+      {t.carried && (
+        <div className="txn-carried">
+          <span className="chip competing">Carried</span> from {t.carried.fileName}, period {t.carried.period.start} to {t.carried.period.end}
         </div>
       )}
       {t.group ? (
@@ -32,13 +41,17 @@ function GroupMembers({ group, formats }: { group: NonNullable<TransactionView['
   return (
     <details className="group-members">
       <summary>
-        {group.batch === null ? 'Total of ' : 'Batch total of '}
-        {counted(group.size, 'record')}, dated by the latest
+        Show {counted(group.size, 'member')}
+        <span className="muted">
+          {' '}
+          · {group.batch === null ? 'matched together' : `batch ${group.batch}`}, dated by the latest
+        </span>
       </summary>
       <ul>
         {group.members.map((m) => (
           <li key={m.key}>
             <span className="mono">{m.date}</span> <span className={`mono amount ${m.direction}`}>{m.amount}</span>
+            <span className="direction"> {m.direction === 'in' ? 'money in' : 'money out'}</span>
             {m.original.description && <> · {m.original.description}</>}
             <span className="muted">
               {' '}
@@ -48,7 +61,7 @@ function GroupMembers({ group, formats }: { group: NonNullable<TransactionView['
           </li>
         ))}
       </ul>
-      {hidden > 0 && <p className="muted">and {count(hidden)} more, listed in the report</p>}
+      {hidden > 0 && <p className="muted">and {count(hidden)} more members, listed in the report</p>}
     </details>
   )
 }
