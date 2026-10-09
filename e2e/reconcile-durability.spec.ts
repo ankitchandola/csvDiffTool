@@ -31,7 +31,7 @@ test('a full browser storage reports the failure and a backup still protects the
   await findSuggestions(page)
   await confirmPair(page, 'Salary in')
   await page.getByLabel('Save this session in this browser').check()
-  await expect(page.locator('.save-status')).toContainText('Not saved: The quota has been exceeded.')
+  await expect(page.locator('.save-status')).toContainText("Not saved: This browser's storage for the page is full")
   await expect(page.locator('.session-bar .warning')).toContainText('reloading the page loses them')
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export session backup' }).click()
@@ -50,6 +50,28 @@ test('a full browser storage reports the failure and a backup still protects the
   await expect(page.getByRole('tab', { name: /^Confirmed/ }).locator('.tab-count')).toHaveText('1')
   await page.getByRole('tab', { name: /^Confirmed/ }).click()
   await expect(page.locator('.review-row')).toContainText('Salary in')
+})
+
+// Chrome's own quota, shrunk through the DevTools protocol: the write fails the way a full
+// disk does, as an aborted transaction rather than a throwing put().
+test('a real quota failure is reported, and saving resumes once there is room', async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page)
+  const origin = 'http://127.0.0.1:4175'
+  await loadAndMap(page)
+  await findSuggestions(page)
+  await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 })
+  await confirmPair(page, 'Salary in')
+  await page.getByLabel('Save this session in this browser').check()
+  await expect(page.locator('.save-status')).toContainText("Not saved: This browser's storage for the page is full")
+  await expect(page.locator('.session-bar .warning')).toContainText('reloading the page loses them')
+  await cdp.send('Storage.overrideQuotaForOrigin', { origin })
+  await confirmPair(page, 'Rent cheque')
+  await expect(page.locator('.save-status')).toContainText(/Saved in this browser/)
+  await expect(page.locator('.session-bar .warning')).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: /Reconcile/ }).click()
+  await page.getByRole('button', { name: 'Resume it' }).click()
+  await expect(page.getByText(/Loaded a session at revision \d+ with 2 decisions/)).toBeVisible()
 })
 
 test('without IndexedDB the page offers backups only and never claims to save', async ({ page }) => {

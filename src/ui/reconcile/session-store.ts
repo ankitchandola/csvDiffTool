@@ -59,10 +59,20 @@ const DB = 'reconciliation'
 const STORE = 'sessions'
 const KEY = 'current'
 
+export const STORAGE_FULL = "This browser's storage for the page is full"
+
+// Chrome reports a full quota as an aborted transaction whose error has no message, so a
+// quota failure is named here however it arrives, and no failure is passed on blank.
+export function storageError(error: unknown, fallback: string): Error {
+  if (error instanceof DOMException && error.name === 'QuotaExceededError') return new Error(STORAGE_FULL)
+  if (error instanceof Error && error.message !== '') return error
+  return new Error(error instanceof DOMException ? `${fallback} (${error.name})` : fallback)
+}
+
 function request<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result)
-    r.onerror = () => reject(r.error ?? new Error('Browser storage failed'))
+    r.onerror = () => reject(storageError(r.error, 'Browser storage failed'))
   })
 }
 
@@ -75,8 +85,8 @@ function open(): Promise<IDBDatabase> {
 function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(tx.error ?? new Error('Browser storage write was aborted'))
-    tx.onerror = () => reject(tx.error ?? new Error('Browser storage write failed'))
+    tx.onabort = () => reject(storageError(tx.error, 'Browser storage write was aborted'))
+    tx.onerror = () => reject(storageError(tx.error, 'Browser storage write failed'))
   })
 }
 
@@ -113,7 +123,11 @@ export function indexedDbSessionStore(): SessionStore | null {
           tx.abort()
           throw error
         }
-        store.put({ id: session.id, revision: session.revision, text: exportSession(session) } satisfies Record_, KEY)
+        try {
+          store.put({ id: session.id, revision: session.revision, text: exportSession(session) } satisfies Record_, KEY)
+        } catch (error) {
+          throw storageError(error, 'Browser storage write failed')
+        }
         await done(tx)
       } finally {
         db.close()
