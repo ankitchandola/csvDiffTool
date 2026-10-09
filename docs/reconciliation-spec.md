@@ -683,6 +683,26 @@ diagnosis, and no review action can override the block.
 Batch grouping is a separately gated addition (section 12), not part of the
 durable review milestone.
 
+### Groups the reviewer chooses
+
+A bulk payment often has no shared ID: one salary debit on the statement against a
+ledger entry per employee. The reviewer can select one transaction on one side and
+several on the other and confirm them as a group. The group's total must equal the
+single transaction exactly, its members must share one direction, and only one side
+may hold several transactions. A date outside the window is an exception with a reason,
+as for a manual pair. Members may include carried opening items, but a match made only
+of carried items is refused. Batches cannot be split into chosen groups.
+
+A group is identified by its members: its key lists each member's file fingerprint and
+record number, so it is confirmed and unmatched as one decision, replays only while
+every member is still a valid transaction in the loaded files, and never shares a
+member with another active match. Chosen groups are never suggested, so they always
+come from the reviewer.
+
+An unmatched batch is carried forward as one outstanding item, dated by its latest
+member, with its total and a "Batch ID: n records" description. Members of a chosen
+group are carried individually, since the group only exists once confirmed.
+
 ### Bounded subset search as the fallback
 
 For rows without a group ID, add opt-in 1:N and N:1 subset search. Start with a
@@ -1121,6 +1141,20 @@ month-first digits into a plain native input without the app reproduced the same
 date conversion. Cancellation during matching, other browsers and lower-memory
 devices remain unverified.
 
+### Milestone 5a: groups in the engine and worker (not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| Optional batch ID column per side: rows sharing a trimmed ID become one unit with their exact sum at the latest member's date; a batch with an invalid record, or with money in and out, is a problem for every member, never a smaller or netted sum; a one-row batch stays a plain transaction | `src/reconciliation/groups.ts`, `normalize.ts` | Unit tests |
+| Unit keys: a single transaction's key, or a group's members as `side\|fingerprint\|record+record` segments joined by `&` in canonical order; sessions accept them, and older mappings read as having no batch | `decisions.ts`, `session.ts` | Unit tests, including non-canonical and wrong-side keys |
+| Decision state by member: a confirm or unmatch takes or frees every member at once; a member in a match can't be confirmed again or classified | `decisions.ts` | Unit tests |
+| Group rules: exact total, one direction, at most one side with a chosen group, a match of carried items alone refused; chosen groups are never suggested | `checkPair`, `checkDecision` | Unit tests |
+| Worker: batches are suggested and paged like transactions; views carry the first 50 members and the size; search covers every member; chosen groups resolve from their members and replay on a rerun; reports list group members (a Group members sheet in Excel); counts treat records in an unmatchable batch as problems | `src/worker/reconcile/` | Worker tests, including a 50,000-charge payout (about 1 s) |
+| Carry-forward: an unmatched batch is carried as one item; carried items matched as a chosen group next month are listed as cleared | worker `exportOutstanding` | Worker two-month test |
+
+No UI yet: the batch column, group views and choosing a group come in the next change.
+`npm run bench:worker` is unchanged within noise at 200,000 rows a side.
+
 ### Not implemented in this snapshot
 
 - In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
@@ -1129,7 +1163,7 @@ devices remain unverified.
 - Saving reconciliation profiles separately from sessions (milestone 3 saves the
   mapping inside a session only).
 - In the UI: balances, completion statuses, carry-forward and reports (the 4a engine
-  exists); grouped matching (milestone 5).
+  exists); choosing groups and batch columns in the UI, and subset search (milestone 5).
 - Per-file worksheet preferences beyond the existing sheet picker.
 
 ### Not yet verified
