@@ -1,4 +1,5 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type Page } from '@playwright/test'
+import { expect, test } from './reconcile-test'
 import * as XLSX from 'xlsx'
 import type { OutstandingFile } from '../src/reconciliation/carryforward'
 import { choose, classifyAll, openAccounting, setUpMonth as setUp } from './reconcile-helpers'
@@ -76,7 +77,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   await choose(page, 'Bank statement running balance column', 'balance')
   await page.getByLabel('Import outstanding items file').setInputFiles({ name: 'outstanding-2026-09-30.json', mimeType: 'application/json', buffer: Buffer.from(outstanding) })
   await expect(page.locator('.opening-files')).toContainText('2026-09-01 to 2026-09-30 · 2 outstanding items')
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByText(/Opening items: 0 bank items and 2 books items carried/)).toBeVisible()
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   for (const cheque of ['Cheque 101', 'Cheque 102']) {
@@ -113,7 +114,7 @@ test('an outstanding-items file from the same period is refused at the mapping c
   await setUp(page, { bank: BANK_SEP, books: BOOKS_SEP }, ['2026-09-01', '2026-09-30'], ['1000.00', '1300.00', '1000.00', '1050.00'])
   const file = JSON.stringify({ format: 'reconciliation-outstanding', version: 1, exportedAt: '2026-10-01T00:00:00Z', sessionId: 's', account: '', currency: 'INR', minorUnits: 2, period: { start: '2026-09-01', end: '2026-09-30' }, items: [], cleared: [] })
   await page.getByLabel('Import outstanding items file').setInputFiles({ name: 'same.json', mimeType: 'application/json', buffer: Buffer.from(file) })
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByRole('alert')).toContainText("same.json: The file's period ends 2026-09-30, not before this session's period starts (2026-09-01)")
 })
 
@@ -155,7 +156,7 @@ test('a repeated carried row in an overlapping source export warns and blocks co
     books,
   }, ['2026-10-01', '2026-10-31'], ['1300.00', '1100.00', '1100.00', '1600.00'])
   await importOutstanding(page, 'sep.json', septemberOutstanding())
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check).toContainText('an overlapping export')
   await expect(check).toContainText("may repeat record 1 of this period's books file")
@@ -179,7 +180,7 @@ test('two carry exports containing the same lineage are refused until the duplic
   await expect(page.getByRole('alert')).toContainText(`${file.items[0].lineage} is already imported into this session`)
   await expect(page.getByRole('heading', { name: 'Review matches' })).toHaveCount(0)
   await page.locator('.opening-files li', { hasText: 'sep-b.json' }).getByRole('button', { name: 'Remove' }).click()
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByRole('region', { name: 'Mapping check' })).toContainText('1 books item carried')
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
@@ -212,7 +213,7 @@ test('clearances survive re-export and stale outstanding items are refused in ei
   await expect(page.getByRole('alert')).toContainText(`${previous.items[0].lineage} was already cleared`)
   await expect(page.getByRole('heading', { name: 'Review matches' })).toHaveCount(0)
   await page.locator('.opening-files li', { hasText: 'stale-sep.json' }).getByRole('button', { name: 'Remove' }).click()
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByRole('region', { name: 'Mapping check' })).toContainText('1 books item carried')
   await expect(page.getByRole('alert')).toHaveCount(0)
 

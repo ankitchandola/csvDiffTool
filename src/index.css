@@ -522,3 +522,9 @@ kbd { font: 600 11px 'JetBrains Mono', monospace; padding: 1px 6px; border: 1px 
 .row-actions { justify-content: flex-end; }
 .row-actions > :first-child { flex: 1 1 14rem; justify-content: flex-start; text-align: left; }
 .review-row:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; background: var(--accent-soft); }
+
+.optional-fields { margin: 12px 0; }
+.optional-fields > summary { display: flex; flex-wrap: wrap; gap: 0 4px; align-items: baseline; font-size: 13px; }
+.optional-fields > summary .muted { font-weight: 400; font-size: 12px; }
+.optional-fields[open] > summary { margin-bottom: 8px; }
+.detected { margin: 0 0 12px; padding: 6px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--text); }

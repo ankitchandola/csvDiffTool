@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './reconcile-test'
 import * as XLSX from 'xlsx'
 import { BOOKS, choose, loadAndMap, setUpMonth } from './reconcile-helpers'
 
@@ -6,7 +6,7 @@ test('reconcile flow: layout, mapping check, suggestions and review tabs', async
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await loadAndMap(page)
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check.getByText(/4 records: 3 valid \(1 money in, 2 money out\)/)).toBeVisible()
   await expect(check.getByText('Money out: "abc" is not a number in the chosen format')).toBeVisible()

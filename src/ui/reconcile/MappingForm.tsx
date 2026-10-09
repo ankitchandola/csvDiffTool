@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { DATE_FORMATS, type DateFormat } from '../../reconciliation/dates'
 import type { BalanceMarks, DateKind, Direction } from '../../reconciliation/types'
 import { Select } from '../Select'
@@ -38,19 +39,31 @@ export function MappingForm({
   headers,
   draft,
   issues,
+  detected,
   onChange,
 }: {
   title: string
   headers: string[]
   draft: MappingDraft
   issues: string[]
+  // The choices were filled in from the file's headers and first rows.
+  detected: boolean
   onChange: (draft: MappingDraft) => void
 }) {
   const set = <K extends keyof MappingDraft>(key: K, value: MappingDraft[K]) => onChange({ ...draft, [key]: value })
   const name = title.toLowerCase().split(' ').filter(Boolean).join('-')
+  const [optionalOpen, setOptionalOpen] = useState(false)
+  const chosen = [
+    draft.reference && `reference: ${draft.reference}`,
+    draft.description && `description: ${draft.description}`,
+    draft.balance && `running balance: ${draft.balance}`,
+    draft.batch && `batch ID: ${draft.batch}`,
+    draft.grouped && 'thousands separators',
+  ].filter(Boolean)
   return (
     <fieldset className="panel mapping-form">
       <legend>{title}</legend>
+      {detected && <p className="note detected">Filled in from this file's headers and first rows. Check each choice before continuing.</p>}
       <ColumnSelect label={`${title} date column`}
         visibleLabel="Date column" headers={headers} value={draft.dateColumn} onChange={(v) => set('dateColumn', v)} />
       <div className="field">
@@ -60,19 +73,6 @@ export function MappingForm({
           value={draft.dateFormat}
           onChange={(v) => set('dateFormat', v)}
           options={[{ value: '', label: 'Choose a format' }, ...DATE_FORMATS.map((f) => ({ value: f, label: f.endsWith('YYYY') || f.startsWith('YYYY') ? f : `${f} (26 is 2026)` }))]}
-        />
-      </div>
-      <div className="field">
-        <span>The date is the</span>
-        <Select<DateKind>
-          label={`${title} date kind`}
-          value={draft.dateKind}
-          onChange={(v) => set('dateKind', v)}
-          options={[
-            { value: 'posting', label: 'Posting date' },
-            { value: 'value', label: 'Value date' },
-            { value: 'transaction', label: 'Transaction date' },
-          ]}
         />
       </div>
 
@@ -111,6 +111,28 @@ export function MappingForm({
           <ColumnSelect label={`${title} money-out column`}
         visibleLabel="Money-out column" headers={headers} value={draft.outColumn} onChange={(v) => set('outColumn', v)} />
           <p className="note">A bank statement's “Credit” column is usually money in; a books cash account's credit is money out.</p>
+        </>
+      )}
+
+      <details className="optional-fields" open={optionalOpen} onToggle={(e) => setOptionalOpen(e.currentTarget.open)}>
+        <summary>
+          More options
+          <span className="muted"> · {chosen.length > 0 ? chosen.join(' · ') : 'reference, description, balances and number formats'}</span>
+        </summary>
+        <div className="field">
+          <span>The date is the</span>
+          <Select<DateKind>
+            label={`${title} date kind`}
+            value={draft.dateKind}
+            onChange={(v) => set('dateKind', v)}
+            options={[
+              { value: 'posting', label: 'Posting date' },
+              { value: 'value', label: 'Value date' },
+              { value: 'transaction', label: 'Transaction date' },
+            ]}
+          />
+        </div>
+        {draft.amountKind === 'split' && (
           <div className="field">
             <span>The unused column holds</span>
             <Select<MappingDraft['unused']>
@@ -123,62 +145,61 @@ export function MappingForm({
               ]}
             />
           </div>
-        </>
-      )}
-      <label className="choice">
-        <input type="checkbox" checked={draft.grouped} onChange={(e) => set('grouped', e.target.checked)} /> Amounts use thousands separators
-        (1,234.50 or 1,23,456.00)
-      </label>
-      <label className="choice">
-        <input type="checkbox" checked={draft.trailingMinus} onChange={(e) => set('trailingMinus', e.target.checked)} /> Negatives may end in a
-        minus (500.00-)
-      </label>
-      <label className="choice">
-        <input type="checkbox" checked={draft.parentheses} onChange={(e) => set('parentheses', e.target.checked)} /> Negatives may be in
-        brackets ((500.00))
-      </label>
-
-      <ColumnSelect label={`${title} reference column`}
-        visibleLabel="Reference column (optional)" headers={headers} value={draft.reference} optional onChange={(v) => set('reference', v)} />
-      <ColumnSelect
-        label={`${title} description column`}
-        visibleLabel="Description column (optional)"
-        headers={headers}
-        value={draft.description}
-        optional
-        onChange={(v) => set('description', v)}
-      />
-      <ColumnSelect
-        label={`${title} running balance column`}
-        visibleLabel="Running balance column (optional)"
-        headers={headers}
-        value={draft.balance}
-        optional
-        onChange={(v) => set('balance', v)}
-      />
-      {draft.balance !== '' && (
-        <div className="field">
-          <span>Balances marked Cr or Dr</span>
-          <Select<BalanceMarks>
-            label={`${title} balance marks`}
-            value={draft.balanceMarks}
-            onChange={(v) => set('balanceMarks', v)}
-            options={[
-              { value: 'none', label: 'Not marked: signed numbers' },
-              { value: 'cr-positive', label: 'Cr is positive (bank statements)' },
-              { value: 'dr-positive', label: 'Dr is positive (ledgers)' },
-            ]}
-          />
-        </div>
-      )}
-      <ColumnSelect
-        label={`${title} batch ID column`}
-        visibleLabel="Batch or payout ID column (optional): rows sharing an ID are matched as one total"
-        headers={headers}
-        value={draft.batch}
-        optional
-        onChange={(v) => set('batch', v)}
-      />
+        )}
+        <label className="choice">
+          <input type="checkbox" checked={draft.grouped} onChange={(e) => set('grouped', e.target.checked)} /> Amounts use thousands separators
+          (1,234.50 or 1,23,456.00)
+        </label>
+        <label className="choice">
+          <input type="checkbox" checked={draft.trailingMinus} onChange={(e) => set('trailingMinus', e.target.checked)} /> Negatives may end in a
+          minus (500.00-)
+        </label>
+        <label className="choice">
+          <input type="checkbox" checked={draft.parentheses} onChange={(e) => set('parentheses', e.target.checked)} /> Negatives may be in
+          brackets ((500.00))
+        </label>
+        <ColumnSelect label={`${title} reference column`}
+          visibleLabel="Reference column" headers={headers} value={draft.reference} optional onChange={(v) => set('reference', v)} />
+        <ColumnSelect
+          label={`${title} description column`}
+          visibleLabel="Description column"
+          headers={headers}
+          value={draft.description}
+          optional
+          onChange={(v) => set('description', v)}
+        />
+        <ColumnSelect
+          label={`${title} running balance column`}
+          visibleLabel="Running balance column"
+          headers={headers}
+          value={draft.balance}
+          optional
+          onChange={(v) => set('balance', v)}
+        />
+        {draft.balance !== '' && (
+          <div className="field">
+            <span>Balances marked Cr or Dr</span>
+            <Select<BalanceMarks>
+              label={`${title} balance marks`}
+              value={draft.balanceMarks}
+              onChange={(v) => set('balanceMarks', v)}
+              options={[
+                { value: 'none', label: 'Not marked: signed numbers' },
+                { value: 'cr-positive', label: 'Cr is positive (bank statements)' },
+                { value: 'dr-positive', label: 'Dr is positive (ledgers)' },
+              ]}
+            />
+          </div>
+        )}
+        <ColumnSelect
+          label={`${title} batch ID column`}
+          visibleLabel="Batch or payout ID column: rows sharing an ID are matched as one total"
+          headers={headers}
+          value={draft.batch}
+          optional
+          onChange={(v) => set('batch', v)}
+        />
+      </details>
       {issues.length > 0 && (
         <ul className="mapping-issues">
           {issues.map((issue) => (

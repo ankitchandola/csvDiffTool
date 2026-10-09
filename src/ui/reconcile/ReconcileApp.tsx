@@ -18,6 +18,7 @@ import { AccountingFields } from './AccountingFields'
 import { ContextFields } from './ContextFields'
 import { OpeningPanel } from './OpeningPanel'
 import { StatusPanel } from './StatusPanel'
+import { guessMapping, needsGuess } from './guess-mapping'
 import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
 import { MappingCheck } from './MappingCheck'
 import { MappingForm } from './MappingForm'
@@ -50,6 +51,9 @@ const PHASE_LABELS: Record<ReconPhase, string> = {
 
 type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
 
+// Larger files are checked only on request, so the worker isn't busy while someone is still mapping.
+const AUTO_CHECK_RECORDS = 20_000
+
 type SourceState = FileState<SourceInfo>
 
 interface Reviewed {
@@ -74,6 +78,7 @@ export function ReconcileApp() {
     filesRef.current = files
   }, [files])
   const [drafts, setDrafts] = useState<Record<ReconSide, MappingDraft>>({ bank: emptyDraft(), books: emptyDraft() })
+  const [detected, setDetected] = useState<Record<ReconSide, boolean>>({ bank: false, books: false })
   const [context, setContext] = useState<SessionContext>({ account: '', currency: '', minorUnits: 2 })
   const [accounting, setAccounting] = useState<AccountingSetup>(emptyAccounting)
   const [openingFiles, setOpeningFiles] = useState<OpeningFile[]>([])
@@ -114,6 +119,15 @@ export function ReconcileApp() {
           ? { status: 'ready', file, info: result.info }
           : { status: 'invalid', file, issues: result.issues, format: result.format }
         setFiles((prev) => ({ ...prev, [side]: next }))
+        if (result.ok) {
+          const { headers: found, preview } = result.info
+          setDrafts((prev) => {
+            if (!needsGuess(prev[side], found)) return prev
+            const guess = guessMapping(side, found, preview)
+            setDetected((was) => ({ ...was, [side]: guess.dateColumn !== undefined }))
+            return { ...prev, [side]: { ...emptyDraft(), delimiter: prev[side].delimiter, layout: prev[side].layout, ...guess } }
+          })
+        }
         setDataVersion((v) => v + 1)
       })
       .catch((error: unknown) => {
@@ -179,10 +193,21 @@ export function ReconcileApp() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [step])
 
-  async function normalize(inputs: string): Promise<NormalizeResult | null> {
+  const smallFiles = files.bank.status === 'ready' && files.books.status === 'ready' && files.bank.info.recordCount <= AUTO_CHECK_RECORDS && files.books.info.recordCount <= AUTO_CHECK_RECORDS
+  // The check runs on its own once both mappings are complete, so its preview sits beside the
+  // mapping it verifies. A review that is still current is kept, not recomputed.
+  useEffect(() => {
+    if (step !== 'map' || !ready || currentCheck || currentReview || !smallFiles) return
+    const timer = setTimeout(() => void normalize(checkInputs, true), 600)
+    return () => clearTimeout(timer)
+    // oxlint-disable-next-line react/exhaustive-deps -- normalize reads the inputs checkInputs already fingerprints.
+  }, [step, ready, checkInputs, currentCheck, currentReview, smallFiles])
+
+  // quiet: no activity bar, which would shift the form while someone is still choosing columns.
+  async function normalize(inputs: string, quiet = false): Promise<NormalizeResult | null> {
     if (!mappings) return null
     const task = track('normalize')
-    task.show()
+    if (!quiet) task.show()
     // A new normalization starts a new revision in the worker, so older suggestions are gone.
     setReview(null)
     setCheck({ inputs, status: 'pending' })
@@ -436,30 +461,36 @@ export function ReconcileApp() {
                     headers={headers[side] ?? []}
                     draft={drafts[side]}
                     issues={outcome.ok ? [] : outcome.issues}
+                    detected={detected[side]}
                     onChange={(draft) => setDrafts((prev) => ({ ...prev, [side]: draft }))}
                   />
                 )
               })}
             </div>
-            <AccountingFields setup={accounting} onChange={setAccounting} />
-            <OpeningPanel
-              files={openingFiles}
-              info={openingInfo}
-              errors={openingErrors}
-              onAdd={(picked) => void addOpening(picked)}
-              onRemove={(name) => void replaceOpening(openingFiles.filter((f) => f.name !== name))}
-            />
-            <MatchingFields rules={rules} effective={effectiveRules} referencesMapped={bothReferences} onChange={setRules} />
-
             <div className="row">
               <button type="button" disabled={!ready || busy} onClick={() => void normalize(checkInputs)}>
-                Check mapping
+                {check ? 'Check again' : 'Check mapping'}
               </button>
-              {check && !currentCheck && <span className="note">The mapping changed; check it again.</span>}
+              {currentCheck?.status === 'pending' && <span className="note" role="status">Checking the mapping…</span>}
             </div>
             {currentCheck?.status === 'error' && <p className="error" role="alert">{currentCheck.message}</p>}
             {currentCheck?.status === 'done' && <MappingCheck result={currentCheck.value} formats={formats} />}
             {currentReview?.status === 'error' && <p className="error" role="alert">{currentReview.message}</p>}
+            <AccountingFields setup={accounting} onChange={setAccounting} />
+            <details className="optional-fields map-extras">
+              <summary>
+                Opening items and matching rules
+                <span className="muted"> · carried items, date window, references</span>
+              </summary>
+            <OpeningPanel
+                files={openingFiles}
+                info={openingInfo}
+                errors={openingErrors}
+                onAdd={(picked) => void addOpening(picked)}
+                onRemove={(name) => void replaceOpening(openingFiles.filter((f) => f.name !== name))}
+              />
+              <MatchingFields rules={rules} effective={effectiveRules} referencesMapped={bothReferences} onChange={setRules} />
+            </details>
           </section>
         )}
 

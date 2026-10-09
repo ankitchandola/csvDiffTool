@@ -1,4 +1,5 @@
-import { expect, type Locator, type Page, test } from '@playwright/test'
+import { type Locator, type Page } from '@playwright/test'
+import { expect, test } from './reconcile-test'
 import path from 'node:path'
 import { choose, classifyAll } from './reconcile-helpers'
 
@@ -78,7 +79,7 @@ async function mapTallyLedger(page: Page, dateFormat: string) {
 }
 
 async function reconcileAcmeSeptember(page: Page) {
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check.getByText('13 records: 13 valid (6 money in, 7 money out) · 0 zero · 0 records with problems')).toBeVisible()
   await expect(check.getByText('15 records: 15 valid (6 money in, 9 money out) · 0 zero · 0 records with problems')).toBeVisible()
@@ -169,7 +170,7 @@ test('HDFC-style .xlsx statement against a Zoho-style books export', async ({ pa
   await page.getByLabel('Books opening balance').fill('1,00,000.00')
   await page.getByLabel('Books closing balance').fill('2,73,001.00')
 
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check.getByText('7 records: 7 valid (2 money in, 5 money out) · 0 zero · 0 records with problems')).toHaveCount(2)
   await expect(check.getByText('Bank record 1 · row 8')).toBeVisible()

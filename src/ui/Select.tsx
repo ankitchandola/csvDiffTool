@@ -38,9 +38,10 @@ export function Select<T extends string>({
     trigger.current?.focus()
   }
 
-  useLayoutEffect(() => {
-    if (!expanded || !trigger.current) return
+  function place(): boolean {
+    if (!trigger.current) return false
     const rect = trigger.current.getBoundingClientRect()
+    if (rect.bottom < 0 || rect.top > window.innerHeight) return false
     const below = window.innerHeight - rect.bottom - 12
     const above = rect.top - 12
     const upwards = below < 200 && above > below
@@ -51,11 +52,22 @@ export function Select<T extends string>({
       maxHeight: Math.min(280, Math.max(80, upwards ? above : below)),
       ...(upwards ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
     })
+    return true
+  }
+
+  useLayoutEffect(() => {
+    if (expanded) place()
+    // oxlint-disable-next-line react/exhaustive-deps -- place only reads the trigger's position when the menu opens.
   }, [expanded])
 
   useEffect(() => {
     if (!expanded) return
-    list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+    // Scrolls the list only: scrollIntoView would scroll the page too, which closes the menu.
+    const menu = list.current
+    const active = menu?.querySelector<HTMLElement>('[data-active="true"]')
+    if (!menu || !active) return
+    if (active.offsetTop < menu.scrollTop) menu.scrollTop = active.offsetTop
+    else if (active.offsetTop + active.offsetHeight > menu.scrollTop + menu.clientHeight) menu.scrollTop = active.offsetTop + active.offsetHeight - menu.clientHeight
   }, [expanded, activeIndex])
 
   useEffect(() => {
@@ -65,18 +77,18 @@ export function Select<T extends string>({
         setOpen(false)
       }
     }
-    function scroll(event: Event) {
-      if (event.target instanceof Node && list.current?.contains(event.target)) return
-      setOpen(false)
+    // The menu follows its trigger when the page scrolls or shifts, and closes once the trigger is off screen.
+    function follow(event?: Event) {
+      if (event?.target instanceof Node && list.current?.contains(event.target)) return
+      if (!place()) setOpen(false)
     }
-    const close = () => setOpen(false)
     document.addEventListener('pointerdown', outside)
-    document.addEventListener('scroll', scroll, true)
-    window.addEventListener('resize', close)
+    document.addEventListener('scroll', follow, true)
+    window.addEventListener('resize', follow)
     return () => {
       document.removeEventListener('pointerdown', outside)
-      document.removeEventListener('scroll', scroll, true)
-      window.removeEventListener('resize', close)
+      document.removeEventListener('scroll', follow, true)
+      window.removeEventListener('resize', follow)
     }
   }, [expanded])
 
