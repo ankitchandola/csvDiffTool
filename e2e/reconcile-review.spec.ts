@@ -240,8 +240,10 @@ test('an identical set is confirmed in one step, with the reviewer choosing whic
   await expect(page.locator('.review-row', { hasText: 'Bank record 2 · line 3' })).toBeVisible()
 })
 
-test('details show the whole source row, open alternatives and variance, and open with Enter', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+test('details show the whole source row, open alternatives and variance, and open with Enter', async ({ page, context, browserName }) => {
+  // Only Chromium lets a test grant clipboard access and read the clipboard back.
+  const readable = browserName === 'chromium'
+  if (readable) await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await loadAndMap(page)
   await findSuggestions(page)
   const row = page.locator('.review-row', { hasText: 'Subscription' }).first()
@@ -254,7 +256,7 @@ test('details show the whole source row, open alternatives and variance, and ope
   await expect(dialog.locator('.inspect-detail').first().locator('th')).toHaveText(['Date', 'Details', 'Credit', 'Debit', 'Ref'])
   await dialog.getByRole('button', { name: 'Copy source row' }).first().click()
   await expect(dialog.getByRole('status')).toHaveText('Copied as tab-separated text.')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Date\tDetails\tCredit\tDebit\tRef\n02/09/2026\tSubscription\t\t9.99\t')
+  if (readable) expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Date\tDetails\tCredit\tDebit\tRef\n02/09/2026\tSubscription\t\t9.99\t')
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(row).toBeFocused()
