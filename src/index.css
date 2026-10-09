@@ -405,6 +405,11 @@ pre.skipped { font-size: 11px; background: var(--bg); padding: 8px 10px; border-
 .txn-main { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .txn-context { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .txn-source { font-size: 11px; }
+.group-members { font-size: 11px; }
+.group-members > summary { font-size: 11px; font-weight: 400; min-height: 32px; padding: 4px 0; color: var(--muted); }
+.group-members > summary::after { margin-left: 4px; }
+.group-members ul { margin: 4px 0 0; padding-left: 16px; max-height: 180px; overflow-y: auto; }
+.selected-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .amount { font-weight: 600; }
 .amount.in { color: #136954; }
 .amount.out { color: #963e4c; }

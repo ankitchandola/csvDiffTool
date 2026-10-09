@@ -1152,8 +1152,17 @@ devices remain unverified.
 | Worker: batches are suggested and paged like transactions; views carry the first 50 members and the size; search covers every member; chosen groups resolve from their members and replay on a rerun; reports list group members (a Group members sheet in Excel); counts treat records in an unmatchable batch as problems | `src/worker/reconcile/` | Worker tests, including a 50,000-charge payout (about 1 s) |
 | Carry-forward: an unmatched batch is carried as one item; carried items matched as a chosen group next month are listed as cleared | worker `exportOutstanding` | Worker two-month test |
 
-No UI yet: the batch column, group views and choosing a group come in the next change.
 `npm run bench:worker` is unchanged within noise at 200,000 rows a side.
+
+### Milestone 5b: grouped matching in the UI (not yet on `main`)
+
+| Area | Where | Tests |
+| --- | --- | --- |
+| "Batch or payout ID column (optional)" per side; the mapping check counts batches matched as totals and lists records of an unmatchable batch as problems | `MappingForm.tsx`, `MappingCheck.tsx` | Playwright |
+| Every transaction card for a group shows its total, size and members (date, amount, description, record and any carried source), up to 50, with the rest in the report | `TransactionCard.tsx` | Playwright |
+| Manual pairing selects several transactions on one side: the panel shows the group as checked by the worker, whether it meets the rules, a reason field for a date exception, and how many selected transactions are also in open suggestions; a batch can't join a chosen group | `ManualPair.tsx`, `ReviewView.tsx` | Playwright |
+| Scenarios A and C confirm the bulk salary debit against the three salary entries as a group and complete with 4 items unmatched instead of 8 | `e2e/reconcile-realistic.spec.ts` | Playwright |
+| A confirmed batch survives saving, a reload and the files being loaded again, and unmatches whole | `e2e/reconcile-groups.spec.ts` | Playwright |
 
 ### Not implemented in this snapshot
 
@@ -1163,7 +1172,7 @@ No UI yet: the batch column, group views and choosing a group come in the next c
 - Saving reconciliation profiles separately from sessions (milestone 3 saves the
   mapping inside a session only).
 - In the UI: balances, completion statuses, carry-forward and reports (the 4a engine
-  exists); choosing groups and batch columns in the UI, and subset search (milestone 5).
+  exists); subset search (deferred from milestone 5).
 - Per-file worksheet preferences beyond the existing sheet picker.
 
 ### Not yet verified

@@ -23,7 +23,8 @@ import { useDebounced } from '../use-debounced'
 import { History } from './History'
 import { Inspector } from './Inspector'
 import type { Formats } from './location'
-import { ManualPair, type Selection } from './ManualPair'
+import { ManualPair } from './ManualPair'
+import { NO_SELECTION, type Selection, toggle } from './selection'
 import { reviewKeys } from './review-keys'
 import { eventText } from './review-text'
 import { ConfirmedRow, type Decide, ProblemRow, RejectedRow, SuggestionRow, UnmatchedRow } from './ReviewRows'
@@ -68,7 +69,7 @@ export function ReviewView({
   const [openSet, setOpenSet] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<Direction | ''>('')
-  const [selection, setSelection] = useState<Selection>({})
+  const [selection, setSelection] = useState<Selection>(NO_SELECTION)
   const search = useDebounced(query, 250)
   const both = (r: Record<ReconSide, number>) => r.bank + r.books
   const totals: Record<ReviewTab, number> = {
@@ -208,7 +209,7 @@ export function ReviewView({
               formats={formats}
               busy={busy}
               onDecide={onDecide}
-              onClear={() => setSelection({})}
+              onClear={() => setSelection(NO_SELECTION)}
             />
             <p className="note">
               Valid transactions not in a confirmed match. Classify each one that stays unmatched: completion needs them all classified. O applies
@@ -227,8 +228,8 @@ export function ReviewView({
                     t={t}
                     formats={formats}
                     busy={busy}
-                    selected={selection[t.side]?.key === t.key}
-                    onSelect={() => setSelection((prev) => ({ ...prev, [t.side]: prev[t.side]?.key === t.key ? undefined : t }))}
+                    selected={selection[t.side].some((c) => c.key === t.key)}
+                    onSelect={() => setSelection((prev) => toggle(prev, t))}
                     onDecide={onDecide}
                     onInspect={setInspecting}
                   />

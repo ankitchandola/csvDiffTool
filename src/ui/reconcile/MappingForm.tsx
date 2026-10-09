@@ -171,6 +171,14 @@ export function MappingForm({
           />
         </div>
       )}
+      <ColumnSelect
+        label={`${title} batch ID column`}
+        visibleLabel="Batch or payout ID column (optional): rows sharing an ID are matched as one total"
+        headers={headers}
+        value={draft.batch}
+        optional
+        onChange={(v) => set('batch', v)}
+      />
       {issues.length > 0 && (
         <ul className="mapping-issues">
           {issues.map((issue) => (

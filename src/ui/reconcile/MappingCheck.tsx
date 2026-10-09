@@ -40,6 +40,7 @@ function SideCheck({ side, summary, formats }: { side: ReconSide; summary: SideS
       <p className="key-status">
         {counted(summary.rows, 'record')}: {count(summary.valid)} valid ({count(summary.moneyIn)} money in, {count(summary.moneyOut)} money out) ·{' '}
         {count(summary.zero)} zero · {counted(summary.problemRows, 'record')} with problems
+        {summary.batches > 0 && <> · {counted(summary.batches, 'batch', 'batches')} matched as totals</>}
       </p>
       <div className="table-scroll">
         <table>
