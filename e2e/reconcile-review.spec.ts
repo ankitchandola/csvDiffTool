@@ -150,7 +150,7 @@ test('saving in this browser survives a reload and refuses a stale tab', async (
   const saved = Number((await page.locator('.save-status').textContent())?.match(/Revision (\d+)/)?.[1])
 
   const other = await context.newPage()
-  await other.goto('/')
+  await other.goto('./')
   await other.getByRole('button', { name: /Reconcile/ }).click()
   await other.getByRole('button', { name: 'Resume it' }).click()
   await expect(other.getByText(`Loaded a session at revision ${saved} with 1 decision.`)).toBeVisible()
@@ -200,7 +200,7 @@ const SET_BANK = ['Date,Details,Credit,Debit,Ref', '05/09/2026,NETFLIX,,9.99,', 
 const SET_BOOKS = ['date,memo,amount,ref', '2026-09-05,Netflix,-9.99,', '2026-09-05,Netflix,-9.99,', '2026-09-06,Rent,-50,', '2026-09-06,Other rent,-50,'].join('\n')
 
 async function mapSetFiles(page: Page) {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(SET_BANK) })
   await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(SET_BOOKS) })
@@ -240,8 +240,10 @@ test('an identical set is confirmed in one step, with the reviewer choosing whic
   await expect(page.locator('.review-row', { hasText: 'Bank record 2 · line 3' })).toBeVisible()
 })
 
-test('details show the whole source row, open alternatives and variance, and open with Enter', async ({ page, context }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+test('details show the whole source row, open alternatives and variance, and open with Enter', async ({ page, context, browserName }) => {
+  // Only Chromium lets a test grant clipboard access and read the clipboard back.
+  const readable = browserName === 'chromium'
+  if (readable) await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await loadAndMap(page)
   await findSuggestions(page)
   const row = page.locator('.review-row', { hasText: 'Subscription' }).first()
@@ -254,7 +256,7 @@ test('details show the whole source row, open alternatives and variance, and ope
   await expect(dialog.locator('.inspect-detail').first().locator('th')).toHaveText(['Date', 'Details', 'Credit', 'Debit', 'Ref'])
   await dialog.getByRole('button', { name: 'Copy source row' }).first().click()
   await expect(dialog.getByRole('status')).toHaveText('Copied as tab-separated text.')
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Date\tDetails\tCredit\tDebit\tRef\n02/09/2026\tSubscription\t\t9.99\t')
+  if (readable) expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Date\tDetails\tCredit\tDebit\tRef\n02/09/2026\tSubscription\t\t9.99\t')
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(row).toBeFocused()

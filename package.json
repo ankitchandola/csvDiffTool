@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:ui": "playwright test",
+    "test:ui:browsers": "ALL_BROWSERS=1 playwright test",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "preview": "vite preview",

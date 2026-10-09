@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyAccounting, SESSION_FORMAT, type SessionFile } from '../../reconciliation/session'
 import { DEFAULT_MATCHING, type SideMapping } from '../../reconciliation/types'
-import { memorySessionStore, StorageConflictError } from './session-store'
+import { memorySessionStore, STORAGE_FULL, StorageConflictError, storageError } from './session-store'
 
 const mapping: SideMapping = {
   delimiter: ',',
@@ -64,5 +64,15 @@ describe('session store', () => {
       'A newer revision is saved in this browser (revision 5). Resume the saved session before saving here.',
     )
     expect((await store.peek())?.revision).toBe(5)
+  })
+})
+
+describe('storageError', () => {
+  it('names a full quota however it arrives and never passes on a blank message', () => {
+    expect(storageError(new DOMException('', 'QuotaExceededError'), 'x').message).toBe(STORAGE_FULL)
+    expect(storageError(new DOMException('The quota has been exceeded.', 'QuotaExceededError'), 'x').message).toBe(STORAGE_FULL)
+    expect(storageError(new DOMException('', 'UnknownError'), 'Browser storage write failed').message).toBe('Browser storage write failed (UnknownError)')
+    expect(storageError(null, 'Browser storage write was aborted').message).toBe('Browser storage write was aborted')
+    expect(storageError(new Error('disk gone'), 'x').message).toBe('disk gone')
   })
 })

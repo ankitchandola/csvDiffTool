@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import * as XLSX from 'xlsx'
-import { BOOKS, choose, loadAndMap } from './reconcile-helpers'
+import { BOOKS, choose, loadAndMap, setUpMonth } from './reconcile-helpers'
 
 test('reconcile flow: layout, mapping check, suggestions and review tabs', async ({ page }) => {
   const errors: string[] = []
@@ -49,7 +49,7 @@ test('references are compared only while both sides map a reference column', asy
 })
 
 test('switching modes keeps each mode’s files', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByLabel('Choose old file').setInputFiles({ name: 'baseline.csv', mimeType: 'text/csv', buffer: Buffer.from('id,v\n1,a\n') })
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(BOOKS) })
@@ -80,7 +80,7 @@ test.describe('cancel', () => {
   test.describe.configure({ mode: 'serial', timeout: 90_000 })
 
   test('while reading stops the work and asks for the file again', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('./')
     await page.getByRole('button', { name: /Reconcile/ }).click()
     const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
     await bank.getByLabel('Header is record').fill('3')
@@ -96,7 +96,7 @@ test.describe('cancel', () => {
   })
 
   test('also asks again for a file whose problems were in the cancelled worker', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('./')
     await page.getByRole('button', { name: /Reconcile/ }).click()
     const books = page.locator('section.file-panel', { hasText: 'Your ledger' })
     await books.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from('date,amount\n1,2,3\n') })
@@ -113,7 +113,7 @@ test.describe('cancel', () => {
   })
 
   test('keeps the chosen worksheet when a cancelled file is read again with new settings', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('./')
     await page.getByRole('button', { name: /Reconcile/ }).click()
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['date', 'amount'], ['2026-09-01', 1]]), 'First')
@@ -150,5 +150,28 @@ test.describe('cancel', () => {
     await expect(page.getByRole('button', { name: 'Read books.csv again' })).toBeVisible()
     await expect(page.getByRole('button', { name: '3 Review' })).toBeDisabled()
     await expect(page.getByRole('button', { name: '2 Map' })).toBeDisabled()
+  })
+
+  // Matching 600,000 transactions a side takes long enough to cancel once it shows.
+  test('while finding suggestions stops the search, and finding them again works', async ({ page }) => {
+    test.setTimeout(180_000)
+    const rows = (date: (i: number) => string) => {
+      const lines = ['date,amount,ref,memo']
+      for (let i = 0; i < 600_000; i++) lines.push(`${date(i)},${(i + 1) / 100},,Row ${i}`)
+      return lines.join('\n')
+    }
+    const day = (i: number) => String((i % 28) + 1).padStart(2, '0')
+    await setUpMonth(page, { bank: rows((i) => `${day(i)}/09/2026`), books: rows((i) => `2026-09-${day(i)}`) }, ['2026-09-01', '2026-09-30'], ['0', '0', '0', '0'])
+    await page.getByRole('button', { name: 'Find suggestions' }).click()
+    await expect(page.locator('.activity-row', { hasText: 'Finding suggestions' })).toBeVisible({ timeout: 120_000 })
+    await page.locator('.activity').getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.locator('.activity')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Reconcile a bank statement' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '3 Review' })).toBeDisabled()
+    for (const file of ['bank.csv', 'books.csv']) await page.getByRole('button', { name: `Read ${file} again` }).click()
+    await page.getByRole('button', { name: 'Map dates and amounts' }).click()
+    await page.getByRole('button', { name: 'Find suggestions' }).click()
+    await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible({ timeout: 120_000 })
+    await expect(page.locator('.metric', { hasText: 'Candidate pairs found' })).toContainText('600,000')
   })
 })

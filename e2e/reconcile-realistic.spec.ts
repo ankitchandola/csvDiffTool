@@ -36,7 +36,7 @@ async function confirmAllSuggestions(page: Page) {
 }
 
 test('ICICI-style statement against a Tally-style ledger', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await load(page, 'bank statement', 'icici-statement-2026-09.csv', { header: 4, atEnd: 2 }, 13)
   // The ledger's opening-balance line sits right below the header and is not a transaction.
@@ -103,7 +103,7 @@ async function reconcileAcmeSeptember(page: Page) {
 }
 
 test('SBI-style statement with Cr balances against a Tally ledger with two-digit years', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await load(page, 'bank statement', 'sbi-statement-2026-09.csv', { header: 9, atEnd: 1 }, 13)
   await load(page, 'books', 'tally-sbi-ledger-2026-09.csv', { header: 6, afterHeader: 1, atEnd: 2 }, 15)
@@ -125,7 +125,7 @@ test('SBI-style statement with Cr balances against a Tally ledger with two-digit
 })
 
 test('HDFC-style .xlsx statement against a Zoho-style books export', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   // Five preamble records; the blank row before the header is not counted.
   await load(page, 'bank statement', 'hdfc-statement-2026-09.xlsx', { header: 6, atEnd: 3 }, 7)

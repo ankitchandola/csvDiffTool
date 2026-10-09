@@ -1125,7 +1125,7 @@ devices remain unverified.
 
 - In the `84aa1b5` baseline, any decision. Milestone 3 adds them (above).
 - Amount tolerance (fixed at zero) and therefore tiers 2 and 4.
-- Two-digit-year pivots: such dates are always problems.
+- Two-digit-year pivots other than 20YY: the two-digit formats added on 2026-10-09 always read 2000–2099.
 - Saving reconciliation profiles separately from sessions (milestone 3 saves the
   mapping inside a session only).
 - In the UI: balances, completion statuses, carry-forward and reports (the 4a engine
@@ -1134,9 +1134,26 @@ devices remain unverified.
 
 ### Not yet verified
 
-- Real bank and accounting-system exports; Excel-generated workbooks.
-- Cancel pressed while matching specifically. Matching is capped at the candidate
-  budget and finished in under a second in Node measurements, so a browser test cannot
-  land Cancel inside it reliably; the UI runs the same cancel path for every task.
+- Real bank and accounting-system exports. Generated Indian-format statements and
+  ledgers (`fixtures/reconcile/`) stand in for them. Excel-generated workbooks are also
+  not verified.
 - The 2,000,000-candidate budget on devices other than the one measured (see below).
-- Other browsers, screen readers and touch use of the new forms.
+- Real phones and Safari itself, screen readers, and touch use of the new forms.
+
+### Verified 2026-10-09
+
+Details are in [the verification report](reconcile-verification-2026-10-09.md).
+
+- **Real storage exhaustion in Chrome** (an origin quota shrunk through the DevTools
+  protocol). It exposed and fixed a blank "Not saved:" message, and saving resumes once
+  there is room.
+- **Month-first and day-first native date entry.** The order comes from the browser, so
+  the test types in each browser's own order: day first in Chrome here, month first in
+  Firefox and WebKit.
+- **Cancel during matching**, at 600,000 transactions a side, in all three browsers.
+- **The whole suite in Firefox and WebKit** (`npm run test:ui:browsers`), with no
+  browser-specific product bug.
+- **A heap-capped worker as a stand-in for lower-memory devices:** about 50,000 rows a
+  side in 512 MiB, and 100,000 in 1 GiB.
+- **The deployed site after #24:** 52 of 54 Chrome tests passed. The 2 failures were the
+  storage-full tests, against code that predates the fix.

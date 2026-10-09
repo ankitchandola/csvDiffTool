@@ -229,3 +229,17 @@ Measured 2026-10-09 on an Apple M4 with 16 GB RAM, Node 24.15.0:
   searching.
 - **Exports are one-off and under 3 s at this size.** The .xlsx report refuses it
   (3.6 million cells against a 1 million limit) and points to the JSON report.
+
+### Worker heap limits
+
+The same benchmark in Node with a capped JavaScript heap (`node --max-old-space-size=N
+--import tsx scripts/bench/reconcile-worker.ts --rows=R`). It is a stand-in for
+lower-memory devices, not a measurement on one:
+
+| Heap limit | 50,000 rows a side | 100,000 | 200,000 |
+| --- | --- | --- | --- |
+| 512 MiB | completes | out of memory | out of memory |
+| 1 GiB | completes | completes | out of memory |
+
+That is roughly 4–5 KiB of heap per row a side, from reading through the JSON report.
+See `docs/reconcile-verification-2026-10-09.md`.

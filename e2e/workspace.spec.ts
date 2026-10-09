@@ -27,7 +27,7 @@ async function noHorizontalOverflow(page: Page) {
 test('steps replace each other, preserve setup, and invalidate stale results', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto('/')
+  await page.goto('./')
   const iconURL = await page.locator('link[rel="icon"]').getAttribute('href')
   await expect(page.locator('.brand-icon')).toHaveAttribute('src', iconURL!)
   const artwork = await (await page.request.get(iconURL!)).text()
@@ -76,7 +76,7 @@ test('steps replace each other, preserve setup, and invalidate stale results', a
 })
 
 test('dropdown supports keyboard, typeahead, escape, tab, and outside click', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   const combo = page.getByRole('combobox', { name: 'Delimiter' })
   await combo.focus()
   await page.keyboard.press('ArrowDown')
@@ -109,7 +109,7 @@ test('dropdown supports keyboard, typeahead, escape, tab, and outside click', as
 })
 
 test('saved profiles use custom dropdown and survive reload', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await matchFiles(page)
   await page.locator('.profile-disclosure > summary').click()
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Daily export')
@@ -126,7 +126,7 @@ test('saved profiles use custom dropdown and survive reload', async ({ page }) =
 })
 
 test('file replacement keeps the missing-key recovery reachable', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await matchFiles(page)
   await page.getByRole('button', { name: 'Back to files' }).click()
   await loadFiles(page, 'sku,name\n1,Old\n', 'sku,name\n1,New\n')
@@ -142,7 +142,7 @@ test('file replacement keeps the missing-key recovery reachable', async ({ page 
 for (const width of [1440, 768, 390]) {
   test(`workspace stays readable at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 })
-    await page.goto('/')
+    await page.goto('./')
     await noHorizontalOverflow(page)
     if (width === 1440) {
       expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(900)
@@ -172,10 +172,10 @@ for (const width of [1440, 768, 390]) {
   })
 }
 
-test('dropdown selection works with touch', async ({ browser }) => {
-  const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
+test('dropdown selection works with touch', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
   const page = await context.newPage()
-  await page.goto('http://127.0.0.1:4175')
+  await page.goto('./')
   const combo = page.getByRole('combobox', { name: 'Delimiter' })
   await combo.tap()
   await page.getByRole('option', { name: 'Semicolon' }).tap()
@@ -185,7 +185,7 @@ test('dropdown selection works with touch', async ({ browser }) => {
 })
 
 test('advanced rules, exclusions and both exports remain available', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await loadFiles(
     page,
     'id,price,name\n1,1.00,OLD\n2,N/A,Same\n3,3,Dup\n3,3,Dup\n,4,Empty\n',
@@ -220,7 +220,7 @@ test('advanced rules, exclusions and both exports remain available', async ({ pa
 
 test('long names, scrolling dropdown options and chevrons fit mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/')
+  await page.goto('./')
   const header = 'long_column_name_'.repeat(12)
   await loadFiles(page, `id,${header}\n1,before\n`, `id,${header}\n1,after\n`)
   await page.getByRole('button', { name: 'Choose matching columns' }).click()
@@ -250,7 +250,7 @@ test('long names, scrolling dropdown options and chevrons fit mobile', async ({ 
 })
 
 test('delimiter changes reparse files without skipping the files step', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await loadFiles(page, 'id;name\n1;Old\n', 'id;name\n1;New\n')
   await page.getByRole('combobox', { name: 'Delimiter' }).click()
   await page.getByRole('option', { name: 'Semicolon' }).click()
