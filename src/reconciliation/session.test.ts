@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { txnKey } from './decisions'
+import { txnKey, unitKey } from './decisions'
 import { emptyAccounting, exportSession, importSession, readSession, SESSION_FORMAT, SessionError, type SessionFile } from './session'
 import { DEFAULT_MATCHING, type SideMapping } from './types'
 
@@ -17,6 +17,7 @@ const mapping: SideMapping = {
   description: 'memo',
   balance: null,
   balanceMarks: 'none',
+  batch: null,
 }
 
 function session(overrides: Partial<SessionFile> = {}): SessionFile {
@@ -122,6 +123,30 @@ describe('session files with review decisions and balances', () => {
     expect(() => readSession(bad)).toThrow('accounting.balances.bank.opening must be text')
     const event = { seq: 1, at: '2026-10-07T10:00:00Z', action: 'classify', key: B1, classification: 'lost' }
     expect(() => readSession({ ...session(), events: [event] })).toThrow(/classification must be one of/)
+  })
+})
+
+describe('session files with groups', () => {
+  it('round-trip a group of transactions and its batch mapping, and read older mappings as having no batch', () => {
+    const group = unitKey([txnKey('books', FP, 2), L1, txnKey('books', 'd'.repeat(64), 1)])
+    const file = session({
+      mappings: { bank: mapping, books: { ...mapping, batch: 'payout' } },
+      events: [{ seq: 1, at: '2026-10-07T10:00:00.000Z', action: 'confirm', bank: B1, books: group, origin: 'manual' }],
+    })
+    expect(roundTrip(file)).toEqual(file)
+    const old = JSON.parse(JSON.stringify(session()))
+    delete old.mappings.bank.batch
+    expect(readSession(old).mappings.bank.batch).toBeNull()
+  })
+
+  it('reject a group key with members on the other side or out of order', () => {
+    const wrongSide = { seq: 1, at: '2026-10-07T10:00:00Z', action: 'confirm', bank: B1, books: `books|${FP}|2+1`, origin: 'manual' }
+    expect(() => readSession({ ...session(), events: [wrongSide] })).toThrow(/not a books transaction key/)
+    const overlap = [
+      { seq: 1, at: '2026-10-07T10:00:00Z', action: 'confirm', bank: B1, books: unitKey([L1, txnKey('books', FP, 2)]), origin: 'manual' },
+      { seq: 2, at: '2026-10-07T10:00:00Z', action: 'confirm', bank: txnKey('bank', FP, 2), books: L1, origin: 'manual' },
+    ]
+    expect(() => readSession({ ...session(), events: overlap })).toThrow(/already in a confirmed match/)
   })
 })
 

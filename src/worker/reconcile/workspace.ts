@@ -5,11 +5,12 @@ import { type ParsedFile } from '../../engine/types'
 import { type RunningBalanceCheck } from '../../reconciliation/accounting'
 import { type OutstandingFile, type OutstandingItem } from '../../reconciliation/carryforward'
 import { isoDate } from '../../reconciliation/dates'
-import { checkPair, type DecisionEvent, parseTxnKey, type Replay, replay, type ReplayData, txnKey, type TxnKey } from '../../reconciliation/decisions'
+import { checkPair, type DecisionEvent, parseUnitKey, type Replay, replay, type ReplayData, txnKey, type TxnKey, unitKey } from '../../reconciliation/decisions'
+import { groupOf } from '../../reconciliation/groups'
 import { type Candidate, type MatchOutcome, type Tier } from '../../reconciliation/match'
 import { type TransactionSnapshot } from '../../reconciliation/session'
 import { type Direction, type MatchingRules, type NormalizedSide, RECON_SIDES, type ReconSide, type SessionContext, type SideMapping, type Transaction } from '../../reconciliation/types'
-import { type DecisionSummary, type Location, type OriginalValues, type ProblemItem, type ReconPhase, type SetKind, type SuggestionItem, type TransactionView } from '../reconcile-protocol'
+import { type DecisionSummary, type Location, type OriginalValues, type ProblemItem, GROUP_PREVIEW, type ReconPhase, type SetKind, type SuggestionItem, type TransactionView } from '../reconcile-protocol'
 import { createSearchCache } from '../search'
 
 // State the reconciliation worker keeps between requests, and the helpers every request
@@ -50,8 +51,10 @@ export interface Normalized {
   problemRows: ProblemItem[] | null
   // Lower-cased searchable text per transaction position, built on first search.
   searchTexts?: Record<ReconSide, (string | undefined)[]>
-  // Each side's pool position by transaction key.
+  // Each side's pool position by unit key.
   positions?: Record<ReconSide, Map<TxnKey, number>>
+  // Each batch member by its own key, built on first use.
+  batchMembers?: Map<TxnKey, Transaction>
   // Each side's current movement and imported opening items in total, built on first use.
   totals?: Record<ReconSide, { current: Decimal; opening: Decimal }>
   // Running-balance checks by side, opening balance and basis: decisions don't change them.
@@ -141,11 +144,13 @@ export function openingItem(ws: Workspace, t: Transaction): OutstandingItem | nu
 }
 
 export function keyOf(ws: Workspace, t: Transaction): TxnKey {
+  if (t.members) return unitKey(t.members.map((m) => keyOf(ws, m)))
   if (t.opening) return txnKey(t.side, ws.opening[t.opening.file].fingerprint, t.opening.item + 1)
   return txnKey(t.side, (ws.sources[t.side] as Source).fingerprint, t.index + 1)
 }
 
 export function view(ws: Workspace, t: Transaction, mapping: SideMapping): TransactionView {
+  if (t.members) return groupView(ws, t, mapping)
   const base = {
     key: keyOf(ws, t),
     date: isoDate(t.day),
@@ -165,6 +170,30 @@ export function view(ws: Workspace, t: Transaction, mapping: SideMapping): Trans
     }
   }
   return { ...base, ...location(ws, t.side, t.index), original: original(ws, t.side, t.index, mapping) }
+}
+
+function groupLabel(t: Transaction): string {
+  const count = (t.members as Transaction[]).length
+  return t.batch === undefined ? `Group of ${count} transactions` : `Batch ${t.batch}: ${count} records`
+}
+
+function groupView(ws: Workspace, t: Transaction, mapping: SideMapping): TransactionView {
+  const all = t.members as Transaction[]
+  const members = all.slice(0, GROUP_PREVIEW).map((m) => view(ws, m, mapping))
+  const { side, recordNumber, span } = members[0]
+  const amount = formatDecimal(t.amount)
+  return {
+    key: keyOf(ws, t),
+    side,
+    recordNumber,
+    span,
+    date: isoDate(t.day),
+    amount,
+    direction: directionOf(t),
+    reference: null,
+    original: { date: isoDate(t.day), amount: [amount], reference: null, description: groupLabel(t) },
+    group: { batch: t.batch ?? null, size: all.length, members },
+  }
 }
 
 export function problemRows(ws: Workspace, state: Normalized): ProblemItem[] {
@@ -208,8 +237,13 @@ export function texts(v: TransactionView): string[] {
 export function searchText(ws: Workspace, state: Normalized, side: ReconSide, position: number): string {
   state.searchTexts ??= { bank: [], books: [] }
   const cache = state.searchTexts[side]
-  cache[position] ??= texts(view(ws, state.pool[side][position], state.mappings[side])).join('\u0000').toLowerCase()
-  return cache[position] as string
+  if (cache[position] === undefined) {
+    const t = state.pool[side][position]
+    // A group is found by any of its members, not only those in its preview.
+    const views = [t, ...(t.members ?? [])].map((u) => view(ws, u, state.mappings[side]))
+    cache[position] = views.flatMap(texts).join('\u0000').toLowerCase()
+  }
+  return cache[position]
 }
 
 export function directionOf(t: Transaction): Direction {
@@ -224,27 +258,75 @@ export function positions(ws: Workspace, state: Normalized): Record<ReconSide, M
   return state.positions
 }
 
+function keySide(key: TxnKey): ReconSide | null {
+  const side = key.slice(0, key.indexOf('|'))
+  return side === 'bank' || side === 'books' ? side : null
+}
+
+// A unit in the pool: a transaction, or a batch.
 export function resolve(ws: Workspace, key: TxnKey): Transaction | undefined {
-  const parsed = parseTxnKey(key)
-  if (!parsed || !ws.normalized) return undefined
-  const position = positions(ws, ws.normalized)[parsed.side].get(key)
-  return position === undefined ? undefined : ws.normalized.pool[parsed.side][position]
+  const side = keySide(key)
+  if (!side || !ws.normalized) return undefined
+  const position = positions(ws, ws.normalized)[side].get(key)
+  return position === undefined ? undefined : ws.normalized.pool[side][position]
+}
+
+// A pool unit, or a group the reviewer chose of transactions that are each in the pool on
+// their own: a batch member can't join one.
+export function resolveUnit(ws: Workspace, key: TxnKey): Transaction | undefined {
+  const pooled = resolve(ws, key)
+  if (pooled) return pooled
+  const members = parseUnitKey(key)?.members
+  if (!members || members.length < 2) return undefined
+  const found = members.map((member) => resolve(ws, member))
+  if (found.some((t) => t === undefined || t.members)) return undefined
+  return groupOf(found as Transaction[])
+}
+
+// Any single transaction in the pool, including a batch member.
+export function resolveMember(ws: Workspace, key: TxnKey): Transaction | undefined {
+  const pooled = resolve(ws, key)
+  const state = ws.normalized
+  if (pooled || !state) return pooled
+  if (!state.batchMembers) {
+    state.batchMembers = new Map()
+    for (const side of RECON_SIDES) {
+      for (const t of state.pool[side]) for (const m of t.members ?? []) state.batchMembers.set(keyOf(ws, m), m)
+    }
+  }
+  return state.batchMembers.get(key)
+}
+
+// The pool positions a unit takes up: its own, or each member's for a chosen group.
+export function unitPositions(ws: Workspace, key: TxnKey): { side: ReconSide; positions: number[] } | null {
+  const parsed = parseUnitKey(key)
+  if (!parsed || !ws.normalized) return null
+  const where = positions(ws, ws.normalized)[parsed.side]
+  const own = where.get(key)
+  if (own !== undefined) return { side: parsed.side, positions: [own] }
+  const members = parsed.members.map((m) => where.get(m))
+  return members.every((p) => p !== undefined) ? { side: parsed.side, positions: members as number[] } : null
 }
 
 export function position(ws: Workspace, t: Transaction): number {
   return positions(ws, ws.normalized as Normalized)[t.side].get(keyOf(ws, t)) as number
 }
 
-// A key's file is loaded: the side's source file, or an imported opening-items file.
+// Every file a unit's transactions come from is loaded: the side's source file, or an
+// imported opening-items file.
 export function sourcePresent(ws: Workspace, key: TxnKey): boolean {
-  const parsed = parseTxnKey(key)
+  const parsed = parseUnitKey(key)
   if (!parsed) return false
-  return ws.sources[parsed.side]?.fingerprint === parsed.fingerprint || ws.opening.some((o) => o.fingerprint === parsed.fingerprint)
+  return parsed.members.every((member) => {
+    const fingerprint = member.split('|')[1]
+    return ws.sources[parsed.side]?.fingerprint === fingerprint || ws.opening.some((o) => o.fingerprint === fingerprint)
+  })
 }
 
 export function replayData(ws: Workspace, rules: MatchingRules): ReplayData {
   return {
     transaction: (key) => resolve(ws, key),
+    unit: (key) => resolveUnit(ws, key),
     // A pair that meets every rule is a suggestion, whether or not a budget-limited search listed it.
     isCandidate: (bank, books) => {
       const pair = checkPair(resolve(ws, bank), resolve(ws, books), rules)
@@ -277,8 +359,10 @@ export function expectNextSeq(state: ReviewState, seq: number): void {
 export function derive(ws: Workspace, state: ReviewState, data: Normalized) {
   const used = { bank: new Uint8Array(data.pool.bank.length), books: new Uint8Array(data.pool.books.length) }
   for (const event of state.replay.state.active.values()) {
-    used.bank[position(ws, resolve(ws, event.bank) as Transaction)] = 1
-    used.books[position(ws, resolve(ws, event.books) as Transaction)] = 1
+    for (const key of [event.bank, event.books]) {
+      const unit = unitPositions(ws, key) as { side: ReconSide; positions: number[] }
+      for (const p of unit.positions) used[unit.side][p] = 1
+    }
   }
   const rejected = new Set<string>()
   for (const event of state.replay.state.rejected.values()) {
@@ -325,7 +409,7 @@ export function summary(state: ReviewState, outcome: MatchOutcome): DecisionSumm
 }
 
 export function snapshot(ws: Workspace, key: TxnKey): TransactionSnapshot | null {
-  const t = resolve(ws, key)
+  const t = resolveMember(ws, key)
   if (!t || !ws.normalized) return null
   const description = ws.normalized.mappings[t.side].description
   return {
@@ -355,6 +439,7 @@ export function suggestionItem(ws: Workspace, outcome: MatchOutcome, data: Norma
 }
 
 export function descriptionOf(ws: Workspace, data: Normalized, t: Transaction): string {
+  if (t.members) return groupLabel(t)
   const carried = openingItem(ws, t)
   if (carried) return (carried.description ?? '').trim()
   const column = data.mappings[t.side].description

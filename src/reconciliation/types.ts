@@ -42,6 +42,8 @@ export interface SideMapping {
   balance: string | null
   // Which Cr/Dr mark after a balance means a positive balance in the column's own terms.
   balanceMarks: BalanceMarks
+  // A payout or batch ID: rows sharing one are matched as a single group.
+  batch: string | null
 }
 
 // Stated by the user: the files carry no account or currency metadata to check it against.
@@ -81,9 +83,14 @@ export interface Transaction {
   // Set for an opening item carried from an earlier period: which imported file and which
   // of that side's items in it. index is then the item's position, not a source row.
   opening?: { file: number; item: number }
+  // Set for a group of transactions on one side, in record order. The group's day is its
+  // latest member's, its amount their exact sum, and index its first member's.
+  members?: Transaction[]
+  // The batch ID that formed the group; absent for a group the reviewer chose.
+  batch?: string
 }
 
-export type ProblemField = 'date' | 'amount'
+export type ProblemField = 'date' | 'amount' | 'batch'
 
 export interface NormalizationProblem {
   side: ReconSide
@@ -97,4 +104,6 @@ export interface NormalizedSide {
   problems: NormalizationProblem[]
   // Valid rows with a zero amount: shown separately and never matched automatically.
   zero: number[]
+  // What matching works on: valid transactions outside batches, and one group per batch.
+  units: Transaction[]
 }

@@ -1,10 +1,10 @@
-import { applyToState, checkDecision, checkPair, copyState, type DecisionEvent, edgeKey, eventKeys, type PairEvent, replay, structuralCheck } from '../../reconciliation/decisions'
+import { activeMatch, applyToState, checkDecision, checkPair, copyState, type DecisionEvent, eventKeys, type PairEvent, replay, structuralCheck } from '../../reconciliation/decisions'
 import { type TransactionSnapshot } from '../../reconciliation/session'
 import { type Direction, RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type ConfirmedItem, type ReconRequests, type ReconResults, type RejectedItem, type TransactionView, type UnmatchedItem } from '../reconcile-protocol'
 import { pageBounds } from '../paging'
 import { matches, normalizeSearch } from '../search'
-import { available, counts, currentReview, derive, expectNextSeq, directionOf, evidence, openingItem, position, problemRows, replayData, resolve, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
+import { available, counts, currentReview, derive, expectNextSeq, directionOf, evidence, openingItem, position, problemRows, replayData, resolve, resolveUnit, searchText, setKind, snapshot, type Source, suggestionItem, summary, texts, view, type Workspace } from './workspace'
 
 // Review: replaying and recording decisions, sets, inspection and paged review tabs.
 
@@ -105,9 +105,8 @@ export function inspect(ws: Workspace, { matchId, keys }: ReconRequests['inspect
         })()
     const own = position(ws, t)
     const otherSide: ReconSide = t.side === 'bank' ? 'books' : 'bank'
-    const partnerKey = t.side === 'bank' ? state.replay.state.bankMatch.get(key) : state.replay.state.booksMatch.get(key)
-    const partner = partnerKey ? resolve(ws, partnerKey) : undefined
-    const event = partnerKey ? state.replay.state.active.get(t.side === 'bank' ? edgeKey(key, partnerKey) : edgeKey(partnerKey, key)) : undefined
+    const event = activeMatch(state.replay.state, t.side, key)
+    const partner = event ? resolveUnit(ws, otherSide === 'bank' ? event.bank : event.books) : undefined
     const involving = run.outcome.candidates.filter((c) => (t.side === 'bank' ? c.bank : c.books) === own && ok(c))
     let rejectedPairs = 0
     for (const e of state.replay.state.rejected.values()) if (e.bank === key || e.books === key) rejectedPairs++
@@ -139,8 +138,8 @@ export function decide(ws: Workspace, { matchId, seq, at, decision }: ReconReque
 
 export function pairCheck(ws: Workspace, { matchId, bank, books }: ReconRequests['checkPair']): ReconResults['checkPair'] {
   const { latest: run, normalized: data, review: state } = currentReview(ws, matchId)
-  const bankTxn = resolve(ws, bank)
-  const booksTxn = resolve(ws, books)
+  const bankTxn = resolveUnit(ws, bank)
+  const booksTxn = resolveUnit(ws, books)
   const pair = checkPair(bankTxn, booksTxn, run.rules)
   const structural = structuralCheck(state.replay.state, { action: 'confirm', bank, books })
   return {
@@ -182,8 +181,8 @@ export function getReview(ws: Workspace, { matchId, tab, offset, limit, search, 
         [...state.replay.state.active.values()]
           .sort((a, b) => a.seq - b.seq)
           .map((event) => {
-            const bank = resolve(ws, event.bank) as Transaction
-            const books = resolve(ws, event.books) as Transaction
+            const bank = resolveUnit(ws, event.bank) as Transaction
+            const books = resolveUnit(ws, event.books) as Transaction
             return { bank: view(ws, bank, mappings.bank), books: view(ws, books, mappings.books), event, ...evidence(bank, books, run.rules) }
           })
       const all = filtered(confirmed, (item) => isDirection(item.bank.direction) && (needle === '' || matches([...both(item.bank, item.books), item.event.reason ?? ''], needle)))
@@ -208,8 +207,8 @@ export function getReview(ws: Workspace, { matchId, tab, offset, limit, search, 
         [...state.replay.state.rejected.values()]
           .sort((a, b) => a.seq - b.seq)
           .map((event) => {
-            const bank = resolve(ws, event.bank)
-            const books = resolve(ws, event.books)
+            const bank = resolveUnit(ws, event.bank)
+            const books = resolveUnit(ws, event.books)
             return {
               bankKey: event.bank,
               booksKey: event.books,

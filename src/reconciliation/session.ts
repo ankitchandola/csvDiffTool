@@ -12,6 +12,7 @@ import {
   isSha256Hex,
   type PairEvent,
   parseTxnKey,
+  parseUnitKey,
   type RuleException,
   structuralCheck,
 } from './decisions'
@@ -211,6 +212,7 @@ function readMapping(value: unknown, where: string): SideMapping {
     // Absent in sessions saved before running balances were mapped.
     balance: m.balance === undefined ? null : optionalString(m.balance, `${where}.balance`),
     balanceMarks: m.balanceMarks === undefined ? 'none' : oneOf(m.balanceMarks, BALANCE_MARKS, `${where}.balanceMarks`),
+    batch: m.batch === undefined ? null : optionalString(m.batch, `${where}.batch`),
   }
 }
 
@@ -232,7 +234,7 @@ function readEvent(value: unknown, index: number): DecisionEvent {
   if (action === 'complete') return { seq, at, action, basis: string(e.basis, `${where}.basis`) }
   if (action === 'classify') {
     const key = string(e.key, `${where}.key`)
-    if (!parseTxnKey(key)) fail(`${where}.key is not a transaction key`)
+    if (!parseUnitKey(key)) fail(`${where}.key is not a transaction key`)
     const classification =
       e.classification === null ? null : oneOf<Classification>(e.classification, ['outstanding-payment', 'deposit-in-transit', 'record-in-books', 'investigate'], `${where}.classification`)
     const event: ClassifyEvent = { seq, at, action, key, classification }
@@ -241,8 +243,8 @@ function readEvent(value: unknown, index: number): DecisionEvent {
   }
   const bank = string(e.bank, `${where}.bank`)
   const books = string(e.books, `${where}.books`)
-  if (parseTxnKey(bank)?.side !== 'bank') fail(`${where}.bank is not a bank transaction key`)
-  if (parseTxnKey(books)?.side !== 'books') fail(`${where}.books is not a books transaction key`)
+  if (parseUnitKey(bank)?.side !== 'bank') fail(`${where}.bank is not a bank transaction key`)
+  if (parseUnitKey(books)?.side !== 'books') fail(`${where}.books is not a books transaction key`)
   const event: PairEvent = { seq, at, action, bank, books }
   if (action === 'confirm') {
     event.origin = oneOf(e.origin, ['suggested', 'manual', 'set'] as const, `${where}.origin`)

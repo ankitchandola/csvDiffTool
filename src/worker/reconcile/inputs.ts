@@ -60,7 +60,9 @@ export function summarize(ws: Workspace, side: ReconSide, result: NormalizedSide
   const rows = (ws.sources[side] as Source).file.rows.length
   const byIndex = new Map<number, NormalizationProblem[]>()
   for (const problem of result.problems) byIndex.set(problem.index, [...(byIndex.get(problem.index) ?? []), problem])
-  const valid = new Map(result.transactions.filter((t) => t.index < SAMPLE_ROWS).map((t) => [t.index, t]))
+  // A record in a batch that can't be matched is valid on its own but counted with the problems.
+  const usable = result.transactions.filter((t) => !byIndex.has(t.index))
+  const valid = new Map(usable.filter((t) => t.index < SAMPLE_ROWS).map((t) => [t.index, t]))
   const zero = new Set(result.zero)
   const sample: SampleRow[] = []
   for (let index = 0; index < Math.min(rows, SAMPLE_ROWS); index++) {
@@ -73,12 +75,13 @@ export function summarize(ws: Workspace, side: ReconSide, result: NormalizedSide
       problems: (byIndex.get(index) ?? []).map((p) => p.message),
     })
   }
-  const moneyIn = result.transactions.filter((t) => t.amount.units > 0n).length
+  const moneyIn = usable.filter((t) => t.amount.units > 0n).length
   return {
     rows,
-    valid: result.transactions.length,
+    valid: usable.length,
     moneyIn,
-    moneyOut: result.transactions.length - moneyIn,
+    moneyOut: usable.length - moneyIn,
+    batches: result.units.filter((t) => t.members).length,
     zero: result.zero.length,
     problemRows: byIndex.size,
     problems: result.problems.length,
@@ -143,7 +146,7 @@ export function normalize(ws: Workspace, { context, mappings, period }: ReconReq
     }
   }
   if (openingErrors.length > 0) return { ok: false, issues: openingErrors }
-  const pool = { bank: [...current.bank], books: [...current.books] }
+  const pool = { bank: [...sides.bank.units], books: [...sides.books.units] }
   ws.opening.forEach((o, f) => {
     for (const side of RECON_SIDES) {
       pool[side].push(...openingTransactions(o.file, side, context.minorUnits).map((t) => ({ ...t, opening: { file: f, item: t.index } })))
@@ -154,7 +157,7 @@ export function normalize(ws: Workspace, { context, mappings, period }: ReconReq
     ok: true,
     revision: ws.revision,
     sides: { bank: summarize(ws, 'bank', sides.bank, mappings.bank), books: summarize(ws, 'books', sides.books, mappings.books) },
-    opening: { items: { bank: pool.bank.length - current.bank.length, books: pool.books.length - current.books.length }, warnings, overlaps },
+    opening: { items: { bank: pool.bank.length - sides.bank.units.length, books: pool.books.length - sides.books.units.length }, warnings, overlaps },
   }
 }
 

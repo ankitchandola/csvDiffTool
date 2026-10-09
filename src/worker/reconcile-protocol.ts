@@ -64,6 +64,8 @@ export interface SideSummary {
   valid: number
   moneyIn: number
   moneyOut: number
+  // Groups formed from rows sharing a batch ID.
+  batches: number
   zero: number
   // Rows with at least one problem; problems counts every problem.
   problemRows: number
@@ -117,6 +119,8 @@ export interface MatchSummary {
   incomplete: string | null
 }
 
+export const GROUP_PREVIEW = 50
+
 export interface TransactionView extends Location {
   key: TxnKey
   date: string
@@ -124,6 +128,9 @@ export interface TransactionView extends Location {
   direction: Direction
   reference: string | null
   original: OriginalValues
+  // Set for a group: a batch, or transactions the reviewer chose to match together.
+  // members holds the first GROUP_PREVIEW of size.
+  group?: { batch: string | null; size: number; members: TransactionView[] }
 }
 
 export interface SuggestionItem {

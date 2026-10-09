@@ -25,6 +25,7 @@ export interface MappingDraft {
   description: string
   balance: string
   balanceMarks: BalanceMarks
+  batch: string
 }
 
 export function emptyDraft(): MappingDraft {
@@ -47,6 +48,7 @@ export function emptyDraft(): MappingDraft {
     description: '',
     balance: '',
     balanceMarks: 'none',
+    batch: '',
   }
 }
 
@@ -66,6 +68,7 @@ export function toMapping(draft: MappingDraft, headers: string[]): DraftOutcome 
     description: draft.description || null,
     balance: draft.balance || null,
     balanceMarks: draft.balanceMarks,
+    batch: draft.batch || null,
   }
   const issues = mappingIssues(mapping, headers)
   if (draft.dateFormat === '') issues.push('Choose the date format')
@@ -88,6 +91,7 @@ export function draftFromMapping(mapping: SideMapping): MappingDraft {
     description: mapping.description ?? '',
     balance: mapping.balance ?? '',
     balanceMarks: mapping.balanceMarks,
+    batch: mapping.batch ?? '',
   }
   return mapping.amount.kind === 'signed'
     ? { ...draft, amountKind: 'signed', amountColumn: mapping.amount.column, positiveIs: mapping.amount.positiveIs }

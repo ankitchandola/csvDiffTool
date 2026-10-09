@@ -1,12 +1,13 @@
 import { type Decimal, negateDecimal, parseDecimal, toScale } from '../engine/decimal'
 import type { ParsedFile, Row } from '../engine/types'
 import { parseDate } from './dates'
+import { batchUnits } from './groups'
 import type { AmountMapping, Direction, NormalizationProblem, NormalizedSide, ReconSide, SessionContext, SideMapping, Transaction } from './types'
 
 export function mappedColumns(mapping: SideMapping): string[] {
   const { amount } = mapping
   const amountColumns = amount.kind === 'signed' ? [amount.column] : [amount.inColumn, amount.outColumn]
-  return [mapping.date.column, ...amountColumns, mapping.reference, mapping.description, mapping.balance].filter((c): c is string => c !== null)
+  return [mapping.date.column, ...amountColumns, mapping.reference, mapping.description, mapping.balance, mapping.batch].filter((c): c is string => c !== null)
 }
 
 // A missing column blocks the mapping; it is never replaced by another column.
@@ -85,6 +86,12 @@ export function invalidRowCount(side: NormalizedSide): number {
   return new Set(side.problems.map((p) => p.index)).size
 }
 
+// Valid, nonzero rows that can be matched: a row in a batch with a problem can't.
+export function validRowCount(side: NormalizedSide): number {
+  const invalid = new Set(side.problems.map((p) => p.index))
+  return side.transactions.filter((t) => !invalid.has(t.index)).length
+}
+
 export function normalizeSide(
   side: ReconSide,
   file: ParsedFile,
@@ -107,5 +114,6 @@ export function normalizeSide(
     const reference = mapping.reference === null ? '' : row[mapping.reference].trim()
     transactions.push({ side, index, day: date.day, amount: amount.amount, reference: reference === '' ? null : reference })
   })
-  return { transactions, problems, zero }
+  const units = mapping.batch === null ? transactions : batchUnits(side, file.rows, mapping.batch, transactions, problems)
+  return { transactions, problems, zero, units }
 }

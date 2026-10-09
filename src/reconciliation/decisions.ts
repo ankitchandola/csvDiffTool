@@ -1,3 +1,4 @@
+import { allCarried, mixedDirections } from './groups'
 import { booksWindow, referencesAgree } from './match'
 import type { Direction, MatchingRules, ReconSide, Transaction } from './types'
 
@@ -24,6 +25,51 @@ export function parseTxnKey(key: TxnKey): { side: ReconSide; fingerprint: string
     return null
   }
   return { side, fingerprint, recordNumber }
+}
+
+// What one side of a match holds: a transaction, or a group of transactions on that side.
+// A group's key lists its members, so its identity is exactly its members: segments
+// "side|fingerprint|record+record" joined by "&", one per file, in canonical order. A
+// single transaction's unit key is its transaction key.
+export function unitKey(members: TxnKey[]): TxnKey {
+  const parsed = members.map(parseTxnKey)
+  const side = parsed[0]?.side
+  if (!side || parsed.some((p) => p?.side !== side)) throw new Error('A group holds transactions from one side only')
+  const records = new Map<string, number[]>()
+  for (const p of parsed as NonNullable<(typeof parsed)[number]>[]) {
+    const list = records.get(p.fingerprint)
+    if (list) list.push(p.recordNumber)
+    else records.set(p.fingerprint, [p.recordNumber])
+  }
+  return [...records.keys()]
+    .sort()
+    .map((fingerprint) => {
+      const numbers = (records.get(fingerprint) as number[]).sort((a, b) => a - b)
+      if (numbers.some((n, i) => n === numbers[i - 1])) throw new Error('A transaction appears in the group twice')
+      return `${side}|${fingerprint}|${numbers.join('+')}`
+    })
+    .join('&')
+}
+
+// The unit's side and member keys, or null for a key that isn't a unit key in canonical form.
+export function parseUnitKey(key: TxnKey): { side: ReconSide; members: TxnKey[] } | null {
+  if (!key.includes('&') && !key.includes('+')) {
+    const single = parseTxnKey(key)
+    return single && { side: single.side, members: [key] }
+  }
+  const members: TxnKey[] = []
+  for (const segment of key.split('&')) {
+    const [side, fingerprint, records, extra] = segment.split('|')
+    if (extra !== undefined || records === undefined) return null
+    for (const record of records.split('+')) members.push(`${side}|${fingerprint}|${record}`)
+  }
+  if (members.some((m) => parseTxnKey(m) === null)) return null
+  try {
+    if (unitKey(members) !== key) return null
+  } catch {
+    return null
+  }
+  return { side: (parseTxnKey(members[0]) as { side: ReconSide }).side, members }
 }
 
 export type PairAction = 'confirm' | 'reject' | 'restore' | 'unmatch'
@@ -91,11 +137,15 @@ export type DecisionEvent = PairEvent | ClassifyEvent | CompleteEvent
 // kind keeps its own fields.
 export type NewDecision = DecisionEvent extends infer E ? (E extends DecisionEvent ? Omit<E, 'seq' | 'at'> : never) : never
 
-// The transactions an event is about.
+// The transactions an event is about, with each group's members listed.
 export function eventKeys(event: DecisionEvent): TxnKey[] {
   if (event.action === 'complete') return []
-  if (event.action === 'classify') return [event.key]
-  return [event.bank, event.books]
+  const units = event.action === 'classify' ? [event.key] : [event.bank, event.books]
+  return units.flatMap((key) => parseUnitKey(key)?.members ?? [key])
+}
+
+function membersOf(key: TxnKey): TxnKey[] {
+  return parseUnitKey(key)?.members ?? [key]
 }
 
 export function isPairEvent(event: DecisionEvent): event is PairEvent {
@@ -108,8 +158,9 @@ export function edgeKey(bank: TxnKey, books: TxnKey): string {
 
 // What the history means now: active matches and rejected pairs.
 export interface DecisionState {
-  bankMatch: Map<TxnKey, TxnKey>
-  booksMatch: Map<TxnKey, TxnKey>
+  // The active confirm each transaction is in, by member key on each side.
+  bankMatch: Map<TxnKey, PairEvent>
+  booksMatch: Map<TxnKey, PairEvent>
   // Confirm event of each active match, by edge.
   active: Map<string, PairEvent>
   rejected: Map<string, PairEvent>
@@ -138,12 +189,22 @@ export function copyState(state: DecisionState): DecisionState {
 
 export type Verdict = { ok: true } | { ok: false; reason: string }
 
+// The active confirm a unit's transactions are in, if any.
+export function activeMatch(state: DecisionState, side: ReconSide, key: TxnKey): PairEvent | undefined {
+  const matched = side === 'bank' ? state.bankMatch : state.booksMatch
+  for (const member of membersOf(key)) {
+    const event = matched.get(member)
+    if (event) return event
+  }
+  return undefined
+}
+
 // Rules that hold whatever the data: one active match per transaction, and a pair is
 // active, rejected or neither.
 export function structuralCheck(state: DecisionState, event: Pick<PairEvent, 'action' | 'bank' | 'books'> | NewDecision): Verdict {
   if (event.action === 'complete') return { ok: true }
   if (event.action === 'classify') {
-    if (state.bankMatch.has(event.key) || state.booksMatch.has(event.key)) return { ok: false, reason: 'A transaction in a confirmed match is not classified' }
+    if (activeMatch(state, 'bank', event.key) || activeMatch(state, 'books', event.key)) return { ok: false, reason: 'A transaction in a confirmed match is not classified' }
     if (event.classification === null && !state.classifications.has(event.key)) return { ok: false, reason: 'This transaction is not classified' }
     return { ok: true }
   }
@@ -151,8 +212,8 @@ export function structuralCheck(state: DecisionState, event: Pick<PairEvent, 'ac
   switch (event.action) {
     case 'confirm':
       if (state.rejected.has(edge)) return { ok: false, reason: 'This pair was rejected; restore it before confirming' }
-      if (state.bankMatch.has(event.bank)) return { ok: false, reason: 'The bank transaction is already in a confirmed match' }
-      if (state.booksMatch.has(event.books)) return { ok: false, reason: 'The books transaction is already in a confirmed match' }
+      if (activeMatch(state, 'bank', event.bank)) return { ok: false, reason: 'The bank transaction is already in a confirmed match' }
+      if (activeMatch(state, 'books', event.books)) return { ok: false, reason: 'The books transaction is already in a confirmed match' }
       return { ok: true }
     case 'reject':
       if (state.active.has(edge)) return { ok: false, reason: 'This pair is confirmed; unmatch it before rejecting' }
@@ -179,13 +240,13 @@ export function applyToState(state: DecisionState, event: DecisionEvent): void {
   const edge = edgeKey(event.bank, event.books)
   switch (event.action) {
     case 'confirm':
-      state.bankMatch.set(event.bank, event.books)
-      state.booksMatch.set(event.books, event.bank)
+      for (const member of membersOf(event.bank)) state.bankMatch.set(member, event)
+      for (const member of membersOf(event.books)) state.booksMatch.set(member, event)
       state.active.set(edge, event)
       return
     case 'unmatch':
-      state.bankMatch.delete(event.bank)
-      state.booksMatch.delete(event.books)
+      for (const member of membersOf(event.bank)) state.bankMatch.delete(member)
+      for (const member of membersOf(event.books)) state.booksMatch.delete(member)
       state.active.delete(edge)
       return
     case 'reject':
@@ -204,14 +265,27 @@ export interface PairCheck {
   exceptions: RuleException[]
 }
 
-// Hard and soft rules for one pair of valid transactions, under the current rules.
+function blocked(reason: string): PairCheck {
+  return { blocked: reason, exceptions: [] }
+}
+
+// Hard and soft rules for one pair of valid units, under the current rules. A group the
+// reviewer chose has no batch, and pairs only with a single transaction.
 export function checkPair(bank: Transaction | undefined, books: Transaction | undefined, rules: MatchingRules): PairCheck {
-  if (!bank) return { blocked: 'The bank transaction is not a valid, nonzero transaction in the current files', exceptions: [] }
-  if (!books) return { blocked: 'The books transaction is not a valid, nonzero transaction in the current files', exceptions: [] }
-  if (bank.amount.units > 0n !== books.amount.units > 0n) return { blocked: 'Money in cannot pair with money out', exceptions: [] }
-  if (bank.opening && books.opening) {
-    return { blocked: 'Two carried items can’t clear each other; a carried item clears against a transaction from this period', exceptions: [] }
+  if (!bank) return blocked('The bank transaction is not a valid, nonzero transaction in the current files')
+  if (!books) return blocked('The books transaction is not a valid, nonzero transaction in the current files')
+  for (const unit of [bank, books]) {
+    if (unit.members && mixedDirections(unit.members)) return blocked('A group’s transactions must all be money in or all money out')
   }
+  if (bank.members && books.members && (bank.batch === undefined || books.batch === undefined)) {
+    return blocked('Only one side of a match can hold several transactions')
+  }
+  if (bank.amount.units > 0n !== books.amount.units > 0n) return blocked('Money in cannot pair with money out')
+  if (allCarried(bank) && allCarried(books)) {
+    return blocked('Two carried items can’t clear each other; a carried item clears against a transaction from this period')
+  }
+  const grouped = bank.members !== undefined || books.members !== undefined
+  if (grouped && bank.amount.units !== books.amount.units) return blocked('A group’s total must equal the other side exactly')
   const exceptions: RuleException[] = []
   if (bank.amount.units !== books.amount.units) exceptions.push('amount')
   const { earliest, latest } = booksWindow(bank.day, rules)
@@ -232,11 +306,13 @@ export interface LapsedDecision {
 }
 
 export interface ReplayData {
-  // A valid, nonzero transaction for the key in the current files, if any.
+  // A valid, nonzero transaction or batch for the key in the current files, if any.
   transaction: (key: TxnKey) => Transaction | undefined
+  // As transaction, and also a group of current transactions the reviewer chose.
+  unit: (key: TxnKey) => Transaction | undefined
   // Whether the pair is a current suggestion (so it meets every rule).
   isCandidate: (bank: TxnKey, books: TxnKey) => boolean
-  // Whether the key's file is loaded with the same fingerprint.
+  // Whether every file the key's transactions come from is loaded with the same fingerprint.
   sourcePresent: (key: TxnKey) => boolean
   rules: MatchingRules
 }
@@ -254,7 +330,7 @@ export function checkDecision(state: DecisionState, event: NewDecision, data: Re
     return { ok: true }
   }
   if (event.action !== 'confirm') return { ok: true }
-  const pair = checkPair(data.transaction(event.bank), data.transaction(event.books), data.rules)
+  const pair = checkPair(data.unit(event.bank), data.unit(event.books), data.rules)
   if (pair.blocked) return { ok: false, reason: pair.blocked }
   if (event.origin === 'suggested' || event.origin === 'set') {
     return data.isCandidate(event.bank, event.books) ? { ok: true } : { ok: false, reason: 'This pair is no longer suggested under the current rules' }

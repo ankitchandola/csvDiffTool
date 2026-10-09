@@ -1,14 +1,14 @@
 import { type Decimal, formatDecimal, parseDecimal, subtractDecimal, toScale } from '../../engine/decimal'
 import { type BalanceBasis, cashBalance, checkRunningBalance, computeBridge, readBalance, type RunningBalanceCheck, runningText, sum } from '../../reconciliation/accounting'
 import { buildOutstandingFile, type OutstandingSource } from '../../reconciliation/carryforward'
-import { applyToState, type DecisionEvent, parseTxnKey } from '../../reconciliation/decisions'
+import { applyToState, type DecisionEvent, parseUnitKey } from '../../reconciliation/decisions'
 import { SIDE_LABELS } from '../../reconciliation/location'
 import { invalidRowCount } from '../../reconciliation/normalize'
 import { type AccountingSetup } from '../../reconciliation/session'
 import { computeStatuses, type ReviewFacts } from '../../reconciliation/statuses'
 import { RECON_SIDES, type ReconSide, type Transaction } from '../../reconciliation/types'
 import { type AccountingReport, type ReconRequests, type ReconResults } from '../reconcile-protocol'
-import { currentReview, expectNextSeq, descriptionOf, type Normalized, openingItem, positions, resolve, type ReviewState, type Run, type Source, type Workspace } from './workspace'
+import { currentReview, expectNextSeq, descriptionOf, type Normalized, openingItem, positions, resolveUnit, type ReviewState, type Run, type Source, type Workspace } from './workspace'
 
 // Balances, the bridge, statuses, completion and the outstanding-items export.
 
@@ -89,7 +89,7 @@ export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewS
   const invalid = (side: ReconSide) => invalidRowCount(data.sides[side])
   const movement = { bank: fixed.bank.current, books: fixed.books.current }
   const confirmed = [...state.replay.state.active.values()]
-  const differences = confirmed.map((event) => subtractDecimal((resolve(ws, event.bank) as Transaction).amount, (resolve(ws, event.books) as Transaction).amount))
+  const differences = confirmed.map((event) => subtractDecimal((resolveUnit(ws, event.bank) as Transaction).amount, (resolveUnit(ws, event.books) as Transaction).amount))
   const bridge = computeBridge({
     sides: {
       bank: { balances: balances.bank, movement: movement.bank, invalidRows: invalid('bank') },
@@ -106,7 +106,7 @@ export function report(ws: Workspace, run: Run, data: Normalized, state: ReviewS
   const where = positions(ws, data)
   let classifiedOpen = 0
   for (const key of classifications.keys()) {
-    const parsed = parseTxnKey(key)
+    const parsed = parseUnitKey(key)
     if (!parsed) continue
     const p = where[parsed.side].get(key)
     if (p !== undefined && !state.used[parsed.side][p]) classifiedOpen++

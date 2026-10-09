@@ -1,27 +1,30 @@
 import { type Decimal, formatDecimal, subtractDecimal } from '../../engine/decimal'
 import { type RunningBalanceCheck, runningText } from '../../reconciliation/accounting'
 import { placeLabel } from '../../reconciliation/location'
-import { invalidRowCount } from '../../reconciliation/normalize'
+import { invalidRowCount, validRowCount } from '../../reconciliation/normalize'
 import { type ReconciliationReport, REPORT_FORMAT, REPORT_VERSION, reportJson, type ReportMatch, type ReportOutstanding, type ReportProblem, reportTables, type ReportTransaction } from '../../reconciliation/report'
 import { RECON_SIDES, type ReconSide, type SideMapping, type Transaction } from '../../reconciliation/types'
 import { type ReconRequests, type ReconResults } from '../reconcile-protocol'
 import { report } from './accounting'
-import { currentReview, evidence, keyOf, problemRows, resolve, type Source, view, type Workspace } from './workspace'
+import { currentReview, evidence, keyOf, problemRows, resolveUnit, type Source, view, type Workspace } from './workspace'
 
 // The reconciliation report, as JSON or an Excel workbook.
 
 export function reportTransaction(ws: Workspace, t: Transaction, mapping: SideMapping): ReportTransaction {
   const v = view(ws, t, mapping)
+  const place = placeLabel(v, (ws.sources[v.side] as Source).file.format.kind)
+  const members = t.members?.map((m) => reportTransaction(ws, m, mapping))
   return {
     key: v.key,
     side: v.side,
-    location: placeLabel(v, (ws.sources[v.side] as Source).file.format.kind),
+    location: members ? `${place} and ${members.length - 1} more` : place,
     date: v.date,
     amount: v.amount,
     direction: v.direction,
     reference: v.reference,
     description: v.original.description,
     carried: v.carried ?? null,
+    ...(members && { members }),
   }
 }
 
@@ -32,8 +35,8 @@ export function buildReport(ws: Workspace, { matchId, setup, basis, session, gen
   const matches: ReportMatch[] = [...state.replay.state.active.values()]
     .sort((a, b) => a.seq - b.seq)
     .map((event) => {
-      const bank = resolve(ws, event.bank) as Transaction
-      const books = resolve(ws, event.books) as Transaction
+      const bank = resolveUnit(ws, event.bank) as Transaction
+      const books = resolveUnit(ws, event.books) as Transaction
       const { tier, gap } = evidence(bank, books, run.rules)
       return {
         decision: event.seq,
@@ -72,10 +75,10 @@ export function buildReport(ws: Workspace, { matchId, setup, basis, session, gen
   const { bridge, statuses, balances } = accountingReport
   const counts = (side: ReconSide) => ({
     rows: (ws.sources[side] as Source).file.rows.length,
-    valid: data.sides[side].transactions.length,
+    valid: validRowCount(data.sides[side]),
     invalid: invalidRowCount(data.sides[side]),
     zero: data.sides[side].zero.length,
-    opening: data.pool[side].length - data.sides[side].transactions.length,
+    opening: data.pool[side].filter((t) => t.opening).length,
   })
   return {
     format: REPORT_FORMAT,

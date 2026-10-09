@@ -23,6 +23,7 @@ const signedMapping: SideMapping = {
   description: null,
   balance: null,
   balanceMarks: 'none',
+  batch: null,
 }
 
 const splitMapping: SideMapping = {
