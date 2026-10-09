@@ -1,8 +1,9 @@
 import { expect, type Page, test } from '@playwright/test'
-import { BANK, BOOKS, choose, loadAndMap, setUpMonth } from './reconcile-helpers'
+import { BANK, BOOKS, choose, loadAndMap, setUpMonth, typeDate } from './reconcile-helpers'
 
 // Milestone 3 durability: storage failures, a browser without IndexedDB, a corrupted
 // saved session, and two tabs saving at the same moment.
+
 
 async function findSuggestions(page: Page) {
   await page.getByRole('button', { name: 'Find suggestions' }).click()
@@ -54,7 +55,8 @@ test('a full browser storage reports the failure and a backup still protects the
 
 // Chrome's own quota, shrunk through the DevTools protocol: the write fails the way a full
 // disk does, as an aborted transaction rather than a throwing put().
-test('a real quota failure is reported, and saving resumes once there is room', async ({ page }) => {
+test('a real quota failure is reported, and saving resumes once there is room', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'The quota is shrunk through the Chrome DevTools protocol')
   const cdp = await page.context().newCDPSession(page)
   const origin = 'http://127.0.0.1:4175'
   await loadAndMap(page)
@@ -231,12 +233,13 @@ test('after a cancel, carried items are sent to the worker again and their decis
 test.describe('period dates', () => {
   test.use({ locale: 'en-IN' })
 
-  test('can be typed into the date fields, day first, and stay after leaving the step', async ({ page }) => {
+  test('can be typed into the date fields in the browser’s order, and stay after leaving the step', async ({ page }) => {
     await loadAndMap(page)
-    await page.getByLabel('Period start').focus()
-    await page.keyboard.type('01092026')
-    await page.getByLabel('Period end').focus()
-    await page.keyboard.type('30092026')
+    await typeDate(page, 'Period start', '2026-09-01')
+    await typeDate(page, 'Period end', '2026-08-31')
+    await expect(page.getByText('The period ends before it starts.')).toBeVisible()
+    await page.getByLabel('Period end').fill('')
+    await typeDate(page, 'Period end', '2026-09-30')
     await expect(page.getByLabel('Period start')).toHaveValue('2026-09-01')
     await expect(page.getByLabel('Period end')).toHaveValue('2026-09-30')
     await page.getByRole('button', { name: 'Back to files' }).click()

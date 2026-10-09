@@ -97,3 +97,28 @@ export async function classifyAll(page: Page) {
     await expect(row.locator('.chip')).toBeVisible()
   }
 }
+
+// Date fields take their order from the browser, not the page: Chrome on macOS follows the
+// system region, Firefox and WebKit their own language. Find the order on a scratch field,
+// then type the date the way a person using this browser would. Safari needs the separators.
+export async function typeDate(page: Page, label: string, iso: string) {
+  const dayFirst = await page.evaluate(async () => {
+    const probe = document.createElement('input')
+    probe.type = 'date'
+    document.body.append(probe)
+    probe.focus()
+    return probe
+  }).then(async () => {
+    await page.keyboard.type('01/02/2026')
+    return page.evaluate(() => {
+      const probe = document.querySelector<HTMLInputElement>('body > input[type="date"]:last-child') as HTMLInputElement
+      const value = probe.value
+      probe.remove()
+      return value === '2026-02-01'
+    })
+  })
+  const [year, month, day] = iso.split('-')
+  await page.getByLabel(label).focus()
+  await page.keyboard.type(dayFirst ? `${day}/${month}/${year}` : `${month}/${day}/${year}`)
+  await expect(page.getByLabel(label)).toHaveValue(iso)
+}
