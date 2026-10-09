@@ -150,7 +150,7 @@ test('saving in this browser survives a reload and refuses a stale tab', async (
   const saved = Number((await page.locator('.save-status').textContent())?.match(/Revision (\d+)/)?.[1])
 
   const other = await context.newPage()
-  await other.goto('/')
+  await other.goto('./')
   await other.getByRole('button', { name: /Reconcile/ }).click()
   await other.getByRole('button', { name: 'Resume it' }).click()
   await expect(other.getByText(`Loaded a session at revision ${saved} with 1 decision.`)).toBeVisible()
@@ -200,7 +200,7 @@ const SET_BANK = ['Date,Details,Credit,Debit,Ref', '05/09/2026,NETFLIX,,9.99,', 
 const SET_BOOKS = ['date,memo,amount,ref', '2026-09-05,Netflix,-9.99,', '2026-09-05,Netflix,-9.99,', '2026-09-06,Rent,-50,', '2026-09-06,Other rent,-50,'].join('\n')
 
 async function mapSetFiles(page: Page) {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(SET_BANK) })
   await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(SET_BOOKS) })

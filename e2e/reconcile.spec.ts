@@ -49,7 +49,7 @@ test('references are compared only while both sides map a reference column', asy
 })
 
 test('switching modes keeps each mode’s files', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByLabel('Choose old file').setInputFiles({ name: 'baseline.csv', mimeType: 'text/csv', buffer: Buffer.from('id,v\n1,a\n') })
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(BOOKS) })
@@ -80,7 +80,7 @@ test.describe('cancel', () => {
   test.describe.configure({ mode: 'serial', timeout: 90_000 })
 
   test('while reading stops the work and asks for the file again', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('./')
     await page.getByRole('button', { name: /Reconcile/ }).click()
     const bank = page.locator('section.file-panel', { hasText: 'Bank statement' })
     await bank.getByLabel('Header is record').fill('3')
@@ -96,7 +96,7 @@ test.describe('cancel', () => {
   })
 
   test('also asks again for a file whose problems were in the cancelled worker', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('./')
     await page.getByRole('button', { name: /Reconcile/ }).click()
     const books = page.locator('section.file-panel', { hasText: 'Your ledger' })
     await books.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from('date,amount\n1,2,3\n') })
@@ -113,7 +113,7 @@ test.describe('cancel', () => {
   })
 
   test('keeps the chosen worksheet when a cancelled file is read again with new settings', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('./')
     await page.getByRole('button', { name: /Reconcile/ }).click()
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['date', 'amount'], ['2026-09-01', 1]]), 'First')

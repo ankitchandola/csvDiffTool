@@ -58,8 +58,8 @@ test('a full browser storage reports the failure and a backup still protects the
 test('a real quota failure is reported, and saving resumes once there is room', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'The quota is shrunk through the Chrome DevTools protocol')
   const cdp = await page.context().newCDPSession(page)
-  const origin = 'http://127.0.0.1:4175'
   await loadAndMap(page)
+  const origin = new URL(page.url()).origin
   await findSuggestions(page)
   await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1 })
   await confirmPair(page, 'Salary in')
@@ -121,7 +121,7 @@ test('two tabs saving at the same moment: one saves, the other is refused and ca
   await expect(page.locator('.save-status')).toContainText('Saved in this browser')
 
   const other = await context.newPage()
-  await other.goto('/')
+  await other.goto('./')
   await other.getByRole('button', { name: /Reconcile/ }).click()
   await other.getByRole('button', { name: 'Resume it' }).click()
   await expect(other.getByText(/Loaded a session at revision \d+ with 1 decision\./)).toBeVisible()

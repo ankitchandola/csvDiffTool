@@ -24,7 +24,7 @@ export async function choose(page: Page, label: string, option: string) {
 }
 
 export async function loadAndMap(page: Page, booksFile: string | Buffer = BOOKS) {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await expect(page.getByRole('heading', { name: 'Reconcile a bank statement' })).toBeVisible()
   await expect(page.locator('.experimental-note')).toContainText('You confirm every match')
@@ -61,7 +61,7 @@ export async function loadAndMap(page: Page, booksFile: string | Buffer = BOOKS)
 // Both files with date, amount, ref and memo columns, references shared, a 40-day window,
 // and the period and balances entered.
 export async function setUpMonth(page: Page, files: { bank: string; books: string }, period: [string, string], balances: [string, string, string, string]) {
-  await page.goto('/')
+  await page.goto('./')
   await page.getByRole('button', { name: /Reconcile/ }).click()
   await page.getByLabel('Choose bank statement').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from(files.bank) })
   await page.getByLabel('Choose books').setInputFiles({ name: 'books.csv', mimeType: 'text/csv', buffer: Buffer.from(files.books) })
