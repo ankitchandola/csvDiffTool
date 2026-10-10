@@ -1,3 +1,4 @@
+import { type ReactNode, useState } from 'react'
 import type { Layout, ParseIssue } from '../../engine/parse'
 import { RECON_SIDES, type ReconSide } from '../../reconciliation/types'
 import type { SourceInfo } from '../../worker/reconcile-protocol'
@@ -57,14 +58,7 @@ export function SourceFiles({
               }}
               fetchIssues={(offset, limit) => fetchIssues(side, offset, limit)}
             >
-              <details className="optional-fields layout-details" open={state.status === 'invalid' ? true : undefined}>
-                <summary>
-                  Statement layout
-                  <span className="muted">
-                    {' '}
-                    · header on record {draft.layout.headerRecord}, skip {draft.layout.skipLeading} below it and {draft.layout.skipTrailing} at the end
-                  </span>
-                </summary>
+              <LayoutDetails invalid={state.status === 'invalid'} layout={draft.layout}>
               <div className="layout-fields">
                 <NumberField
                   label="Header is record"
@@ -100,12 +94,35 @@ export function SourceFiles({
                 </div>
               </div>
               <p className="note">Records are counted without blank lines. Use these when account details sit above the table, an opening-balance line sits right below the header, or totals sit below it.</p>
-              </details>
+              </LayoutDetails>
               {state.status === 'ready' && <SkippedRecords info={state.info} />}
             </FilePanel>
           )
         })}
       </div>
     </section>
+  )
+}
+
+// Opens when a file fails to read, since the layout is the usual fix, and then stays as the
+// person leaves it: re-reading the file after each change must not fold it mid-edit.
+function LayoutDetails({ invalid, layout, children }: { invalid: boolean; layout: Layout; children: ReactNode }) {
+  const [open, setOpen] = useState(invalid)
+  const [wasInvalid, setWasInvalid] = useState(invalid)
+  if (invalid !== wasInvalid) {
+    setWasInvalid(invalid)
+    if (invalid) setOpen(true)
+  }
+  return (
+    <details className="optional-fields layout-details" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        Statement layout
+        <span className="muted">
+          {' '}
+          · header on record {layout.headerRecord}, skip {layout.skipLeading} below it and {layout.skipTrailing} at the end
+        </span>
+      </summary>
+      {children}
+    </details>
   )
 }
