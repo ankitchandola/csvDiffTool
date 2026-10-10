@@ -1,7 +1,8 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type Page } from '@playwright/test'
+import { expect, test } from './reconcile-test'
 import * as XLSX from 'xlsx'
 import type { OutstandingFile } from '../src/reconciliation/carryforward'
-import { choose, classifyAll, setUpMonth as setUp } from './reconcile-helpers'
+import { choose, classifyAll, openAccounting, setUpMonth as setUp } from './reconcile-helpers'
 
 const BANK_SEP = 'date,amount,ref,memo\n11/09/2026,300.00,,Receipt\n'
 const BOOKS_SEP = 'date,amount,ref,memo\n2026-09-10,300.00,,Receipt\n2026-09-15,-50.00,CHQ102,Cheque 102 issued\n2026-09-29,-200.00,CHQ101,Cheque 101 issued\n'
@@ -62,6 +63,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   await classifyAll(page)
   await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
   await expect(panel).toContainText('Reconciliation completed: yes')
+  await openAccounting(page)
   const download = page.waitForEvent('download')
   await panel.getByRole('button', { name: 'Export outstanding items' }).click()
   const september = await (await download).createReadStream()
@@ -75,7 +77,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   await choose(page, 'Bank statement running balance column', 'balance')
   await page.getByLabel('Import outstanding items file').setInputFiles({ name: 'outstanding-2026-09-30.json', mimeType: 'application/json', buffer: Buffer.from(outstanding) })
   await expect(page.locator('.opening-files')).toContainText('2026-09-01 to 2026-09-30 · 2 outstanding items')
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByText(/Opening items: 0 bank items and 2 books items carried/)).toBeVisible()
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   for (const cheque of ['Cheque 101', 'Cheque 102']) {
@@ -87,6 +89,7 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   await expect(panel).toContainText('Bank running balance: consistent with every record')
   await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
   await expect(panel).toContainText('Reconciliation completed: yes')
+  await openAccounting(page)
   const next = page.waitForEvent('download')
   await panel.getByRole('button', { name: 'Export outstanding items' }).click()
   const october = await (await next).createReadStream()
@@ -96,10 +99,12 @@ test('September’s outstanding cheques carry into October, clear there, and onl
   expect(carried.items.map((i: { description: string }) => i.description)).toEqual(['Bank charge', 'Receipt'])
   expect(carried.cleared).toHaveLength(2)
 
+  await openAccounting(page)
   const report = JSON.parse((await downloaded(page, () => panel.getByRole('button', { name: 'Report (JSON)' }).click())).toString())
   expect(report.statuses.completed).toEqual({ earned: true, reasons: [] })
   expect(report.matches).toHaveLength(2)
   expect(report.running.bank).toBe('consistent with every record')
+  await openAccounting(page)
   const workbook = XLSX.read(await downloaded(page, () => panel.getByRole('button', { name: 'Report (Excel)' }).click()))
   expect(workbook.SheetNames).toEqual(['Summary', 'Matches', 'Outstanding', 'Group members', 'Problems', 'Decisions'])
   expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets.Summary, { header: 1 })).toContainEqual(['Reconciliation completed', 'Yes'])
@@ -109,7 +114,7 @@ test('an outstanding-items file from the same period is refused at the mapping c
   await setUp(page, { bank: BANK_SEP, books: BOOKS_SEP }, ['2026-09-01', '2026-09-30'], ['1000.00', '1300.00', '1000.00', '1050.00'])
   const file = JSON.stringify({ format: 'reconciliation-outstanding', version: 1, exportedAt: '2026-10-01T00:00:00Z', sessionId: 's', account: '', currency: 'INR', minorUnits: 2, period: { start: '2026-09-01', end: '2026-09-30' }, items: [], cleared: [] })
   await page.getByLabel('Import outstanding items file').setInputFiles({ name: 'same.json', mimeType: 'application/json', buffer: Buffer.from(file) })
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByRole('alert')).toContainText("same.json: The file's period ends 2026-09-30, not before this session's period starts (2026-09-01)")
 })
 
@@ -118,7 +123,7 @@ test('loading a backup without opening items drops the ones imported before', as
   const october = { bank: 'date,amount,ref,memo\n02/10/2026,-200.00,CHQ101,Cheque 101 cleared\n', books: 'date,amount,ref,memo\n2026-10-30,500.00,,Receipt\n' }
   await setUp(page, october, ['2026-10-01', '2026-10-31'], ['1300.00', '1100.00', '1050.00', '1550.00'])
   await page.getByRole('button', { name: 'Find suggestions' }).click()
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toBeVisible()
   const backup = (await downloaded(page, () => page.getByRole('button', { name: 'Export session backup' }).click())).toString()
   expect(JSON.parse(backup).opening).toEqual([])
 
@@ -138,7 +143,7 @@ test('loading a backup without opening items drops the ones imported before', as
   await page.getByRole('button', { name: 'Map dates and amounts' }).click()
   await expect(page.locator('.opening-files')).toHaveCount(0)
   await page.getByRole('button', { name: 'Find suggestions' }).click()
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toBeVisible()
   await page.getByRole('tab', { name: /^Unmatched/ }).click()
   await expect(page.locator('.review-row').first()).toBeVisible()
   await expect(page.getByText(/Carried ·/)).toHaveCount(0)
@@ -151,7 +156,7 @@ test('a repeated carried row in an overlapping source export warns and blocks co
     books,
   }, ['2026-10-01', '2026-10-31'], ['1300.00', '1100.00', '1100.00', '1600.00'])
   await importOutstanding(page, 'sep.json', septemberOutstanding())
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check).toContainText('an overlapping export')
   await expect(check).toContainText("may repeat record 1 of this period's books file")
@@ -159,6 +164,7 @@ test('a repeated carried row in an overlapping source export warns and blocks co
   const panel = page.getByRole('region', { name: 'Reconciliation status' })
   await expect(panel).toContainText('Books: opening plus movements does not equal the closing balance')
   await expect(panel.getByRole('button', { name: 'Mark reconciliation complete' })).toBeDisabled()
+  await openAccounting(page)
   const report = JSON.parse((await downloaded(page, () => panel.getByRole('button', { name: 'Report (JSON)' }).click())).toString())
   expect(report.counts.books).toMatchObject({ rows: 2, opening: 1 })
   expect(report.outstanding.filter((o: { transaction: { side: string } }) => o.transaction.side === 'books')).toHaveLength(3)
@@ -172,9 +178,9 @@ test('two carry exports containing the same lineage are refused until the duplic
   await importOutstanding(page, 'sep-b.json', file)
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   await expect(page.getByRole('alert')).toContainText(`${file.items[0].lineage} is already imported into this session`)
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toHaveCount(0)
   await page.locator('.opening-files li', { hasText: 'sep-b.json' }).getByRole('button', { name: 'Remove' }).click()
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByRole('region', { name: 'Mapping check' })).toContainText('1 books item carried')
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
@@ -192,6 +198,7 @@ test('clearances survive re-export and stale outstanding items are refused in ei
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   await page.locator('.review-row', { hasText: 'Cheque 101 cleared' }).getByRole('button', { name: 'Confirm' }).click()
   const panel = page.getByRole('region', { name: 'Reconciliation status' })
+  await openAccounting(page)
   const next: OutstandingFile = JSON.parse((await downloaded(page, () => panel.getByRole('button', { name: 'Export outstanding items' }).click())).toString())
   expect(next.cleared.sort()).toEqual([previous.items[0].lineage, inherited].sort())
   expect(next.items.map((item) => item.description)).toEqual(['Receipt'])
@@ -204,9 +211,9 @@ test('clearances survive re-export and stale outstanding items are refused in ei
   await importOutstanding(page, 'stale-sep.json', previous)
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   await expect(page.getByRole('alert')).toContainText(`${previous.items[0].lineage} was already cleared`)
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toHaveCount(0)
   await page.locator('.opening-files li', { hasText: 'stale-sep.json' }).getByRole('button', { name: 'Remove' }).click()
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   await expect(page.getByRole('region', { name: 'Mapping check' })).toContainText('1 books item carried')
   await expect(page.getByRole('alert')).toHaveCount(0)
 
@@ -215,7 +222,7 @@ test('clearances survive re-export and stale outstanding items are refused in ei
   await importOutstanding(page, 'oct.json', next)
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   await expect(page.getByRole('alert')).toContainText(`${previous.items[0].lineage} was cleared, but it is imported here as outstanding`)
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toHaveCount(0)
 })
 
 for (const running of ['consistent', 'broken', 'unreadable'] as const) {
@@ -247,6 +254,7 @@ for (const running of ['consistent', 'broken', 'unreadable'] as const) {
         : "can't be checked past record 1")
       await expect(complete).toBeDisabled()
     }
+    await openAccounting(page)
     const report = JSON.parse((await downloaded(page, () => panel.getByRole('button', { name: 'Report (JSON)' }).click())).toString())
     expect(report.balances.cash).toEqual({
       bank: { opening: '-1000.00', closing: '-1015.00' },

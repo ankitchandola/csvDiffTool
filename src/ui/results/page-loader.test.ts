@@ -54,6 +54,24 @@ describe('createPageLoader', () => {
     expect(fetchPage).toHaveBeenCalledOnce()
   })
 
+  it('tries again after an error once invalidated', async () => {
+    let fail = true
+    const fetchPage = vi.fn(async () => {
+      if (fail) throw new Error('Worker busy')
+      return { total: 1, items: ['row'] }
+    })
+    const loader = createPageLoader(fetchPage, () => {})
+    loader.ensure(0, 0)
+    await settle()
+    expect(loader.error).toBe('Worker busy')
+    fail = false
+    loader.invalidate()
+    expect(loader.error).toBeNull()
+    loader.ensure(0, 0)
+    await settle()
+    expect(loader.get(0)).toBe('row')
+  })
+
   it('keeps at most MAX_CACHED_PAGES pages, dropping those farthest from view', async () => {
     const pageCount = MAX_CACHED_PAGES * 3
     const { fetchPage, calls } = source(pageCount * PAGE_SIZE)
@@ -73,5 +91,24 @@ describe('createPageLoader', () => {
     await settle()
     expect(calls).toEqual([0])
     expect(loader.get(0)).toBe(0)
+  })
+
+  it('keeps old rows readable while an invalidated page loads again', async () => {
+    let total = 3
+    let label = 'old'
+    const fetchPage = vi.fn(async () => ({ total, items: Array.from({ length: total }, (_, i) => `${label}${i}`) }))
+    const loader = createPageLoader(fetchPage, () => {})
+    loader.ensure(0, 2)
+    await settle()
+    total = 2
+    label = 'new'
+    loader.invalidate()
+    expect(loader.total).toBe(3)
+    expect(loader.get(0)).toBe('old0')
+    loader.ensure(0, 2)
+    await settle()
+    expect(loader.total).toBe(2)
+    expect(loader.get(0)).toBe('new0')
+    expect(loader.get(2)).toBeUndefined()
   })
 })

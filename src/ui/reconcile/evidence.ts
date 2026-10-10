@@ -30,3 +30,17 @@ export function competitionText(item: SuggestionItem): string {
 export function evidenceText(item: Evidence, rules: MatchingRules): string {
   return `Amount exact; ${dateEvidence(item.gap)}; ${referenceEvidence(item, rules)}.`
 }
+
+// What confirming a competing pair does to the others, in plain words.
+export function consequenceText(item: SuggestionItem): string | null {
+  if (item.unique) return null
+  return 'Confirming this pair removes the other suggestions that share either of its transactions.'
+}
+
+// A pair where one side is a batch or group: say which side holds how many records.
+export function relationText(item: Pick<SuggestionItem, 'bank' | 'books'>): string | null {
+  const bank = item.bank.group?.size ?? 1
+  const books = item.books.group?.size ?? 1
+  if (bank === 1 && books === 1) return null
+  return `${counted(bank, 'bank transaction')} ↔ ${counted(books, 'books transaction')}`
+}

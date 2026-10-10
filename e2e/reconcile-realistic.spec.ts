@@ -1,4 +1,5 @@
-import { expect, type Locator, type Page, test } from '@playwright/test'
+import { type Locator, type Page } from '@playwright/test'
+import { expect, test } from './reconcile-test'
 import path from 'node:path'
 import { choose, classifyAll } from './reconcile-helpers'
 
@@ -26,11 +27,12 @@ async function load(page: Page, side: 'bank statement' | 'books', file: string, 
 }
 
 async function confirmAllSuggestions(page: Page) {
+  const open = page.getByRole('tab', { name: /^Suggested/ }).locator('.tab-count')
   const confirm = page.locator('.review-row').getByRole('button', { name: 'Confirm', exact: true })
-  while ((await confirm.count()) > 0) {
-    const before = await confirm.count()
+  while (Number(await open.textContent()) > 0) {
+    const before = await open.textContent()
     await confirm.first().click()
-    await expect(confirm).not.toHaveCount(before)
+    await expect(open).not.toHaveText(before ?? '')
   }
   await expect(page.getByText('No open suggestions.')).toBeVisible()
 }
@@ -77,16 +79,16 @@ async function mapTallyLedger(page: Page, dateFormat: string) {
 }
 
 async function reconcileAcmeSeptember(page: Page) {
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check.getByText('13 records: 13 valid (6 money in, 7 money out) · 0 zero · 0 records with problems')).toBeVisible()
   await expect(check.getByText('15 records: 15 valid (6 money in, 9 money out) · 0 zero · 0 records with problems')).toBeVisible()
 
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   const metrics = page.locator('.metric-grid')
-  await expect(metrics.locator('.metric', { hasText: 'Candidate pairs found' })).toContainText('10')
-  await expect(metrics.locator('.metric', { hasText: 'Unique groups' })).toContainText('10')
-  await expect(metrics.locator('.metric', { hasText: 'Without a candidate' })).toContainText('8')
+  await expect(metrics.locator('.metric', { hasText: 'candidate pairs' })).toContainText('10')
+  await expect(metrics.locator('.metric', { hasText: 'competing sets' })).toContainText('0')
+  await expect(metrics.locator('.metric', { hasText: 'no candidate' })).toContainText('8')
   await confirmAllSuggestions(page)
 
   const panel = page.getByRole('region', { name: 'Reconciliation status' })
@@ -100,13 +102,15 @@ async function reconcileAcmeSeptember(page: Page) {
   for (let i = 0; i < 4; i++) await salaryRows.nth(i).getByRole('button', { name: 'Select for pair' }).click()
   const manual = page.getByRole('region', { name: 'Manual pair' })
   await expect(manual.locator('.amount', { hasText: '-180000.00' })).toHaveCount(2)
-  await manual.getByText('Total of 3 records, dated by the latest').click()
+  await manual.getByText('Show 3 members').click()
   await expect(manual.locator('.group-members li')).toHaveText([/Salary - Anil Kumar/, /Salary - Priya Nair/, /Salary - Ravi Shetty/])
   await expect(manual).toContainText('This group meets the matching rules.')
   await manual.getByRole('button', { name: 'Confirm group' }).click()
   await expect(page.getByRole('tab', { name: /^Unmatched/ })).toContainText('4')
   await page.getByRole('tab', { name: /^Confirmed/ }).click()
+  await page.getByLabel('Search this tab').fill('SALARY')
   await expect(page.locator('.review-row', { hasText: 'Group of 3 transactions' })).toBeVisible()
+  await page.getByLabel('Search this tab').fill('')
   await page.getByRole('tab', { name: /^Unmatched/ }).click()
   await classifyAll(page)
   await panel.getByRole('button', { name: 'Mark reconciliation complete' }).click()
@@ -166,16 +170,15 @@ test('HDFC-style .xlsx statement against a Zoho-style books export', async ({ pa
   await page.getByLabel('Books opening balance').fill('1,00,000.00')
   await page.getByLabel('Books closing balance').fill('2,73,001.00')
 
-  await page.getByRole('button', { name: 'Check mapping' }).click()
+  await page.getByRole('button', { name: /^Check (mapping|again)$/ }).click()
   const check = page.getByRole('region', { name: 'Mapping check' })
   await expect(check.getByText('7 records: 7 valid (2 money in, 5 money out) · 0 zero · 0 records with problems')).toHaveCount(2)
   await expect(check.getByText('Bank record 1 · row 8')).toBeVisible()
 
   await page.getByRole('button', { name: 'Find suggestions' }).click()
   const metrics = page.locator('.metric-grid')
-  await expect(metrics.locator('.metric', { hasText: 'Candidate pairs found' })).toContainText('8')
-  await expect(metrics.locator('.metric', { hasText: /^\d+Groups$/ })).toContainText('5')
-  await expect(metrics.locator('.metric', { hasText: 'Unique groups' })).toContainText('4')
+  await expect(metrics.locator('.metric', { hasText: 'candidate pairs' })).toContainText('8')
+  await expect(metrics.locator('.metric', { hasText: 'competing sets' })).toContainText('1')
   // Two IMPS payments of the same amount on one day carry different reference numbers, so
   // they compete as an ordinary group rather than as a set to confirm together.
   await expect(page.getByText('2 bank transactions and 2 books transactions compete through 4 pairs; no unique pairing').first()).toBeVisible()

@@ -151,7 +151,8 @@ describe('grouped matching in the worker', () => {
 })
 
 describe('a large batch', () => {
-  it('matches 50,000 charges in one payout exactly, and keeps its key compact', async () => {
+  // About a second alone; the timeout leaves room for a busy machine, such as the browser suite running beside it.
+  it('matches 50,000 charges in one payout exactly, and keeps its key compact', { timeout: 20_000 }, async () => {
     const charges = Array.from({ length: 50_000 }, (_, i) => `2026-09-${String(1 + (i % 28)).padStart(2, '0')},Charge ${i},1.01,po_big`)
     const started = performance.now()
     const { call, matchId, page } = await matched({

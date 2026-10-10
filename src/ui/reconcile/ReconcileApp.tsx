@@ -18,9 +18,10 @@ import { AccountingFields } from './AccountingFields'
 import { ContextFields } from './ContextFields'
 import { OpeningPanel } from './OpeningPanel'
 import { StatusPanel } from './StatusPanel'
+import { guessMapping, needsGuess } from './guess-mapping'
 import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
 import { MappingCheck } from './MappingCheck'
-import { MappingForm } from './MappingForm'
+import { type Detected, MappingForm } from './MappingForm'
 import { MatchingFields } from './MatchingFields'
 import { type Formats, SOURCE_TITLES } from './location'
 import { ReviewView } from './ReviewView'
@@ -50,6 +51,9 @@ const PHASE_LABELS: Record<ReconPhase, string> = {
 
 type Outcome<T> = { inputs: string } & ({ status: 'pending' } | { status: 'done'; value: T } | { status: 'error'; message: string })
 
+// Larger files are checked only on request, so the worker isn't busy while someone is still mapping.
+const AUTO_CHECK_RECORDS = 20_000
+
 type SourceState = FileState<SourceInfo>
 
 interface Reviewed {
@@ -74,6 +78,11 @@ export function ReconcileApp() {
     filesRef.current = files
   }, [files])
   const [drafts, setDrafts] = useState<Record<ReconSide, MappingDraft>>({ bank: emptyDraft(), books: emptyDraft() })
+  const draftsRef = useRef(drafts)
+  useEffect(() => {
+    draftsRef.current = drafts
+  }, [drafts])
+  const [detected, setDetected] = useState<Record<ReconSide, Detected | null>>({ bank: null, books: null })
   const [context, setContext] = useState<SessionContext>({ account: '', currency: '', minorUnits: 2 })
   const [accounting, setAccounting] = useState<AccountingSetup>(emptyAccounting)
   const [openingFiles, setOpeningFiles] = useState<OpeningFile[]>([])
@@ -114,6 +123,15 @@ export function ReconcileApp() {
           ? { status: 'ready', file, info: result.info }
           : { status: 'invalid', file, issues: result.issues, format: result.format }
         setFiles((prev) => ({ ...prev, [side]: next }))
+        if (result.ok) {
+          const { headers: found, preview } = result.info
+          const current = draftsRef.current[side]
+          if (needsGuess(current, found)) {
+            const { fields, otherDateFormats } = guessMapping(side, found, preview)
+            setDrafts((prev) => ({ ...prev, [side]: { ...emptyDraft(), delimiter: current.delimiter, layout: current.layout, ...fields } }))
+            setDetected((prev) => ({ ...prev, [side]: Object.keys(fields).length > 0 ? { dateFormats: fields.dateFormat ? [fields.dateFormat, ...otherDateFormats] : [] } : null }))
+          }
+        }
         setDataVersion((v) => v + 1)
       })
       .catch((error: unknown) => {
@@ -179,10 +197,21 @@ export function ReconcileApp() {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [step])
 
-  async function normalize(inputs: string): Promise<NormalizeResult | null> {
+  const smallFiles = files.bank.status === 'ready' && files.books.status === 'ready' && files.bank.info.recordCount <= AUTO_CHECK_RECORDS && files.books.info.recordCount <= AUTO_CHECK_RECORDS
+  // The check runs on its own once both mappings are complete, so its preview sits beside the
+  // mapping it verifies. A review that is still current is kept, not recomputed.
+  useEffect(() => {
+    if (step !== 'map' || !ready || currentCheck || currentReview || !smallFiles) return
+    const timer = setTimeout(() => void normalize(checkInputs, true), 600)
+    return () => clearTimeout(timer)
+    // oxlint-disable-next-line react/exhaustive-deps -- normalize reads the inputs checkInputs already fingerprints.
+  }, [step, ready, checkInputs, currentCheck, currentReview, smallFiles])
+
+  // quiet: no activity bar, which would shift the form while someone is still choosing columns.
+  async function normalize(inputs: string, quiet = false): Promise<NormalizeResult | null> {
     if (!mappings) return null
     const task = track('normalize')
-    task.show()
+    if (!quiet) task.show()
     // A new normalization starts a new revision in the worker, so older suggestions are gone.
     setReview(null)
     setCheck({ inputs, status: 'pending' })
@@ -305,6 +334,7 @@ export function ReconcileApp() {
     setOpeningInfo([])
     setOpeningErrors([])
     setDrafts({ bank: draftFromMapping(file.mappings.bank), books: draftFromMapping(file.mappings.books) })
+    setDetected({ bank: null, books: null })
     setReview(null)
     setCheck(null)
     setStep('files')
@@ -366,10 +396,10 @@ export function ReconcileApp() {
       </nav>
       <ActivityBar activity={activity} onCancel={cancel} taskLabels={TASK_LABELS} phaseLabels={PHASE_LABELS} />
       <div className="workspace-surface">
-        <p className="experimental-note">
+        {step !== 'review' && <p className="experimental-note">
           <FlaskConical size={16} aria-hidden="true" /> Experimental. You confirm every match; nothing is confirmed automatically. A reconciliation
           counts as completed only when every status is earned and you mark it complete.
-        </p>
+        </p>}
         <SessionBar
           revision={session.revision}
           decisions={session.events.length}
@@ -396,7 +426,7 @@ export function ReconcileApp() {
         <div className="workspace-heading">
           <div>
             <h1 ref={stepHeading} tabIndex={-1}>
-              {step === 'files' ? 'Reconcile a bank statement' : step === 'map' ? 'Map dates and amounts' : 'Review pairs'}
+              {step === 'files' ? 'Reconcile a bank statement' : step === 'map' ? 'Map dates and amounts' : 'Review matches'}
             </h1>
             <p className="muted">
               {step === 'files'
@@ -436,30 +466,36 @@ export function ReconcileApp() {
                     headers={headers[side] ?? []}
                     draft={drafts[side]}
                     issues={outcome.ok ? [] : outcome.issues}
+                    detected={detected[side]}
                     onChange={(draft) => setDrafts((prev) => ({ ...prev, [side]: draft }))}
                   />
                 )
               })}
             </div>
-            <AccountingFields setup={accounting} onChange={setAccounting} />
-            <OpeningPanel
-              files={openingFiles}
-              info={openingInfo}
-              errors={openingErrors}
-              onAdd={(picked) => void addOpening(picked)}
-              onRemove={(name) => void replaceOpening(openingFiles.filter((f) => f.name !== name))}
-            />
-            <MatchingFields rules={rules} effective={effectiveRules} referencesMapped={bothReferences} onChange={setRules} />
-
             <div className="row">
               <button type="button" disabled={!ready || busy} onClick={() => void normalize(checkInputs)}>
-                Check mapping
+                {check ? 'Check again' : 'Check mapping'}
               </button>
-              {check && !currentCheck && <span className="note">The mapping changed; check it again.</span>}
+              {currentCheck?.status === 'pending' && <span className="note" role="status">Checking the mapping…</span>}
             </div>
             {currentCheck?.status === 'error' && <p className="error" role="alert">{currentCheck.message}</p>}
             {currentCheck?.status === 'done' && <MappingCheck result={currentCheck.value} formats={formats} />}
             {currentReview?.status === 'error' && <p className="error" role="alert">{currentReview.message}</p>}
+            <AccountingFields setup={accounting} onChange={setAccounting} />
+            <details className="optional-fields map-extras">
+              <summary>
+                Opening items and matching rules
+                <span className="muted"> · carried items, date window, references</span>
+              </summary>
+            <OpeningPanel
+                files={openingFiles}
+                info={openingInfo}
+                errors={openingErrors}
+                onAdd={(picked) => void addOpening(picked)}
+                onRemove={(name) => void replaceOpening(openingFiles.filter((f) => f.name !== name))}
+              />
+              <MatchingFields rules={rules} effective={effectiveRules} referencesMapped={bothReferences} onChange={setRules} />
+            </details>
           </section>
         )}
 

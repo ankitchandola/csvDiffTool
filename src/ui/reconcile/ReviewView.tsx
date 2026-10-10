@@ -16,11 +16,11 @@ import type {
   UnmatchedItem,
 } from '../../worker/reconcile-protocol'
 import { count, counted } from '../format'
-import { VirtualList } from '../results/VirtualList'
 import { Select } from '../Select'
 import { tabKeyTarget } from '../tabs'
 import { useDebounced } from '../use-debounced'
 import { History } from './History'
+import { ReviewList } from './ReviewList'
 import { Inspector } from './Inspector'
 import type { Formats } from './location'
 import { ManualPair } from './ManualPair'
@@ -37,6 +37,18 @@ const TABS: [ReviewTab, string, typeof Search][] = [
   ['rejected', 'Rejected', XCircle],
   ['problems', 'Problems', AlertTriangle],
 ]
+
+function Shortcuts({ keys }: { keys: [string, string][] }) {
+  return (
+    <p className="shortcuts" aria-label="Keyboard shortcuts">
+      {keys.map(([key, what]) => (
+        <span key={key}>
+          <kbd>{key}</kbd> {what}
+        </span>
+      ))}
+    </p>
+  )
+}
 
 export function ReviewView({
   client,
@@ -69,6 +81,7 @@ export function ReviewView({
   const [openSet, setOpenSet] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [direction, setDirection] = useState<Direction | ''>('')
+  const [unclassified, setUnclassified] = useState(false)
   const [selection, setSelection] = useState<Selection>(NO_SELECTION)
   const search = useDebounced(query, 250)
   const both = (r: Record<ReconSide, number>) => r.bank + r.books
@@ -81,10 +94,10 @@ export function ReviewView({
   }
   const fetchPage = <T extends ReviewTab>(which: T) => (offset: number, limit: number) =>
     client
-      .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}) })
+      .call('getReview', { matchId: summary.matchId, tab: which, offset, limit, search, ...(direction && which !== 'problems' ? { direction } : {}), ...(unclassified && which === 'unmatched' ? { unclassified } : {}) })
       .then((page) => ({ total: page.total, items: page.items as ReviewItems[T][] }))
-  const listKey = `${summary.matchId}-${version}-${tab}-${search}-${direction}`
-  const filteredNote = (unit: string, plural?: string) => (total: number) => (search || direction ? `${counted(total, unit, plural)} shown for these filters.` : null)
+  const listKey = `${summary.matchId}-${tab}-${search}-${direction}-${unclassified}`
+  const filteredNote = (unit: string, plural?: string) => (total: number) => (search || direction || unclassified ? `${counted(total, unit, plural)} shown for these filters.` : null)
   const placeholder = <div className="cell">…</div>
 
   return (
@@ -144,6 +157,11 @@ export function ReviewView({
             ]}
           />
         )}
+        {tab === 'unmatched' && (
+          <label className="choice">
+            <input type="checkbox" checked={unclassified} onChange={(e) => setUnclassified(e.target.checked)} /> Only items not yet classified
+          </label>
+        )}
       </div>
       {error && (
         <p className="error" role="alert">
@@ -153,10 +171,8 @@ export function ReviewView({
       <div id="recon-panel" role="tabpanel" aria-labelledby={`recon-tab-${tab}`} onKeyDown={reviewKeys}>
         {tab === 'suggested' && (
           <>
-            <p className="note">
-              Counts are candidate pairs still open. Pairs in the same group compete; confirming one removes the others that share a transaction.
-              Keys: J/K or ↓/↑ move, C confirms, X rejects, Enter shows details of the focused pair.
-            </p>
+            <p className="note">Each row is one candidate pair; the tab counts pairs, not transactions. Pairs that compete share a transaction.</p>
+            <Shortcuts keys={[['J / K', 'move'], ['C', 'confirm'], ['X', 'reject'], ['Enter', 'details']]} />
             {openSet !== null && (
               <SetConfirm
                 client={client}
@@ -169,12 +185,13 @@ export function ReviewView({
                 onClose={() => setOpenSet(null)}
               />
             )}
-            <VirtualList<SuggestionItem>
+            <ReviewList<SuggestionItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('suggested')}
               estimateSize={170}
               empty="No open suggestions."
-              label="Suggested pairs, scroll to browse"
+              label="Suggested pairs"
               summary={filteredNote('pair')}
               renderRow={(item) =>
                 item ? (
@@ -188,13 +205,15 @@ export function ReviewView({
         )}
         {tab === 'confirmed' && (
           <>
-            <p className="note">Confirmed by you in this session. Each transaction belongs to at most one confirmed match.</p>
-            <VirtualList<ConfirmedItem>
+            <p className="note">Confirmed by you in this session; each row is one match. A transaction belongs to at most one confirmed match.</p>
+            <Shortcuts keys={[['J / K', 'move'], ['Enter', 'details']]} />
+            <ReviewList<ConfirmedItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('confirmed')}
               estimateSize={170}
               empty="Nothing confirmed yet."
-              label="Confirmed matches, scroll to browse"
+              label="Confirmed matches"
               summary={filteredNote('match', 'matches')}
               renderRow={(item) => (item ? <ConfirmedRow item={item} rules={summary.rules} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
@@ -212,15 +231,16 @@ export function ReviewView({
               onClear={() => setSelection(NO_SELECTION)}
             />
             <p className="note">
-              Valid transactions not in a confirmed match. Classify each one that stays unmatched: completion needs them all classified. O applies
-              the usual classification to the focused row.
+              Each row is one transaction not in a confirmed match. Classify every one that stays unmatched: completion needs them all classified.
             </p>
-            <VirtualList<UnmatchedItem>
+            <Shortcuts keys={[['J / K', 'move'], ['O', 'classify the usual way'], ['Enter', 'details']]} />
+            <ReviewList<UnmatchedItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('unmatched')}
               estimateSize={110}
               empty="Every valid transaction is in a confirmed match."
-              label="Unmatched transactions, scroll to browse"
+              label="Unmatched transactions"
               summary={filteredNote('transaction')}
               renderRow={(t) =>
                 t ? (
@@ -243,12 +263,13 @@ export function ReviewView({
         {tab === 'rejected' && (
           <>
             <p className="note">Rejected pairs stay hidden from suggestions after reruns and rule changes, until restored or a source file is replaced.</p>
-            <VirtualList<RejectedItem>
+            <ReviewList<RejectedItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('rejected')}
               estimateSize={150}
               empty="No rejected pairs."
-              label="Rejected pairs, scroll to browse"
+              label="Rejected pairs"
               summary={filteredNote('pair')}
               renderRow={(item) => (item ? <RejectedRow item={item} formats={formats} busy={busy} onDecide={onDecide} onInspect={setInspecting} /> : placeholder)}
             />
@@ -257,12 +278,13 @@ export function ReviewView({
         {tab === 'problems' && (
           <>
             <p className="note">Records that cannot be matched: invalid dates or amounts, and zero amounts kept out of matching. Counts are source records.</p>
-            <VirtualList<ProblemItem>
+            <ReviewList<ProblemItem>
               key={listKey}
+              version={version}
               fetchPage={fetchPage('problems')}
               estimateSize={90}
               empty="No problems."
-              label="Problem records, scroll to browse"
+              label="Problem records"
               summary={(total) => (search ? `${counted(total, 'record')} shown for this search.` : null)}
               renderRow={(p) => (p ? <div className="cell"><ProblemRow item={p} formats={formats} /></div> : placeholder)}
             />

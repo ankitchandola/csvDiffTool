@@ -89,8 +89,41 @@ export function StatusPanel({
 
   if (!report) return error ? <p className="error" role="alert">{error}</p> : null
   const { bridge, statuses } = report
+  const blocker = LABELS.map(([key]) => statuses[key]).find((status) => !status.earned)
   return (
     <section className="status-panel" aria-label="Reconciliation status">
+      <div className="status-head">
+        <h2>Reconciliation</h2>
+        <span className={statuses.completed.earned ? 'chip' : 'chip competing'}>{statuses.completed.earned ? 'Completed' : 'Not complete'}</span>
+        <span className="muted">
+          {statuses.completed.earned
+            ? 'Every check is earned and you marked it complete.'
+            : blocker
+              ? `Next: ${blocker.reasons[0] ?? 'earn the remaining checks'}.`
+              : 'Ready to mark complete.'}
+        </span>
+        {!statuses.completed.earned && (
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || !statuses.canMarkComplete}
+            onClick={async () => {
+              try {
+                const result = await client.call('markComplete', { matchId, seq: nextSeq(), at: new Date().toISOString(), setup, basis })
+                if (!result.ok) setError(result.reason)
+                else {
+                  setReport(result.report)
+                  onCompleted(result.event)
+                }
+              } catch (e) {
+                setError(errorMessage(e))
+              }
+            }}
+          >
+            Mark reconciliation complete
+          </button>
+        )}
+      </div>
       <ul className="statuses">
         {LABELS.map(([key, label]) => (
           <StatusLine key={key} label={label} status={statuses[key]} />
@@ -101,78 +134,60 @@ export function StatusPanel({
           {message}
         </p>
       ))}
-      <p className="note">
-        Closing difference (bank − books): {bridge.actual === null ? 'needs both closing balances' : formatDecimal(bridge.actual)}. Explained by
-        unmatched items and variances: {formatDecimal(bridge.explained)}.
-        {bridge.unexplained !== null && bridge.unexplained.units !== 0n && ` Unexplained: ${formatDecimal(bridge.unexplained)}.`}
-      </p>
-      {RECON_SIDES.map((side) => {
-        const check = report.running[side]
-        if (!check) return null
-        return (
-          <p key={side} className={check.status === 'consistent' ? 'note' : 'warning'}>
-            {SIDE_LABELS[side]} running balance: {runningText(check)}
-            {check.status === 'break' ? '. A record may be missing, extra or out of order.' : check.status === 'unreadable' ? ', which has no valid amount or balance.' : ''}
-          </p>
-        )
-      })}
-      <p className="note">
-        A balancing bridge alone proves nothing: it balances whenever every transaction is either matched or unmatched. Completion also needs
-        every unmatched item classified and your mark.
-      </p>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="row">
-        <button
-          type="button"
-          disabled={busy || setup.period === null}
-          title={setup.period === null ? 'Enter the period on the Map step first' : undefined}
-          onClick={async () => {
-            if (!setup.period) return
-            try {
-              const result = await client.call('exportOutstanding', { matchId, sessionId, period: setup.period, exportedAt: new Date().toISOString() })
-              download(jsonBlob(result.text), `outstanding-${setup.period.end}.json`)
-            } catch (e) {
-              setError(errorMessage(e))
-            }
-          }}
-        >
-          Export outstanding items
-        </button>
-        <button type="button" disabled={busy} onClick={() => void downloadReport('json')}>
-          Report (JSON)
-        </button>
-        <button type="button" disabled={busy} onClick={() => void downloadReport('xlsx')}>
-          Report (Excel)
-        </button>
-        <span className="note">
-          {setup.period === null
-            ? 'Needs the period.'
-            : statuses.completed.earned
-              ? "For the next period's opening items."
-              : 'Not marked complete yet: the file will carry whatever is unmatched now.'}
-        </span>
-      </div>
-      {!statuses.completed.earned && (
-        <button
-          type="button"
-          className="primary"
-          disabled={busy || !statuses.canMarkComplete}
-          onClick={async () => {
-            try {
-              const result = await client.call('markComplete', { matchId, seq: nextSeq(), at: new Date().toISOString(), setup, basis })
-              if (!result.ok) setError(result.reason)
-              else {
-                setReport(result.report)
-                onCompleted(result.event)
+      <details className="status-details">
+        <summary>Balance bridge, running balance and exports</summary>
+        <p className="note">
+          Closing difference (bank − books): {bridge.actual === null ? 'needs both closing balances' : formatDecimal(bridge.actual)}. Explained by
+          unmatched items and variances: {formatDecimal(bridge.explained)}.
+          {bridge.unexplained !== null && bridge.unexplained.units !== 0n && ` Unexplained: ${formatDecimal(bridge.unexplained)}.`}
+        </p>
+        {RECON_SIDES.map((side) => {
+          const check = report.running[side]
+          if (!check) return null
+          return (
+            <p key={side} className={check.status === 'consistent' ? 'note' : 'warning'}>
+              {SIDE_LABELS[side]} running balance: {runningText(check)}
+              {check.status === 'break' ? '. A record may be missing, extra or out of order.' : check.status === 'unreadable' ? ', which has no valid amount or balance.' : ''}
+            </p>
+          )
+        })}
+        <p className="note">
+          A balancing bridge alone proves nothing: it balances whenever every transaction is either matched or unmatched. Completion also needs
+          every unmatched item classified and your mark.
+        </p>
+        <div className="row">
+          <button
+            type="button"
+            disabled={busy || setup.period === null}
+            title={setup.period === null ? 'Enter the period on the Map step first' : undefined}
+            onClick={async () => {
+              if (!setup.period) return
+              try {
+                const result = await client.call('exportOutstanding', { matchId, sessionId, period: setup.period, exportedAt: new Date().toISOString() })
+                download(jsonBlob(result.text), `outstanding-${setup.period.end}.json`)
+              } catch (e) {
+                setError(errorMessage(e))
               }
-            } catch (e) {
-              setError(errorMessage(e))
-            }
-          }}
-        >
-          Mark reconciliation complete
-        </button>
-      )}
+            }}
+          >
+            Export outstanding items
+          </button>
+          <button type="button" disabled={busy} onClick={() => void downloadReport('json')}>
+            Report (JSON)
+          </button>
+          <button type="button" disabled={busy} onClick={() => void downloadReport('xlsx')}>
+            Report (Excel)
+          </button>
+          <span className="note">
+            {setup.period === null
+              ? 'Needs the period.'
+              : statuses.completed.earned
+                ? "For the next period's opening items."
+                : 'Not marked complete yet: the file will carry whatever is unmatched now.'}
+          </span>
+        </div>
+      </details>
     </section>
   )
 }

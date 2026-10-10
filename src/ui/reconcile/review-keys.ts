@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from 'react'
 
-const IGNORE_KEYS_IN = 'input, textarea, [role="combobox"], [role="tab"]'
+const IGNORE_KEYS_IN = 'input, textarea, select, [contenteditable], [role="combobox"], [role="listbox"], [role="tab"], dialog'
 
 // J/K or the arrow keys move between rows; C confirms, X rejects, O classifies an
 // unmatched row the usual way, and Enter opens the details of the focused row.

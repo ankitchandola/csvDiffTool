@@ -57,6 +57,14 @@ export function SourceFiles({
               }}
               fetchIssues={(offset, limit) => fetchIssues(side, offset, limit)}
             >
+              <details className="optional-fields layout-details" open={state.status === 'invalid' ? true : undefined}>
+                <summary>
+                  Statement layout
+                  <span className="muted">
+                    {' '}
+                    · header on record {draft.layout.headerRecord}, skip {draft.layout.skipLeading} below it and {draft.layout.skipTrailing} at the end
+                  </span>
+                </summary>
               <div className="layout-fields">
                 <NumberField
                   label="Header is record"
@@ -92,6 +100,7 @@ export function SourceFiles({
                 </div>
               </div>
               <p className="note">Records are counted without blank lines. Use these when account details sit above the table, an opening-balance line sits right below the header, or totals sit below it.</p>
+              </details>
               {state.status === 'ready' && <SkippedRecords info={state.info} />}
             </FilePanel>
           )

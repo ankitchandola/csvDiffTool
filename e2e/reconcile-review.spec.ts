@@ -1,9 +1,10 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type Page } from '@playwright/test'
+import { expect, test } from './reconcile-test'
 import { BANK, BOOKS, choose, loadAndMap } from './reconcile-helpers'
 
 async function findSuggestions(page: Page) {
   await page.getByRole('button', { name: 'Find suggestions' }).click()
-  await expect(page.getByRole('heading', { name: 'Review pairs' })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('heading', { name: 'Review matches' })).toBeVisible({ timeout: 60_000 })
 }
 
 function tabCount(page: Page, name: string) {

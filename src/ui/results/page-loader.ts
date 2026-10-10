@@ -14,6 +14,9 @@ export interface PageLoader<T> {
   get(index: number): T | undefined
   // Loads every page that covers indices first..last; already loaded or in-flight pages are skipped.
   ensure(first: number, last: number): void
+  // Marks every loaded page out of date. Rows stay readable until their fresh page arrives,
+  // so a list that refetches after a change never collapses and moves the page under the reader.
+  invalidate(): void
 }
 
 export function createPageLoader<T>(
@@ -22,6 +25,8 @@ export function createPageLoader<T>(
 ): PageLoader<T> {
   const pages = new Map<number, T[]>()
   const inFlight = new Set<number>()
+  const stale = new Map<number, T[]>()
+  let generation = 0
   let total: number | null = null
   let error: string | null = null
   let visibleFrom = 0
@@ -40,16 +45,20 @@ export function createPageLoader<T>(
   function load(page: number) {
     if (pages.has(page) || inFlight.has(page)) return
     inFlight.add(page)
+    const started = generation
     fetchPage(page * PAGE_SIZE, PAGE_SIZE)
       .then((result) => {
+        if (started !== generation) return
         pages.set(page, result.items)
+        stale.delete(page)
         total = result.total
         evict()
       })
       .catch((e: unknown) => {
-        error = e instanceof Error ? e.message : String(e)
+        if (started === generation) error = e instanceof Error ? e.message : String(e)
       })
       .finally(() => {
+        if (started !== generation) return
         inFlight.delete(page)
         onChange()
       })
@@ -63,7 +72,15 @@ export function createPageLoader<T>(
       return error
     },
     get(index) {
-      return pages.get(Math.floor(index / PAGE_SIZE))?.[index % PAGE_SIZE]
+      const page = Math.floor(index / PAGE_SIZE)
+      return (pages.get(page) ?? stale.get(page))?.[index % PAGE_SIZE]
+    },
+    invalidate() {
+      generation++
+      error = null
+      for (const [page, items] of pages) stale.set(page, items)
+      pages.clear()
+      inFlight.clear()
     },
     ensure(first, last) {
       if (error !== null) return
