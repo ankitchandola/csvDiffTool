@@ -34,6 +34,11 @@ function ColumnSelect({
   )
 }
 
+export interface Detected {
+  // Every date format the sampled dates fit; more than one means day and month can't be told apart yet.
+  dateFormats: DateFormat[]
+}
+
 export function MappingForm({
   title,
   headers,
@@ -46,13 +51,14 @@ export function MappingForm({
   headers: string[]
   draft: MappingDraft
   issues: string[]
-  // The choices were filled in from the file's headers and first rows.
-  detected: boolean
+  // Set when the choices were filled in from the file's headers and first rows.
+  detected: Detected | null
   onChange: (draft: MappingDraft) => void
 }) {
   const set = <K extends keyof MappingDraft>(key: K, value: MappingDraft[K]) => onChange({ ...draft, [key]: value })
   const name = title.toLowerCase().split(' ').filter(Boolean).join('-')
   const [optionalOpen, setOptionalOpen] = useState(false)
+  const otherFormats = detected?.dateFormats.filter((f) => f !== draft.dateFormat) ?? []
   const chosen = [
     draft.reference && `reference: ${draft.reference}`,
     draft.description && `description: ${draft.description}`,
@@ -63,7 +69,12 @@ export function MappingForm({
   return (
     <fieldset className="panel mapping-form">
       <legend>{title}</legend>
-      {detected && <p className="note detected">Filled in from this file's headers and first rows. Check each choice before continuing.</p>}
+      {detected && (
+        <p className="note detected">
+          Filled in from this file's headers and first rows. Check each choice before continuing.
+          {otherFormats.length > 0 && ` The dates read so far also fit ${otherFormats.join(' and ')}: check the date format.`}
+        </p>
+      )}
       <ColumnSelect label={`${title} date column`}
         visibleLabel="Date column" headers={headers} value={draft.dateColumn} onChange={(v) => set('dateColumn', v)} />
       <div className="field">

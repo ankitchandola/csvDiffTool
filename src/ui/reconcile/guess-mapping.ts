@@ -15,6 +15,20 @@ function hasAny(header: string, words: string[]): boolean {
   return words.some((word) => text.includes(word))
 }
 
+// Whole words only, for short words that hide inside others ("ref" in "Refund").
+function hasWord(header: string, words: string[]): boolean {
+  const parts: string[] = []
+  let part = ''
+  for (const ch of header.toLowerCase() + ' ') {
+    if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) part += ch
+    else if (part) {
+      parts.push(part)
+      part = ''
+    }
+  }
+  return parts.some((p) => words.includes(p))
+}
+
 function samples(rows: Rows, column: string): string[] {
   return rows.map((row) => (row[column] ?? '').trim()).filter((value) => value !== '')
 }
@@ -32,7 +46,8 @@ function firstColumn(headers: string[], words: string[], skip: (header: string) 
 const DATE_WORDS = ['date']
 const MONEY_IN_WORDS = ['deposit', 'moneyin', 'paidin', 'credit']
 const MONEY_OUT_WORDS = ['withdrawal', 'moneyout', 'paidout', 'debit']
-const REFERENCE_WORDS = ['reference', 'ref', 'cheque', 'chq', 'vchno', 'voucher', 'utr', 'instrument']
+const REFERENCE_WORDS = ['reference', 'cheque', 'chq', 'vchno', 'voucher', 'utr', 'instrument']
+const REFERENCE_SHORT = ['ref', 'refno']
 const DESCRIPTION_WORDS = ['description', 'narration', 'remarks', 'particulars', 'details', 'memo']
 
 function isBalance(header: string): boolean {
@@ -43,18 +58,27 @@ function endsWithMark(values: string[], mark: string): boolean {
   return values.length > 0 && values.some((value) => value.toLowerCase().endsWith(mark))
 }
 
+export interface Guess {
+  fields: Partial<MappingDraft>
+  // Other date formats the sampled dates also fit, such as month first when no day is past 12.
+  otherDateFormats: DateFormat[]
+}
+
 // Reads the headers and the first rows to propose a mapping. Only the choices a file makes
 // obvious are filled; the reviewer confirms them on the Map step. A ledger's debit is money
 // into the cash account and its credit money out, the reverse of a bank statement.
-export function guessMapping(side: ReconSide, headers: string[], rows: Rows): Partial<MappingDraft> {
+export function guessMapping(side: ReconSide, headers: string[], rows: Rows): Guess {
   const guess: Partial<MappingDraft> = {}
+  let otherDateFormats: DateFormat[] = []
 
   const dateCandidates = headers.filter((header) => hasAny(header, DATE_WORDS) && !hasAny(header, ['value', 'valuedt']))
   const dateColumn =
     [...dateCandidates, ...headers.filter((h) => hasAny(h, DATE_WORDS) && !dateCandidates.includes(h))].find((header) => fittingDateFormats(samples(rows, header)).length > 0) ?? ''
   if (dateColumn) {
+    const [format, ...others] = fittingDateFormats(samples(rows, dateColumn))
     guess.dateColumn = dateColumn
-    guess.dateFormat = fittingDateFormats(samples(rows, dateColumn))[0]
+    guess.dateFormat = format
+    otherDateFormats = others
     if (hasAny(dateColumn, ['value'])) guess.dateKind = 'value'
     else if (hasAny(dateColumn, ['transaction', 'txn'])) guess.dateKind = 'transaction'
   }
@@ -82,7 +106,7 @@ export function guessMapping(side: ReconSide, headers: string[], rows: Rows): Pa
   if (amountValues.some((value) => value.endsWith('-'))) guess.trailingMinus = true
 
   const taken = new Set([dateColumn, ...amountColumns])
-  const reference = headers.find((header) => !taken.has(header) && !isBalance(header) && hasAny(header, REFERENCE_WORDS)) ?? ''
+  const reference = headers.find((header) => !taken.has(header) && !isBalance(header) && (hasAny(header, REFERENCE_WORDS) || hasWord(header, REFERENCE_SHORT))) ?? ''
   if (reference) guess.reference = reference
   taken.add(reference)
   const description = headers.find((header) => !taken.has(header) && !isBalance(header) && hasAny(header, DESCRIPTION_WORDS)) ?? ''
@@ -93,7 +117,7 @@ export function guessMapping(side: ReconSide, headers: string[], rows: Rows): Pa
     const values = samples(rows, balance)
     if (endsWithMark(values, 'cr') || endsWithMark(values, 'dr')) guess.balanceMarks = side === 'bank' ? 'cr-positive' : 'dr-positive'
   }
-  return guess
+  return { fields: guess, otherDateFormats }
 }
 
 // A draft nobody has filled in, or whose columns the new file no longer has.

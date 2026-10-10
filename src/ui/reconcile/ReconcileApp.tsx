@@ -21,7 +21,7 @@ import { StatusPanel } from './StatusPanel'
 import { guessMapping, needsGuess } from './guess-mapping'
 import { draftFromMapping, emptyDraft, type MappingDraft, toMapping } from './mapping-draft'
 import { MappingCheck } from './MappingCheck'
-import { MappingForm } from './MappingForm'
+import { type Detected, MappingForm } from './MappingForm'
 import { MatchingFields } from './MatchingFields'
 import { type Formats, SOURCE_TITLES } from './location'
 import { ReviewView } from './ReviewView'
@@ -78,7 +78,11 @@ export function ReconcileApp() {
     filesRef.current = files
   }, [files])
   const [drafts, setDrafts] = useState<Record<ReconSide, MappingDraft>>({ bank: emptyDraft(), books: emptyDraft() })
-  const [detected, setDetected] = useState<Record<ReconSide, boolean>>({ bank: false, books: false })
+  const draftsRef = useRef(drafts)
+  useEffect(() => {
+    draftsRef.current = drafts
+  }, [drafts])
+  const [detected, setDetected] = useState<Record<ReconSide, Detected | null>>({ bank: null, books: null })
   const [context, setContext] = useState<SessionContext>({ account: '', currency: '', minorUnits: 2 })
   const [accounting, setAccounting] = useState<AccountingSetup>(emptyAccounting)
   const [openingFiles, setOpeningFiles] = useState<OpeningFile[]>([])
@@ -121,12 +125,12 @@ export function ReconcileApp() {
         setFiles((prev) => ({ ...prev, [side]: next }))
         if (result.ok) {
           const { headers: found, preview } = result.info
-          setDrafts((prev) => {
-            if (!needsGuess(prev[side], found)) return prev
-            const guess = guessMapping(side, found, preview)
-            setDetected((was) => ({ ...was, [side]: guess.dateColumn !== undefined }))
-            return { ...prev, [side]: { ...emptyDraft(), delimiter: prev[side].delimiter, layout: prev[side].layout, ...guess } }
-          })
+          const current = draftsRef.current[side]
+          if (needsGuess(current, found)) {
+            const { fields, otherDateFormats } = guessMapping(side, found, preview)
+            setDrafts((prev) => ({ ...prev, [side]: { ...emptyDraft(), delimiter: current.delimiter, layout: current.layout, ...fields } }))
+            setDetected((prev) => ({ ...prev, [side]: Object.keys(fields).length > 0 ? { dateFormats: fields.dateFormat ? [fields.dateFormat, ...otherDateFormats] : [] } : null }))
+          }
         }
         setDataVersion((v) => v + 1)
       })
@@ -330,6 +334,7 @@ export function ReconcileApp() {
     setOpeningInfo([])
     setOpeningErrors([])
     setDrafts({ bank: draftFromMapping(file.mappings.bank), books: draftFromMapping(file.mappings.books) })
+    setDetected({ bank: null, books: null })
     setReview(null)
     setCheck(null)
     setStep('files')
