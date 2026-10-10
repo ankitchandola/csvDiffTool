@@ -24,7 +24,7 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
         Skip to workspace
       </a>
       <header className="app-header">
-        <a className="brand" href={`#${WORKSPACE_IDS[mode]}`} aria-label="CSV Diff workspace">
+        <a className="brand" href={`#${WORKSPACE_IDS[mode]}`} aria-label="Recon Desk workspace">
           <img
             className="brand-icon"
             src={`${import.meta.env.BASE_URL}favicon.svg?v=original-brand`}
@@ -32,7 +32,7 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
             height="32"
             alt=""
           />
-          <span>CSV Diff</span>
+          <span>Recon Desk</span>
         </a>
         <div className="mode-switch" role="group" aria-label="Mode">
           <button type="button" aria-pressed={mode === 'compare'} onClick={() => onModeChange('compare')}>

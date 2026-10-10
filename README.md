@@ -1,7 +1,8 @@
-# CSV Diff
+# Recon Desk
 
-Compares two CSV exports by record identity, in the browser. Files are parsed and
-compared in a Web Worker and never leave the machine.
+Compares two CSV or Excel exports by record identity, and reconciles a bank statement
+against the books, in the browser. Files are parsed and compared in a Web Worker and
+never leave the machine.
 
 Live: https://ankitchandola.github.io/csvDiffTool/ (deployed from `main` by GitHub Pages).
 
