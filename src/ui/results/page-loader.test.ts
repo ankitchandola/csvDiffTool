@@ -54,6 +54,24 @@ describe('createPageLoader', () => {
     expect(fetchPage).toHaveBeenCalledOnce()
   })
 
+  it('tries again after an error once invalidated', async () => {
+    let fail = true
+    const fetchPage = vi.fn(async () => {
+      if (fail) throw new Error('Worker busy')
+      return { total: 1, items: ['row'] }
+    })
+    const loader = createPageLoader(fetchPage, () => {})
+    loader.ensure(0, 0)
+    await settle()
+    expect(loader.error).toBe('Worker busy')
+    fail = false
+    loader.invalidate()
+    expect(loader.error).toBeNull()
+    loader.ensure(0, 0)
+    await settle()
+    expect(loader.get(0)).toBe('row')
+  })
+
   it('keeps at most MAX_CACHED_PAGES pages, dropping those farthest from view', async () => {
     const pageCount = MAX_CACHED_PAGES * 3
     const { fetchPage, calls } = source(pageCount * PAGE_SIZE)

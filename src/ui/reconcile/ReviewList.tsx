@@ -30,8 +30,14 @@ export function ReviewList<T>({
   const seenVersion = useRef(version)
   const [scrollMargin, setScrollMargin] = useState(0)
 
+  // Panels above the list open and close without a re-render here, so the offset is
+  // measured again whenever the page changes size.
   useLayoutEffect(() => {
-    setScrollMargin(listRef.current?.offsetTop ?? 0)
+    const measure = () => setScrollMargin(listRef.current?.offsetTop ?? 0)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(document.body)
+    return () => observer.disconnect()
   }, [loader.total])
 
   // oxlint-disable-next-line react/incompatible-library -- React Compiler isn't enabled here; this is TanStack Virtual's documented usage.
@@ -45,13 +51,14 @@ export function ReviewList<T>({
   const first = items[0]?.index ?? 0
   const last = items.at(-1)?.index ?? 0
 
-  if (seenVersion.current !== version) {
+  useLayoutEffect(() => {
+    if (seenVersion.current === version) return
     seenVersion.current = version
     const row = document.activeElement?.closest<HTMLElement>('[data-index]')
     const inside = row && listRef.current?.contains(row)
     focusIndex.current = inside ? Number(row.dataset.index) : null
     loader.invalidate()
-  }
+  }, [loader, version])
 
   useEffect(() => {
     loader.ensure(first, last)

@@ -25,7 +25,7 @@ export function createPageLoader<T>(
 ): PageLoader<T> {
   const pages = new Map<number, T[]>()
   const inFlight = new Set<number>()
-  let stale = new Map<number, T[]>()
+  const stale = new Map<number, T[]>()
   let generation = 0
   let total: number | null = null
   let error: string | null = null
@@ -77,6 +77,7 @@ export function createPageLoader<T>(
     },
     invalidate() {
       generation++
+      error = null
       for (const [page, items] of pages) stale.set(page, items)
       pages.clear()
       inFlight.clear()
