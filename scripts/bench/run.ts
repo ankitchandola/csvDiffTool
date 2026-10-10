@@ -63,7 +63,7 @@ function csvPair(spec: PairSpec) {
 }
 
 function xlsxPair(spec: PairSpec, otherSheets: number) {
-  const dir = mkdtempSync(join(tmpdir(), 'csv-diff-bench-'))
+  const dir = mkdtempSync(join(tmpdir(), 'recon-desk-bench-'))
   execFileSync(process.execPath, ['--import', 'tsx', 'scripts/bench/write-xlsx.ts', JSON.stringify(spec), String(otherSheets), dir])
   const read = (name: string) => new File([readFileSync(join(dir, name))], name)
   const files = { oldFile: read('old.xlsx'), newFile: read('new.xlsx') }

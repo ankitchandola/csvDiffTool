@@ -103,9 +103,9 @@ export function toProfileFile(profile: CompareProfile): ProfileFile {
 
 export function readProfileFile(value: unknown): CompareProfile {
   const fields = record(value, 'The file')
-  if (fields.format !== PROFILE_FORMAT) throw new ProfileError('This is not a CSV Diff profile')
+  if (fields.format !== PROFILE_FORMAT) throw new ProfileError('This is not a Recon Desk profile')
   if (typeof fields.version !== 'number' || fields.version > PROFILE_VERSION) {
-    throw new ProfileError('This profile was made by a newer version of CSV Diff')
+    throw new ProfileError('This profile was made by a newer version of Recon Desk')
   }
   only(fields, ['format', 'version', 'profile'], 'The file')
   return readProfile(fields.profile)

@@ -232,7 +232,7 @@ export function App() {
     setExportError(null)
     const base = currentProfile.name
       ? profileFileName(currentProfile.name).replace('.csv-diff-profile.json', '')
-      : 'csv-diff'
+      : 'recon-desk'
     client
       .call('export', { resultId: result.resultId, format, escapeFormulae }, task.progress)
       .then((blob) => download(blob, `${base}-${EXPORT_NAMES[format]}`))

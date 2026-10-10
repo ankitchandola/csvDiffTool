@@ -82,7 +82,7 @@ describe('importProfile validation', () => {
 
   it.each([
     ['not JSON', '{', 'not valid JSON'],
-    ['another format', JSON.stringify({ format: 'other', version: 1 }), 'not a CSV Diff profile'],
+    ['another format', JSON.stringify({ format: 'other', version: 1 }), 'not a Recon Desk profile'],
     ['a newer version', JSON.stringify({ format: PROFILE_FORMAT, version: 2, profile: {} }), 'newer version'],
   ])('rejects %s', (_, text, message) => {
     expect(() => importProfile(text)).toThrow(message)

@@ -215,7 +215,7 @@ test('advanced rules, exclusions and both exports remain available', async ({ pa
   await expect(page.getByLabel('Protect the CSV against spreadsheet formulas')).toBeChecked()
   const downloadEvent = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Changes CSV', exact: true }).click()
-  expect((await downloadEvent).suggestedFilename()).toBe('csv-diff-changes.csv')
+  expect((await downloadEvent).suggestedFilename()).toBe('recon-desk-changes.csv')
 })
 
 test('long names, scrolling dropdown options and chevrons fit mobile', async ({ page }) => {
