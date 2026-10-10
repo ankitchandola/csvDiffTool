@@ -1,8 +1,8 @@
 # Reconcile usability pass: done and pending
 
-Branch `feat/reconcile-group-review`, 2026-10-10. Goal: make Reconcile usable by people who did not build it. Verified so far with `npm test`, `npm run lint`, `npm run typecheck` and the full Playwright suite (`npm run test:ui`); not yet with a hands-on run of the six tasks below, a screen-reader pass or Firefox/Safari.
+Branch `feat/reconcile-usability`, 2026-10-10. Goal: make Reconcile usable by people who did not build it. Verified so far with `npm test`, `npm run lint`, `npm run typecheck` and the full Playwright suite (`npm run test:ui`); not yet with a hands-on run of the six tasks below, a screen-reader pass or Firefox/Safari.
 
-## Done (local commits, not pushed)
+## Done
 
 | Area | Change |
 | --- | --- |
