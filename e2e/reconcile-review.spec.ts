@@ -87,6 +87,8 @@ test('a manual pair that breaks the rules needs a reason, and opposite direction
   await loadAndMap(page)
   await findSuggestions(page)
   await page.getByRole('tab', { name: /^Unmatched/ }).click()
+  // The list is virtualized and starts below the fold; bring it into view so every row renders.
+  await page.getByRole('region', { name: 'Unmatched transactions' }).scrollIntoViewIfNeeded()
   const select = (text: string) => page.locator('.review-row', { hasText: text }).getByRole('button', { name: 'Select for pair' }).click()
   await select('Bank record 1 ')
   await select('Unpaid')

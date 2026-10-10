@@ -44,7 +44,7 @@ export function AppHeader({ mode, onModeChange }: { mode: Mode; onModeChange: (m
         </div>
         <div className="header-end">
           <span className="privacy-badge">
-            <LockKeyhole size={14} aria-hidden="true" /> Files stay local
+            <LockKeyhole size={14} aria-hidden="true" /> Files stay on this device
           </span>
           <details className="help-disclosure">
             <summary>Help</summary>
