@@ -4,10 +4,11 @@ The current interface refines the earlier design from `csv-diff-tool-design.zip`
 
 ## Visual system
 
-- Neutral workspace (`#f8f7fb`), white surfaces, original favicon purple primary actions (`#863bff`), dark text (`#292337`), muted text (`#70687e`), and soft lavender selections (`#f3edff`). The original purple lightning favicon is restored unchanged and used as the header logo, resolved through Vite's base URL for GitHub Pages. Both locations use the same versioned asset URL to refresh cached replacement icons.
-- Inter for interface text; JetBrains Mono for keys and data values. Fonts are self-hosted through Fontsource package imports.
+- Cool off-white workspace (`#f4f4f1`), white panels, near-black ink (`#17171a`) and muted text (`#5e5e66`). Primary actions and the current step use a deep violet (`#5235d6`, soft `#eeeafd`). The original purple lightning favicon is unchanged; the header shows it on a dark ink tile, resolved through Vite's base URL for GitHub Pages.
+- IBM Plex Sans for interface text; IBM Plex Mono for amounts, keys and data values. Fonts are self-hosted through Fontsource package imports.
 - Lucide React icons, bundled with the app. Primary controls retain visible text labels. All disclosures use a thin CSS chevron instead of native markers or decorative leading icons.
-- Green for additions/new values, rose for removals/old values, amber for changed records and warnings. Text labels identify each meaning independently of color.
+- Teal for money in, confirmations and new values; rose for removals/old values; amber for changed records, warnings and an open closing difference. Text labels identify each meaning independently of color.
+- Counts and balances sit in joined tiles. In Reconcile's review step, a row of balance tiles (bank and books closing balance, closing difference, confirmed matches) spans the top, the reconciliation checks and suggestion details form a left rail, and the review list fills the rest. Below 960px the rail stacks above the list.
 
 ## Layout and interaction
 

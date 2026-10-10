@@ -500,8 +500,7 @@ export function ReconcileApp() {
         )}
 
         {step === 'review' && summary && (
-          <section aria-label="Suggested pairs">
-            <SuggestionSummary summary={summary} context={context} />
+          <section aria-label="Suggested pairs" className="review-layout">
             <StatusPanel
               client={client}
               matchId={summary.matchId}
@@ -516,7 +515,11 @@ export function ReconcileApp() {
               }}
               sessionId={session.id}
               revision={session.revision}
-            />
+              confirmed={(reviewed as Reviewed).decisions.confirmed}
+              suggested={(reviewed as Reviewed).decisions.suggested}
+            >
+              <SuggestionSummary summary={summary} context={context} />
+            </StatusPanel>
             <ReviewView
               key={summary.matchId}
               client={client}

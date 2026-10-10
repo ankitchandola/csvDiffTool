@@ -1,5 +1,5 @@
 import { CheckCircle2, CircleDashed } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { formatDecimal } from '../../engine/decimal'
 import { runningText } from '../../reconciliation/accounting'
 import type { DecisionEvent } from '../../reconciliation/decisions'
@@ -21,14 +21,32 @@ const LABELS: [keyof Omit<AccountingReport['statuses'], 'canMarkComplete' | 'not
 function StatusLine({ label, status }: { label: string; status: Status }) {
   return (
     <li className={status.earned ? 'status earned' : 'status'}>
-      {status.earned ? <CheckCircle2 size={16} aria-hidden="true" /> : <CircleDashed size={16} aria-hidden="true" />}
+      {status.earned ? <CheckCircle2 size={18} aria-hidden="true" /> : <CircleDashed size={18} aria-hidden="true" />}
       <span>
-        <strong>{label}</strong>: {status.earned ? 'yes' : 'not yet'}
-        {status.reasons.length > 0 && <span className="muted"> — {status.reasons.join('; ')}</span>}
+        <strong>{label}</strong>
+        <span className="visually-hidden">: {status.earned ? 'yes' : 'not yet'}</span>
+        {status.reasons.length > 0 && (
+          <span className="status-reason">
+            <span className="visually-hidden"> — </span>
+            {status.reasons.join('; ')}
+          </span>
+        )}
       </span>
     </li>
   )
 }
+
+function Tile({ label, value, note, tone }: { label: string; value: string; note: string; tone?: 'warn' }) {
+  return (
+    <div className="tile">
+      <span className="tile-label">{label}</span>
+      <strong className={tone === 'warn' ? 'tile-value warn' : 'tile-value'}>{value}</strong>
+      <span className="tile-note">{note}</span>
+    </div>
+  )
+}
+
+const amountText = (value: AccountingReport['bridge']['actual']) => (value === null ? '—' : formatDecimal(value))
 
 export function StatusPanel({
   client,
@@ -41,6 +59,9 @@ export function StatusPanel({
   onCompleted,
   sessionId,
   revision,
+  confirmed,
+  suggested,
+  children,
 }: {
   client: ReconcileClient
   matchId: number
@@ -54,6 +75,10 @@ export function StatusPanel({
   onCompleted: (event: DecisionEvent) => void
   sessionId: string
   revision: number
+  confirmed: number
+  suggested: number
+  // Shown in the rail under the checks, whether or not the report has loaded.
+  children?: ReactNode
 }) {
   const [report, setReport] = useState<AccountingReport | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -87,21 +112,47 @@ export function StatusPanel({
     }
   }
 
-  if (!report) return error ? <p className="error" role="alert">{error}</p> : null
-  const { bridge, statuses } = report
+  if (!report)
+    return (
+      <aside className="review-rail" aria-label="Reconciliation checks">
+        {error && <p className="error" role="alert">{error}</p>}
+        {children}
+      </aside>
+    )
+  const { bridge, statuses, balances } = report
   const blocker = LABELS.map(([key]) => statuses[key]).find((status) => !status.earned)
+  const differs = bridge.actual !== null && bridge.actual.units !== 0n
   return (
+    <>
+    <section className="balance-tiles" aria-label="Balances">
+      <Tile label="Bank closing balance" value={amountText(balances.bank.closing)} note={balances.bank.opening === null ? 'Opening not entered' : `Opened at ${formatDecimal(balances.bank.opening)}`} />
+      <Tile label="Books closing balance" value={amountText(balances.books.closing)} note={balances.books.opening === null ? 'Opening not entered' : `Opened at ${formatDecimal(balances.books.opening)}`} />
+      <Tile
+        label="Closing difference"
+        value={amountText(bridge.actual)}
+        note={bridge.actual === null ? 'Needs both closing balances' : differs ? 'Bank minus books' : 'Bank and books agree'}
+        tone={differs ? 'warn' : undefined}
+      />
+      <Tile label="Confirmed matches" value={confirmed.toLocaleString('en-US')} note={`${suggested.toLocaleString('en-US')} suggestions open`} />
+    </section>
+    <aside className="review-rail" aria-label="Reconciliation checks">
     <section className="status-panel" aria-label="Reconciliation status">
       <div className="status-head">
         <h2>Reconciliation</h2>
-        <span className={statuses.completed.earned ? 'chip' : 'chip competing'}>{statuses.completed.earned ? 'Completed' : 'Not complete'}</span>
-        <span className="muted">
-          {statuses.completed.earned
-            ? 'Every check is earned and you marked it complete.'
-            : blocker
-              ? `Next: ${blocker.reasons[0] ?? 'earn the remaining checks'}.`
-              : 'Ready to mark complete.'}
-        </span>
+        <span className={statuses.completed.earned ? 'chip ok' : 'chip competing'}>{statuses.completed.earned ? 'Completed' : 'Not complete'}</span>
+      </div>
+      <p className="status-next">
+        {statuses.completed.earned
+          ? 'Every check is earned and you marked it complete.'
+          : blocker
+            ? `Next: ${blocker.reasons[0] ?? 'earn the remaining checks'}.`
+            : 'Ready to mark complete.'}
+      </p>
+      <ul className="statuses">
+        {LABELS.map(([key, label]) => (
+          <StatusLine key={key} label={label} status={statuses[key]} />
+        ))}
+      </ul>
         {!statuses.completed.earned && (
           <button
             type="button"
@@ -123,12 +174,6 @@ export function StatusPanel({
             Mark reconciliation complete
           </button>
         )}
-      </div>
-      <ul className="statuses">
-        {LABELS.map(([key, label]) => (
-          <StatusLine key={key} label={label} status={statuses[key]} />
-        ))}
-      </ul>
       {report.balanceErrors.map((message) => (
         <p key={message} className="error">
           {message}
@@ -189,5 +234,8 @@ export function StatusPanel({
         </div>
       </details>
     </section>
+    {children}
+    </aside>
+    </>
   )
 }

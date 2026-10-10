@@ -38,7 +38,7 @@ test('steps replace each other, preserve setup, and invalidate stale results', a
   )).toBe(true)
   expect(await page.locator('html').evaluate((element) =>
     getComputedStyle(element).getPropertyValue('--accent').trim(),
-  )).toBe('#863bff')
+  )).toBe('#5235d6')
   await expect(page.locator('select')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Choose matching columns' })).toBeDisabled()
   await matchFiles(page)
